@@ -297,7 +297,7 @@ setThreadAffinity (nat n GNUC3_ATTRIBUTE(__unused__),
 void
 interruptOSThread (OSThreadId id)
 {
-    pthread_kill(id, SIGPIPE);
+    pthread_kill(id, SIGALRM);
 }
 
 #else /* !defined(THREADED_RTS) */
