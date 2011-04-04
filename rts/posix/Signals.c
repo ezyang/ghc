@@ -580,6 +580,11 @@ initDefaultHandlers(void)
 	sysErrorBelch("warning: failed to install SIGINT handler");
     }
 
+    // ignore SIGALRM, so we can use it to interrupt processes
+    if (sigaction(SIGALRM, &action, &oact) != 0) {
+	sysErrorBelch("warning: failed to install SIGALRM handler");
+    }
+
 #if defined(HAVE_SIGINTERRUPT)
     siginterrupt(SIGINT, 1);	// isn't this the default? --SDM
 #endif
