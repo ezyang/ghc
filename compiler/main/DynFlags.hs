@@ -1645,6 +1645,14 @@ defaultFlags
 
       Opt_SharedImplib,
 
+#if STAGE == 1 && STAGE1DEFAULTNEWCODEGEN
+      Opt_TryNewCodeGen,
+#endif
+
+#if STAGE == 2 && STAGE2DEFAULTNEWCODEGEN
+      Opt_TryNewCodeGen,
+#endif
+
       Opt_GenManifest,
       Opt_EmbedManifest,
       Opt_PrintBindContents,
