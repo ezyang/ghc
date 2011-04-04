@@ -20,6 +20,7 @@ and ``addToUFM\_C'' and ``Data.IntMap.insertWith'' differ in the order
 of arguments of combining function.
 
 \begin{code}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# OPTIONS -Wall #-}
 module UniqFM (
 	-- * Unique-keyed mappings
@@ -45,7 +46,7 @@ module UniqFM (
 	intersectUFM,
 	intersectUFM_C,
 	foldUFM, foldUFM_Directly,
-	mapUFM,
+	mapUFM, mapUFM_Directly,
 	elemUFM, elemUFM_Directly,
 	filterUFM, filterUFM_Directly,
 	sizeUFM,
@@ -122,6 +123,7 @@ intersectUFM_C	:: (elt1 -> elt2 -> elt3)
 foldUFM		:: (elt -> a -> a) -> a -> UniqFM elt -> a
 foldUFM_Directly:: (Unique -> elt -> a -> a) -> a -> UniqFM elt -> a
 mapUFM		:: (elt1 -> elt2) -> UniqFM elt1 -> UniqFM elt2
+mapUFM_Directly :: (Unique -> elt1 -> elt2) -> UniqFM elt1 -> UniqFM elt2
 filterUFM	:: (elt -> Bool) -> UniqFM elt -> UniqFM elt
 filterUFM_Directly :: (Unique -> elt -> Bool) -> UniqFM elt -> UniqFM elt
 
@@ -153,6 +155,7 @@ ufmToList	:: UniqFM elt -> [(Unique, elt)]
 
 \begin{code}
 newtype UniqFM ele = UFM (M.IntMap ele)
+    deriving (Eq)
 
 emptyUFM = UFM M.empty
 isNullUFM (UFM m) = M.null m
@@ -188,6 +191,7 @@ intersectUFM_C f (UFM x) (UFM y) = UFM (M.intersectionWith f x y)
 foldUFM k z (UFM m) = M.fold k z m
 foldUFM_Directly k z (UFM m) = M.foldWithKey (k . getUnique) z m
 mapUFM f (UFM m) = UFM (M.map f m)
+mapUFM_Directly f (UFM m) = UFM (M.mapWithKey (f . getUnique) m)
 filterUFM p (UFM m) = UFM (M.filter p m)
 filterUFM_Directly p (UFM m) = UFM (M.filterWithKey (p . getUnique) m)
 
