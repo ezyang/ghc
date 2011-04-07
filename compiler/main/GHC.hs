@@ -427,12 +427,12 @@ runGhcT mb_top_dir ghct = do
 initGhcMonad :: GhcMonad m => Maybe FilePath -> m ()
 initGhcMonad mb_top_dir = do
   -- catch ^C
-  liftIO $ installSignalHandlers
+  --liftIO $ installSignalHandlers
 
-  liftIO $ StaticFlags.initStaticOpts
+  --liftIO $ StaticFlags.initStaticOpts
 
-  dflags0 <- liftIO $ initDynFlags defaultDynFlags
-  dflags <- liftIO $ initSysTools mb_top_dir dflags0
+  --dflags0 <- liftIO $ initDynFlags defaultDynFlags
+  dflags <- liftIO $ initSysTools mb_top_dir undefined
   env <- liftIO $ newHscEnv dflags
   setSession env
 
