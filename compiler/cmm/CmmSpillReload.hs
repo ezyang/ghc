@@ -14,9 +14,7 @@ module CmmSpillReload
   --, insertSpillsAndReloads  --- XXX todo check live-in at entry against formals
   , dualLivenessWithInsertion
 
-  , availRegsLattice
-  , cmmAvailableReloads
-  , insertLateReloads
+  , inlineAssignments
   , removeDeadAssignmentsAndReloads
   )
 where
@@ -31,6 +29,7 @@ import Control.Monad
 import Outputable hiding (empty)
 import qualified Outputable as PP
 import UniqSet
+import UniqFM
 
 import Compiler.Hoopl
 import Data.Maybe
@@ -188,91 +187,6 @@ spill, reload :: LocalReg -> CmmNode O O
 spill  r = CmmStore  (regSlot r) (CmmReg $ CmmLocal r)
 reload r = CmmAssign (CmmLocal r) (CmmLoad (regSlot r) $ localRegType r)
 
-----------------------------------------------------------------
---- sinking reloads
-
--- The idea is to compute at each point the set of registers such that
--- on every path to the point, the register is defined by a Reload
--- instruction.  Then, if a use appears at such a point, we can safely
--- insert a Reload right before the use.  Finally, we can eliminate
--- the early reloads along with other dead assignments.
-
-data AvailRegs = UniverseMinus RegSet
-               | AvailRegs     RegSet
-
-
-availRegsLattice :: DataflowLattice AvailRegs
-availRegsLattice = DataflowLattice "register gotten from reloads" empty add
-    where empty = UniverseMinus emptyRegSet
-          -- | compute in the Tx monad to track whether anything has changed
-          add _ (OldFact old) (NewFact new) =
-            if join `smallerAvail` old then (SomeChange, join) else (NoChange, old)
-            where join = interAvail new old
-
-
-interAvail :: AvailRegs -> AvailRegs -> AvailRegs
-interAvail (UniverseMinus s) (UniverseMinus s') = UniverseMinus (s `plusRegSet`  s')
-interAvail (AvailRegs     s) (AvailRegs     s') = AvailRegs (s `timesRegSet` s')
-interAvail (AvailRegs     s) (UniverseMinus s') = AvailRegs (s  `minusRegSet` s')
-interAvail (UniverseMinus s) (AvailRegs     s') = AvailRegs (s' `minusRegSet` s )
-
-smallerAvail :: AvailRegs -> AvailRegs -> Bool
-smallerAvail (AvailRegs     _) (UniverseMinus _)  = True
-smallerAvail (UniverseMinus _) (AvailRegs     _)  = False
-smallerAvail (AvailRegs     s) (AvailRegs    s')  = sizeUniqSet s < sizeUniqSet s'
-smallerAvail (UniverseMinus s) (UniverseMinus s') = sizeUniqSet s > sizeUniqSet s'
-
-extendAvail :: AvailRegs -> LocalReg -> AvailRegs
-extendAvail (UniverseMinus s) r = UniverseMinus (deleteFromRegSet s r)
-extendAvail (AvailRegs     s) r = AvailRegs (extendRegSet s r)
-
-delFromAvail :: AvailRegs -> LocalReg -> AvailRegs
-delFromAvail (UniverseMinus s) r = UniverseMinus (extendRegSet s r)
-delFromAvail (AvailRegs     s) r = AvailRegs (deleteFromRegSet s r)
-
-elemAvail :: AvailRegs -> LocalReg -> Bool
-elemAvail (UniverseMinus s) r = not $ elemRegSet r s
-elemAvail (AvailRegs     s) r = elemRegSet r s
-
-cmmAvailableReloads :: CmmGraph -> FuelUniqSM (BlockEnv AvailRegs)
-cmmAvailableReloads g =
-  liftM snd $ dataflowPassFwd g [(g_entry g, fact_bot availRegsLattice)] $
-                              analFwd availRegsLattice availReloadsTransfer
-
-availReloadsTransfer :: FwdTransfer CmmNode AvailRegs
-availReloadsTransfer = mkFTransfer3 (flip const) middleAvail ((mkFactBase availRegsLattice .) . lastAvail)
-
-middleAvail :: CmmNode O O -> AvailRegs -> AvailRegs
-middleAvail (CmmAssign (CmmLocal r) (CmmLoad l _)) avail
-               | l `isStackSlotOf` r = extendAvail avail r
-middleAvail (CmmAssign lhs _)        avail = foldRegsDefd delFromAvail avail lhs
-middleAvail (CmmStore l (CmmReg (CmmLocal r))) avail
-               | l `isStackSlotOf` r = avail
-middleAvail (CmmStore (CmmStackSlot (RegSlot r) _) _) avail = delFromAvail avail r
-middleAvail (CmmStore {})            avail = avail
-middleAvail (CmmUnsafeForeignCall {}) _    = AvailRegs emptyRegSet
-middleAvail (CmmComment {})          avail = avail
-
-lastAvail :: CmmNode O C -> AvailRegs -> [(Label, AvailRegs)]
-lastAvail (CmmCall _ (Just k) _ _ _) _ = [(k, AvailRegs emptyRegSet)]
-lastAvail (CmmForeignCall {succ=k})  _ = [(k, AvailRegs emptyRegSet)]
-lastAvail l avail = map (\id -> (id, avail)) $ successors l
-
-insertLateReloads :: CmmGraph -> FuelUniqSM CmmGraph
-insertLateReloads g =
-  liftM fst $ dataflowPassFwd g [(g_entry g, fact_bot availRegsLattice)] $
-                              analRewFwd availRegsLattice availReloadsTransfer rewrites
-  where rewrites = mkFRewrite3 first middle last
-        first _ _ = return Nothing
-        middle m avail = return $ maybe_reload_before avail m (mkMiddle m)
-        last   l avail = return $ maybe_reload_before avail l (mkLast l)
-        maybe_reload_before avail node tail =
-            let used = filterRegsUsed (elemAvail avail) node
-            in  if isEmptyUniqSet used then Nothing
-                                       else Just $ reloadTail used tail
-        reloadTail regset t = foldl rel t $ uniqSetToList regset
-          where rel t r = mkMiddle (reload r) <*> t
-
 removeDeadAssignmentsAndReloads :: BlockSet -> CmmGraph -> FuelUniqSM CmmGraph
 removeDeadAssignmentsAndReloads procPoints g =
    liftM fst $ dataflowPassBwd g [] $ analRewBwd dualLiveLattice
@@ -283,10 +197,197 @@ removeDeadAssignmentsAndReloads procPoints g =
          -- but GHC panics while compiling, see bug #4045.
          middle :: CmmNode O O -> Fact O DualLive -> CmmReplGraph O O
          middle (CmmAssign (CmmLocal reg') _) live | not (reg' `elemRegSet` in_regs live) = return $ Just emptyGraph
+         -- XXX maybe this should be somewhere else...
+         middle (CmmStore lhs (CmmLoad rhs _)) _ | lhs == rhs = return $ Just emptyGraph
          middle _ _ = return Nothing
 
          nothing _ _ = return Nothing
 
+----------------------------------------------------------------
+--- Assignment tracking
+
+-- The idea is to maintain a map of local registers do expressions,
+-- such that the value of that register is the same as the value of that
+-- expression at any given time.  We can then do several things:
+--
+--  - If the expression is cheap (a literal or another register), we can
+--    inline it.
+--  - If the expression is only used once, we can safely inline it.
+--  - Otherwise, we can attempt to sink the expression down to
+--    its first use.  (This will increase code size if the register is
+--    used in multiple control flow paths, but won't increase execution
+--    time, and the reduction of register pressure is worth it.)  If
+--    it's only used once in all paths, we can safely inline it.
+--  - Under certain circumstances, it's better to aggressively
+--    inline (and duplicate work), rather than store the result in a
+--    register (where it might get spilled).
+--
+-- The present implementation does unbounded inlining, but once we get
+-- decorated graphs in Hoopl we can implement more sophisticated
+-- inlining policies.
+
+-- LocalReg : what the assigment is for
+-- CmmExpr  : what we may validly replace that register with
+type AssignmentMap = UniqFM (WithTop (LocalReg, CmmExpr))
+
+-- ToDo: Move this into somewhere more general (UniqFM? That will
+-- introduce a Hoopl dependency on that file.) -- EZY
+joinUFM :: JoinFun v -> JoinFun (UniqFM v)
+joinUFM eltJoin l (OldFact old) (NewFact new) = foldUFM_Directly add (NoChange, old) new
+    where add k new_v (ch, joinmap) =
+            case lookupUFM_Directly joinmap k of
+                Nothing -> (SomeChange, addToUFM_Directly joinmap k new_v)
+                Just old_v -> case eltJoin l (OldFact old_v) (NewFact new_v) of
+                                (SomeChange, v') -> (SomeChange, addToUFM_Directly joinmap k v')
+                                (NoChange, _) -> (ch, joinmap)
+
+assignmentLattice :: DataflowLattice AssignmentMap
+assignmentLattice = DataflowLattice "assignments for registers" emptyUFM (joinUFM (extendJoinDomain add))
+    where add _ (OldFact old) (NewFact new)
+            -- ToDo: We fail to recognize fuzzy equality in some cases,
+            -- but that would require some pretty bad code to begin
+            -- with.  This might be an expensive operation.  We're also
+            -- doing a redundant check on the register.
+            | old == new = (NoChange,   PElem old)
+            | otherwise  = (SomeChange, Top)
+
+middleAssignment :: CmmNode O O -> AssignmentMap -> AssignmentMap
+-- Algorithm for assignments:
+--  1. If inlinable, add the assignment to our list of valid assignments
+--  2. Look for all assignments that reference that register and
+--     invalidate them.
+middleAssignment (CmmAssign reg e) assign
+    = mapUFM p (maybeAdd assign)
+      where maybeAdd m
+                | (CmmLocal r) <- reg = addToUFM m r $
+                                            if tracking e
+                                                then (PElem (r, e))
+                                                else Top
+                | otherwise = m
+            p (PElem (_, e')) | reg `regUsedIn` e' = Top
+            p old = old
+-- Algorithm for stores:
+--  1. Look for all assignments that load from memory locations that
+--     were clobbered by this store and invalidate them.
+middleAssignment (CmmStore lhs rhs) assign
+    = mapUFM p assign
+      where p (PElem x) | (lhs, rhs) `clobbers` x = Top
+            p old = old
+-- Assumption: Unsafe foreign calls don't clobber memory
+middleAssignment e@(CmmUnsafeForeignCall{}) assign
+    = foldRegsDefd (\m r -> addToUFM m r Top) assign e
+middleAssignment (CmmComment {}) assign
+    = assign
+
+-- Policy for what kinds of expressions we will track.  Currently we
+-- do unlimited substitution for everything, but we describe projected
+-- policies.
+tracking :: CmmExpr -> Bool
+-- Expressions to be inlined (unlimited substitution OK)
+tracking (CmmLit{}) = True
+tracking (CmmReg{}) = True
+tracking (CmmMachOp _ _) = False -- maybe allow inlining a few machops
+tracking (CmmRegOff _ _) = False -- same here...
+-- Expressions to be sunk (only substitute the first use)
+tracking (CmmLoad _ _)    = True
+tracking (CmmStackSlot{}) = True
+
+-- Assumptions:
+--  * Stack slots do not overlap with any other memory locations
+--  * Non stack-slot stores always conflict with each other.  (This is
+--    not always the case; we could probably do something special for Hp)
+--  * Stack slots for different areas do not overlap
+--  * Stack slots within the same area and different offsets may
+--    overlap; we need to do a size check (see 'overlaps').
+clobbers :: (CmmExpr, CmmExpr) -> (LocalReg, CmmExpr) -> Bool
+clobbers (ss@CmmStackSlot{}, CmmReg (CmmLocal r)) (r', CmmLoad (ss'@CmmStackSlot{}) _)
+    | r == r', ss == ss' = False -- No-op on the stack slot (XXX: Do we need this special case?)
+clobbers (CmmStackSlot (CallArea a) o, rhs) (_, expr) = f expr
+    where f (CmmLoad (CmmStackSlot (CallArea a') o') t)
+            = (a, o, widthInBytes (cmmExprWidth rhs)) `overlaps` (a', o', widthInBytes (typeWidth t))
+          f (CmmLoad e _)    = containsStackSlot e
+          f (CmmMachOp _ es) = or (map f es)
+          f _                = False
+          -- Maybe there's an invariant broken if this actually ever
+          -- returns True
+          containsStackSlot (CmmLoad{}) = True -- load of a load, all bets off
+          containsStackSlot (CmmMachOp _ es) = or (map containsStackSlot es)
+          containsStackSlot (CmmStackSlot{}) = True
+          containsStackSlot _ = False
+clobbers _ (_, e) = f e
+    where f (CmmLoad (CmmStackSlot _ _) _) = False
+          f (CmmLoad{}) = True -- conservative
+          f (CmmMachOp _ es) = or (map f es)
+          f _ = False
+
+-- Check for memory overlapping.
+-- Diagram:
+--      4      8     12
+--      s -w-  o
+--      [ I32  ]
+--      [    F64     ]
+--      s'   -w'-    o'
+type CallSubArea = (AreaId, Int, Int) -- area, offset, width
+overlaps :: CallSubArea -> CallSubArea -> Bool
+overlaps (a, _, _) (a', _, _) | a /= a' = False
+overlaps (_, o, w) (_, o', w') =
+    let s  = o  - w
+        s' = o' - w'
+    in (s' < o) && (s < o) -- Not LTE, because [ I32  ][ I32  ] is OK
+
+lastAssignment :: CmmNode O C -> AssignmentMap -> [(Label, AssignmentMap)]
+-- Variables are dead across calls, so invalidating all mappings is justified
+lastAssignment (CmmCall _ (Just k) _ _ _) assign = [(k, mapUFM (const Top) assign)]
+lastAssignment (CmmForeignCall {succ=k})  assign = [(k, mapUFM (const Top) assign)]
+lastAssignment l assign = map (\id -> (id, assign)) $ successors l
+
+assignmentTransfer :: FwdTransfer CmmNode AssignmentMap
+assignmentTransfer = mkFTransfer3 (flip const) middleAssignment ((mkFactBase assignmentLattice .) . lastAssignment)
+
+-- Performs unbounded inlining.  This should be fixed up later when we
+-- get an annotated graph.
+assignmentInline :: FwdRewrite FuelUniqSM CmmNode AssignmentMap
+assignmentInline = mkFRewrite3 first middle last
+    where
+        first _ _ = return Nothing
+        middle m assign = return . fmap mkMiddle $ inline assign m
+        last   l assign = return . fmap mkLast   $ inline assign l
+        inline :: AssignmentMap -> CmmNode e x -> Maybe (CmmNode e x)
+        -- An alternative way of preventing excess rewriting is to have
+        -- inlineExp track change information
+        inline assign n = if inlinable n && foldRegsUsed (\z r -> z || inside r) False n
+                            then Just (mapExp inlineExp n)
+                            else Nothing
+            where -- Conservative hack: don't do any inlining on CmmCalls,
+                  -- since the code produced here tends to be
+                  -- unproblematic and I need to write lint passes to
+                  -- ensure that we don't put anything in the arguments
+                  -- that could be construed as a global register by
+                  -- some later translation pass.  (For example, slots
+                  -- will turn into dereferences of Sp).  This is the
+                  -- same hack in spirit as was in cmm/CmmOpt.hs
+                  inlinable (CmmCall{}) = False
+                  inlinable _ = True
+                  inside r = case lookupUFM assign r of
+                                Just (PElem _) -> True
+                                _ -> False
+                  inlineExp (CmmLoad e t) = CmmLoad (inlineExp e) t
+                  inlineExp old@(CmmReg (CmmLocal r))
+                    = case lookupUFM assign r of
+                        Just (PElem (_, x)) -> x
+                        _ -> old
+                  inlineExp (CmmMachOp m es) = CmmMachOp m (map inlineExp es)
+                  inlineExp old@(CmmRegOff (CmmLocal r) i)
+                    = case lookupUFM assign r of
+                        Just (PElem (_, x)) -> CmmMachOp (MO_Add rep) [x, CmmLit (CmmInt (fromIntegral i) rep)]
+                            where rep = typeWidth (localRegType r)
+                        _ -> old
+                  inlineExp old = old
+
+inlineAssignments :: CmmGraph -> FuelUniqSM CmmGraph
+inlineAssignments g =
+  liftM fst $ dataflowPassFwd g [(g_entry g, fact_bot assignmentLattice)] $
+                              analRewFwd assignmentLattice assignmentTransfer assignmentInline
 
 ---------------------
 -- prettyprinting
@@ -305,11 +406,7 @@ instance Outputable DualLive where
                          if isEmptyUniqSet stack then PP.empty
                          else (ppr_regs "live on stack =" stack)]
 
-instance Outputable AvailRegs where
-  ppr (UniverseMinus s) = if isEmptyUniqSet s then text "<everything available>"
-                          else ppr_regs "available = all but" s
-  ppr (AvailRegs     s) = if isEmptyUniqSet s then text "<nothing available>"
-                          else ppr_regs "available = " s
+-- ToDo: Outputable instance for AssignmentMap
 
 my_trace :: String -> SDoc -> a -> a
 my_trace = if False then pprTrace else \_ _ a -> a

@@ -434,6 +434,8 @@ manifestSP areaMap entry_off g@(CmmGraph {g_entry=entry}) =
                 replSlot _ e = e
 
                 replLast :: MaybeC C (CmmNode C O) -> [CmmNode O O] -> CmmNode O C -> FuelUniqSM [CmmBlock]
+                -- XXX This runs afoul the "no global registers in a
+                -- CmmCall hack"
                 replLast h m l@(CmmCall _ k n _ _)       = updSp (slot' k + n) h m l
                 -- JD: LastForeignCall probably ought to have an outgoing
                 --     arg size, just like LastCall
