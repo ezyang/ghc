@@ -428,8 +428,9 @@ invalidateUsersOf reg m = foldUFM_Directly f m m -- [foldUFM performance]
     where f u (xassign -> Just e) m | reg `regUsedIn` e = addToUFM_Directly m u NeverOptimize
           f _ _ m = m
 {- This requires the entire spine of the map to be continually rebuilt,
- - which causes crazy memory usage!
-invalidateUsersOf reg = mapUFM (invalidateUsers' reg)
+ - which causes crazy memory usage! LEAK -}
+{-
+invalidateUsersOf reg = mapUFM' (invalidateUsers' reg)
   where invalidateUsers' reg (xassign -> Just e) | reg `regUsedIn` e = NeverOptimize
         invalidateUsers' _ old = old
 -}
@@ -485,7 +486,7 @@ middleAssignment (Plain n@(CmmStore lhs rhs)) assign
       where f u (xassign -> Just x) m | (lhs, rhs) `clobbers` (u, x) = addToUFM_Directly m u NeverOptimize
             f _ _ m = m
 {- Also leaky
-    = mapUFM_Directly p . deleteSinks n $ assign
+    = mapUFM_Directly' p . deleteSinks n $ assign
       -- ToDo: There's a missed opportunity here: even if a memory
       -- access we're attempting to sink gets clobbered at some
       -- location, it's still /better/ to sink it to right before the
@@ -493,7 +494,7 @@ middleAssignment (Plain n@(CmmStore lhs rhs)) assign
       -- Unfortunately, it's too late to change the assignment...
       where p r (xassign -> Just x) | (lhs, rhs) `clobbers` (r, x) = NeverOptimize
             p _ old = old
--}
+-} -- LEAK
 
 -- Assumption: Unsafe foreign calls don't clobber memory
 -- Since foreign calls clobber caller saved registers, we need
