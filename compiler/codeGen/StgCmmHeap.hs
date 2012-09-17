@@ -10,7 +10,7 @@ module StgCmmHeap (
         getVirtHp, setVirtHp, setRealHp,
         getHpRelOffset, hpRel,
 
-        entryHeapCheck, altHeapCheck, altHeapCheckReturnsTo,
+        entryHeapCheck, altHeapCheck, noEscapeHeapCheck, altHeapCheckReturnsTo,
 
         mkVirtHeapOffsets, mkVirtConstrOffsets,
         mkStaticClosureFields, mkStaticClosure,
@@ -362,7 +362,7 @@ entryHeapCheck cl_info offset nodeSet arity args code
 
        loop_id <- newLabelC
        emitLabel loop_id
-       heapCheck True (gc_call updfr_sz <*> mkBranch loop_id) code
+       heapCheck True True (gc_call updfr_sz <*> mkBranch loop_id) code
 
 {-
     -- This code is slightly outdated now and we could easily keep the above
@@ -413,15 +413,25 @@ entryHeapCheck cl_info offset nodeSet arity args code
 
 altHeapCheck :: [LocalReg] -> FCode a -> FCode a
 altHeapCheck regs code
+  = altOrNoEscapeHeapCheck False regs code
+
+-- noEscapeHeapCheck is implemented identically to altHeapCheck (which
+-- is more efficient), but cannot be optimized away in the non-allocating
+-- case because it may occur in a loop
+noEscapeHeapCheck :: [LocalReg] -> FCode a -> FCode a
+noEscapeHeapCheck regs code = altOrNoEscapeHeapCheck True regs code
+
+altOrNoEscapeHeapCheck :: Bool -> [LocalReg] -> FCode a -> FCode a
+altOrNoEscapeHeapCheck checkYield regs code
   = do loop_id <- newLabelC
        emitLabel loop_id
-       altHeapCheckReturnsTo regs loop_id code
+       altHeapCheckReturnsTo checkYield regs loop_id code
 
-altHeapCheckReturnsTo :: [LocalReg] -> Label -> FCode a -> FCode a
-altHeapCheckReturnsTo regs retry_lbl code
+altHeapCheckReturnsTo :: Bool -> [LocalReg] -> Label -> FCode a -> FCode a
+altHeapCheckReturnsTo checkYield regs retry_lbl code
   = do updfr_sz <- getUpdFrameOff
        gc_call_code <- gc_call updfr_sz
-       heapCheck False (gc_call_code <*> mkBranch retry_lbl) code
+       heapCheck False checkYield (gc_call_code <*> mkBranch retry_lbl) code
 
   where
     reg_exprs = map (CmmReg . CmmLocal) regs
@@ -475,30 +485,35 @@ mkGcLabel :: String -> CmmLit
 mkGcLabel = (CmmLabel . (mkCmmCodeLabel rtsPackageId) . fsLit)
 
 -------------------------------
-heapCheck :: Bool -> CmmAGraph -> FCode a -> FCode a
-heapCheck checkStack do_gc code
+heapCheck :: Bool -> Bool -> CmmAGraph -> FCode a -> FCode a
+heapCheck checkStack checkYield do_gc code
   = getHeapUsage $ \ hpHw ->
     -- Emit heap checks, but be sure to do it lazily so
     -- that the conditionals on hpHw don't cause a black hole
-    do  { codeOnly $ do_checks checkStack hpHw do_gc
+    do  { codeOnly $ do_checks checkStack checkYield hpHw do_gc
         ; tickyAllocHeap hpHw
         ; doGranAllocate hpHw
         ; setRealHp hpHw
         ; code }
 
 do_checks :: Bool       -- Should we check the stack?
+          -> Bool       -- Should we check for preemption?
           -> WordOff    -- Heap headroom
           -> CmmAGraph  -- What to do on failure
           -> FCode ()
-do_checks checkStack alloc do_gc = do
+do_checks checkStack checkYield alloc do_gc = do
+  dflags <- getDynFlags
   gc_id <- newLabelC
 
   when checkStack $
      emit =<< mkCmmIfGoto sp_oflo gc_id
 
-  when (alloc /= 0) $ do
-     emitAssign hpReg bump_hp
-     emit =<< mkCmmIfThen hp_oflo (alloc_n <*> mkBranch gc_id)
+  if (alloc /= 0)
+    then do
+      emitAssign hpReg bump_hp
+      emit =<< mkCmmIfThen hp_oflo (alloc_n <*> mkBranch gc_id)
+    else do
+      when (not (dopt Opt_OmitYields dflags) && checkYield) (emit =<< mkCmmIfGoto yielding gc_id)
 
   emitOutOfLine gc_id $
      do_gc -- this is expected to jump back somewhere
@@ -524,6 +539,10 @@ do_checks checkStack alloc do_gc = do
     -- HpLim points to the LAST WORD of valid allocation space.
     hp_oflo = CmmMachOp mo_wordUGt
                   [CmmReg hpReg, CmmReg (CmmGlobal HpLim)]
+
+    -- Yielding if HpLim == 0
+    yielding = CmmMachOp (mo_wordEq dflags)
+                        [CmmReg (CmmGlobal HpLim), CmmLit (zeroCLit dflags)]
 
     alloc_n = mkAssign (CmmGlobal HpAlloc) alloc_lit
 

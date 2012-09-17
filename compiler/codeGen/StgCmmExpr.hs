@@ -161,9 +161,7 @@ cgLetNoEscapeClosure bndr cc_slot _unused_cc args body
   = do  { arg_regs <- forkProc $ do	
 		{ restoreCurrentCostCentre cc_slot
 		; arg_regs <- bindArgsToRegs args
-		; altHeapCheck arg_regs (cgExpr body)
-			-- Using altHeapCheck just reduces
-			-- instructions to save on stack
+                ; void $ noEscapeHeapCheck args_regs (cgExpr body)
 		; return arg_regs }
 	; return $ lneIdInfo bndr arg_regs}
 

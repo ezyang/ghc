@@ -276,6 +276,7 @@ data DynFlag
    | Opt_LlvmTBAA                       -- Use LLVM TBAA infastructure for improving AA (hidden flag)
    | Opt_RegLiveness                    -- Use the STG Reg liveness information (hidden flag)
    | Opt_IrrefutableTuples
+   | Opt_OmitYields
 
    -- Interface files
    | Opt_IgnoreInterfacePragmas
@@ -2026,6 +2027,7 @@ fFlags = [
   ( "llvm-tbaa",                        Opt_LlvmTBAA, nop), -- hidden flag
   ( "regs-liveness",                    Opt_RegLiveness, nop), -- hidden flag
   ( "irrefutable-tuples",               Opt_IrrefutableTuples, nop ),
+  ( "omit-yields",                      Opt_OmitYields, nop ),
   ( "gen-manifest",                     Opt_GenManifest, nop ),
   ( "embed-manifest",                   Opt_EmbedManifest, nop ),
   ( "ext-core",                         Opt_EmitExternalCore, nop ),
@@ -2215,6 +2217,8 @@ defaultFlags
 #if GHC_DEFAULT_NEW_CODEGEN
       Opt_TryNewCodeGen,
 #endif
+
+      Opt_OmitYields,
 
       Opt_GenManifest,
       Opt_EmbedManifest,
