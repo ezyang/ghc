@@ -51,6 +51,22 @@ extern char *ctime_r(const time_t *, char *);
 #include <windows.h>
 #endif
 
+StgWord
+roundUp2(StgWord val)
+{
+    StgWord rounded = 1;
+    
+    /* StgWord is unsigned anyway, only catch 0 */
+    if (val == 0) {
+        barf("roundUp2: invalid size 0 requested");
+    }
+    /* at least 1 bit set, shift up to its place */
+    do {
+        rounded = rounded << 1;
+    } while (0 != (val = val>>1));
+    return rounded;
+}
+
 /* -----------------------------------------------------------------------------
    Result-checking malloc wrappers.
    -------------------------------------------------------------------------- */
