@@ -50,24 +50,6 @@
  * newWSDeque
  * -------------------------------------------------------------------------- */
 
-/* internal helpers ... */
-
-static StgWord
-roundUp2(StgWord val)
-{
-    StgWord rounded = 1;
-    
-    /* StgWord is unsigned anyway, only catch 0 */
-    if (val == 0) {
-        barf("DeQue,roundUp2: invalid size 0 requested");
-    }
-    /* at least 1 bit set, shift up to its place */
-    do {
-        rounded = rounded << 1;
-    } while (0 != (val = val>>1));
-    return rounded;
-}
-
 WSDeque *
 newWSDeque (nat size)
 {
