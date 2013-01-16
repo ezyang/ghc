@@ -12,6 +12,7 @@
 
 #include "sm/Storage.h"
 #include "RtsUtils.h"
+#include "PQueue.h"
 #include "StgRun.h"
 #include "Schedule.h"
 #include "Interpreter.h"
@@ -559,31 +560,20 @@ run_thread:
  * Run queue operations
  * -------------------------------------------------------------------------- */
 
+/*
 void
 removeFromRunQueue (Capability *cap, StgTSO *tso)
 {
-    if (tso->block_info.prev == END_TSO_QUEUE) {
-        ASSERT(cap->run_queue_hd == tso);
-        cap->run_queue_hd = tso->_link;
-    } else {
-        setTSOLink(cap, tso->block_info.prev, tso->_link);
-    }
-    if (tso->_link == END_TSO_QUEUE) {
-        ASSERT(cap->run_queue_tl == tso);
-        cap->run_queue_tl = tso->block_info.prev;
-    } else {
-        setTSOPrev(cap, tso->_link, tso->block_info.prev);
-    }
-    tso->_link = tso->block_info.prev = END_TSO_QUEUE;
-
-    IF_DEBUG(sanity, checkRunQueue(cap));
+    barf("not implemented removeFromRunQueue");
 }
+*/
 
 void
 promoteInRunQueue (Capability *cap, StgTSO *tso)
 {
-    removeFromRunQueue(cap, tso);
-    pushOnRunQueue(cap, tso);
+    // no-op, at the moment; if removeFromRunQueue was implemented it'd be
+    // removeFromRunQueue(cap, tso);
+    // pushOnRunQueue(cap, tso);
 }
 
 /* ----------------------------------------------------------------------------
@@ -759,6 +749,10 @@ schedulePushWork(Capability *cap USED_IF_THREADS,
 	pushed_to_all = rtsFalse;
 #endif
 
+        // go through all of the TSOs in the run queue and decide where
+        // they should go
+        // XXX implement me at some point
+        /*
 	if (cap->run_queue_hd != END_TSO_QUEUE) {
 	    prev = cap->run_queue_hd;
 	    t = prev->_link;
@@ -794,6 +788,7 @@ schedulePushWork(Capability *cap USED_IF_THREADS,
 
             IF_DEBUG(sanity, checkRunQueue(cap));
 	}
+        */
 
 #ifdef SPARK_PUSHING
 	/* JB I left this code in place, it would work but is not necessary */
@@ -1257,6 +1252,9 @@ scheduleHandleThreadFinished (Capability *cap STG_UNUSED, Task *task, StgTSO *t)
     // blocked mode (see #2910).
     awakenBlockedExceptionQueue (cap, t);
 
+    // let the capability know it can reclaim tickets
+    leaveRunQueue(cap, t);
+
       //
       // Check whether the thread that just completed was a bound
       // thread, and if so return with the result.  
@@ -1277,7 +1275,7 @@ scheduleHandleThreadFinished (Capability *cap STG_UNUSED, Task *task, StgTSO *t)
 	      // queue also ensures that the garbage collector knows about
 	      // this thread and its return value (it gets dropped from the
 	      // step->threads list so there's no other way to find it).
-	      appendToRunQueue(cap,t);
+	      appendToRunQueue(cap,t); // [SSS] maybe this should be something different
 	      return rtsFalse;
 #else
 	      // this cannot happen in the threaded RTS, because a
@@ -2294,9 +2292,7 @@ resumeThread (void *task_)
 void
 scheduleThread(Capability *cap, StgTSO *tso)
 {
-    // The thread goes at the *end* of the run-queue, to avoid possible
-    // starvation of any threads already on the queue.
-    appendToRunQueue(cap,tso);
+    joinRunQueue(cap,tso);
 }
 
 void
@@ -2307,12 +2303,12 @@ scheduleThreadOn(Capability *cap, StgWord cpu USED_IF_THREADS, StgTSO *tso)
 #if defined(THREADED_RTS)
     cpu %= enabled_capabilities;
     if (cpu == cap->no) {
-	appendToRunQueue(cap,tso);
+	joinRunQueue(cap,tso);
     } else {
         migrateThread(cap, tso, &capabilities[cpu]);
     }
 #else
-    appendToRunQueue(cap,tso);
+    joinRunQueue(cap,tso);
 #endif
 }
 
@@ -2337,7 +2333,7 @@ scheduleWaitThread (StgTSO* tso, /*[out]*/HaskellObj* ret, Capability **pcap)
     task->incall->ret = ret;
     task->incall->stat = NoStatus;
 
-    appendToRunQueue(cap,tso);
+    joinRunQueue(cap,tso);
 
     DEBUG_ONLY( id = tso->id );
     debugTrace(DEBUG_sched, "new bound thread (%lu)", (unsigned long)id);

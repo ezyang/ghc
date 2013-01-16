@@ -46,7 +46,6 @@ typedef struct {
 /* Reason for thread being blocked. See comment above struct StgTso_. */
 typedef union {
   StgClosure *closure;
-  StgTSO *prev; // a back-link when the TSO is on the run queue (NotBlocked)
   struct MessageBlackHole_ *bh;
   struct MessageThrowTo_ *throwto;
   struct MessageWakeup_  *wakeup;
@@ -87,7 +86,6 @@ typedef struct StgTSO_ {
     struct StgTSO_*         _link;
     /*
       Currently used for linking TSOs on:
-      * cap->run_queue_{hd,tl}
       * (non-THREADED_RTS); the blocked_queue
       * and pointing to the next chunk for a ThreadOldStack
 
@@ -167,6 +165,9 @@ typedef struct StgTSO_ {
      * hard +RTS -K<size> limit.
      */
     StgWord32  tot_stack_size;
+
+    // [SSS]
+    StgWord64 ss_tickets, ss_stride, ss_pass, ss_remain;
 
 } *StgTSOPtr;
 

@@ -112,6 +112,12 @@ createThread(Capability *cap, W_ size)
 
     tso->trec = NO_TREC;
 
+    // [SSS] initialization
+    tso->ss_tickets = 1; // XXX we'll give it tickets later???
+    tso->ss_stride = STRIDE1 / tso->ss_tickets;
+    tso->ss_remain = tso->ss_stride;
+    // NOTE: handle the rest of the stuff in scheduleThread
+
 #ifdef PROFILING
     tso->prof.cccs = CCS_MAIN;
 #endif
@@ -319,6 +325,7 @@ unblock:
 void
 migrateThread (Capability *from, StgTSO *tso, Capability *to)
 {
+    // [SSS] Need to TWIDDLE stuff
     traceEventMigrateThread (from, tso, to->no);
     // ThreadMigrating tells the target cap that it needs to be added to
     // the run queue when it receives the MSG_TRY_WAKEUP.
@@ -799,8 +806,9 @@ printAllThreads(void)
   for (i = 0; i < n_capabilities; i++) {
       cap = &capabilities[i];
       debugBelch("threads on capability %d:\n", cap->no);
-      for (t = cap->run_queue_hd; t != END_TSO_QUEUE; t = t->_link) {
-	  printThreadStatus(t);
+      int j;
+      for (j = 0; j < cap->run_pqueue->size; j++) {
+          printThreadStatus(cap->run_pqueue->elements[j]);
       }
   }
 

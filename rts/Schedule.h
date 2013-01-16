@@ -122,6 +122,65 @@ void resurrectThreads (StgTSO *);
 
 #if !IN_STG_CODE
 
+// [SSS] these functions are all the biggies
+//  - We can replace this with a simple, non-concurrent
+//    priority queue. However, this IS on the fast path
+//    so we have to be careful.
+
+#define STRIDE1 (1 << 20)
+
+INLINE_HEADER void
+capPassUpdate(Capability *cap)
+{
+    // XXX NOT what was done in the paper
+    StgWord64 pass;
+    if (peekMinPQueue(cap->run_pqueue, &pass) != NULL) {
+        cap->ss_pass = pass;
+    }
+}
+
+INLINE_HEADER void
+capTicketsUpdate(Capability *cap, int delta) // ugh types
+{
+    // XXX this stuff is not used ; doesn't work either
+    //cap->ss_tickets += delta;
+    //cap->ss_stride = STRIDE1 / cap->ss_tickets;
+}
+
+INLINE_HEADER void
+annulTSO(StgTSO *tso) {
+    // hack to make some invariants with regards to block_info and _link work
+    // this is called whereever we would have stepped all over the
+    // fields in the linked list implementation
+    tso->_link = END_TSO_QUEUE;
+    tso->block_info.closure = (StgClosure*)END_TSO_QUEUE;
+}
+// XXX do we need write barriers for any of the other tso variables?
+// EEK! MAJOR DANGER. XXX
+
+// Should be invoked whenever a TSO joins a new capability.
+// Needs to be called on TSO creation.
+INLINE_HEADER void
+joinRunQueue(Capability *cap, StgTSO *tso)
+{
+    capPassUpdate(cap);
+    tso->ss_pass = cap->ss_pass + tso->ss_remain;
+    capTicketsUpdate(cap, tso->ss_tickets);
+    annulTSO(tso);
+    insertPQueue(cap->run_pqueue, tso, tso->ss_pass);
+}
+
+// NOTE: doesn't actually remove from the QUEUE!!!
+// Just fiddles metadata.
+INLINE_HEADER void
+leaveRunQueue(Capability *cap, StgTSO *tso)
+{
+    capPassUpdate(cap);
+    tso->ss_remain = tso->ss_pass - cap->ss_pass;
+    capTicketsUpdate(cap, -tso->ss_tickets);
+    // NO QUEUE REMOVAL!
+}
+
 /* END_TSO_QUEUE and friends now defined in includes/StgMiscClosures.h */
 
 /* Add a thread to the end of the run queue.
@@ -134,15 +193,9 @@ appendToRunQueue (Capability *cap, StgTSO *tso);
 EXTERN_INLINE void
 appendToRunQueue (Capability *cap, StgTSO *tso)
 {
-    ASSERT(tso->_link == END_TSO_QUEUE);
-    if (cap->run_queue_hd == END_TSO_QUEUE) {
-	cap->run_queue_hd = tso;
-        tso->block_info.prev = END_TSO_QUEUE;
-    } else {
-	setTSOLink(cap, cap->run_queue_tl, tso);
-        setTSOPrev(cap, tso, cap->run_queue_tl);
-    }
-    cap->run_queue_tl = tso;
+    tso->ss_pass += tso->ss_stride; // doesn't allow fractional quanta
+    annulTSO(tso);
+    insertPQueue(cap->run_pqueue, tso, tso->ss_pass);
 }
 
 /* Push a thread on the beginning of the run queue.
@@ -154,15 +207,12 @@ pushOnRunQueue (Capability *cap, StgTSO *tso);
 EXTERN_INLINE void
 pushOnRunQueue (Capability *cap, StgTSO *tso)
 {
-    setTSOLink(cap, tso, cap->run_queue_hd);
-    tso->block_info.prev = END_TSO_QUEUE;
-    if (cap->run_queue_hd != END_TSO_QUEUE) {
-        setTSOPrev(cap, cap->run_queue_hd, tso);
-    }
-    cap->run_queue_hd = tso;
-    if (cap->run_queue_tl == END_TSO_QUEUE) {
-	cap->run_queue_tl = tso;
-    }
+    // XXX for now, pushOnRunQueue cuts in front of the line.  We may
+    // want to change things later, or make less people use
+    // pushOnRunQueue
+    capPassUpdate(cap);
+    annulTSO(tso);
+    insertPQueue(cap->run_pqueue, tso, cap->ss_pass);
 }
 
 /* Pop the first thread off the runnable queue.
@@ -170,23 +220,13 @@ pushOnRunQueue (Capability *cap, StgTSO *tso)
 INLINE_HEADER StgTSO *
 popRunQueue (Capability *cap)
 { 
-    StgTSO *t = cap->run_queue_hd;
-    ASSERT(t != END_TSO_QUEUE);
-    cap->run_queue_hd = t->_link;
-    if (t->_link != END_TSO_QUEUE) {
-        t->_link->block_info.prev = END_TSO_QUEUE;
-    }
-    t->_link = END_TSO_QUEUE; // no write barrier req'd
-    if (cap->run_queue_hd == END_TSO_QUEUE) {
-	cap->run_queue_tl = END_TSO_QUEUE;
-    }
-    return t;
+    return (StgTSO*)deleteMinPQueue(cap->run_pqueue, NULL);
 }
 
 INLINE_HEADER StgTSO *
 peekRunQueue (Capability *cap)
 {
-    return cap->run_queue_hd;
+    return (StgTSO*)peekMinPQueue(cap->run_pqueue, NULL);
 }
 
 void removeFromRunQueue (Capability *cap, StgTSO *tso);
@@ -219,7 +259,7 @@ emptyQueue (StgTSO *q)
 INLINE_HEADER rtsBool
 emptyRunQueue(Capability *cap)
 {
-    return emptyQueue(cap->run_queue_hd);
+    return peekMinPQueue(cap->run_pqueue, NULL) == NULL;
 }
 
 /* assumes that the queue is not empty; so combine this with
@@ -228,14 +268,13 @@ INLINE_HEADER rtsBool
 singletonRunQueue(Capability *cap)
 {
     ASSERT(!emptyRunQueue(cap));
-    return cap->run_queue_hd->_link == END_TSO_QUEUE;
+    return cap->run_pqueue->size == 1;
 }
 
 INLINE_HEADER void
 truncateRunQueue(Capability *cap)
 {
-    cap->run_queue_hd = END_TSO_QUEUE;
-    cap->run_queue_tl = END_TSO_QUEUE;
+    truncatePQueue(cap->run_pqueue);
 }
 
 #if !defined(THREADED_RTS)

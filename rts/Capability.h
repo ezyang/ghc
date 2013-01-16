@@ -24,6 +24,7 @@
 #include "sm/GC.h" // for evac_fn
 #include "Task.h"
 #include "Sparks.h"
+#include "PQueue.h"
 
 #include "BeginPrivate.h"
 
@@ -55,8 +56,11 @@ struct Capability_ {
     // access to its run queue, so can wake up threads without
     // taking a lock, and the common path through the scheduler is
     // also lock-free.
-    StgTSO *run_queue_hd;
-    StgTSO *run_queue_tl;
+    PQueue *run_pqueue;
+
+    // [SSS] Stride scheduling extensions
+    // Global aggregate tickets, stride, pass (global per cap)
+    nat ss_tickets, ss_stride, ss_pass;
 
     // Tasks currently making safe foreign calls.  Doubly-linked.
     // When returning, a task first acquires the Capability before
@@ -158,8 +162,6 @@ struct Capability_ {
 // Task is bound, its thread has just blocked, and it may have been
 // moved to another Capability.
 #define ASSERT_PARTIAL_CAPABILITY_INVARIANTS(cap,task)	\
-  ASSERT(cap->run_queue_hd == END_TSO_QUEUE ?		\
-	    cap->run_queue_tl == END_TSO_QUEUE : 1);	\
   ASSERT(myTask() == task);				\
   ASSERT_TASK_ID(task);
 
