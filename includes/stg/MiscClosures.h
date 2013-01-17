@@ -402,6 +402,9 @@ RTS_FUN_DECL(stg_maskUninterruptiblezh);
 RTS_FUN_DECL(stg_unmaskAsyncExceptionszh);
 RTS_FUN_DECL(stg_myThreadIdzh);
 RTS_FUN_DECL(stg_labelThreadzh);
+RTS_FUN_DECL(stg_getTicketszh);
+RTS_FUN_DECL(stg_setTicketszh);
+RTS_FUN_DECL(stg_modifyTicketszh);
 RTS_FUN_DECL(stg_isCurrentThreadBoundzh);
 RTS_FUN_DECL(stg_threadStatuszh);
 

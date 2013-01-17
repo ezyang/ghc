@@ -5,23 +5,37 @@
 #ifndef PQUEUE_H
 #define PQUEUE_H
 
+#include "sm/GC.h"
+
 typedef struct PQueue_ {
-    // size of the heap array
+    // number of elements in the heap array
     StgWord size;
     // capacity of the heap array
     StgWord capacity;
     // the elements array
-    void ** elements;
-    // the keys array
-    StgWord64 * keys;
+    StgTSO **elements;
+    // If deferred = 0, elements is an ordinary zero-indexed heap
+    // occupying elements 0 ... (size-1)
+    // If deferred = 1, then elements is a zero-indexed heap with
+    // a "hole" at zero; valid elements live at 1 ... size.
+    // Modulo the hole, the heap property is still obeyed.
+    int deferred;
 } PQueue;
+
+#define ASSERT_PQUEUE_INVARIANTS(p) \
+    ASSERT((p)->size >= 0); \
+    ASSERT((p)->capacity > 0); \
+    ASSERT((p)->size <= (p)->capacity); \
+    ASSERT(!(p)->deferred || (p)->elements[0] == NULL);
 
 PQueue * newPQueue(nat size);
 void freePQueue(PQueue *q);
 
-void * deleteMinPQueue(PQueue *q, StgWord64 *oldKey);
-void * peekMinPQueue(PQueue *q, StgWord64 *oldKey);
-void insertPQueue(PQueue *q, void *elem, StgWord64 key);
+void * deleteMinPQueue(PQueue *q);
+void * peekMinPQueue(PQueue *q);
+void insertPQueue(PQueue *q, StgTSO *elem);
 void truncatePQueue(PQueue *q);
+void iteratePQueue(PQueue *q, void (*fp)(StgTSO *e));
+void markPQueue(PQueue *q, evac_fn evac, void *user);
 
 #endif // PQUEUE_H

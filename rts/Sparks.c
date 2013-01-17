@@ -45,7 +45,7 @@ createSparkThread (Capability *cap)
 
     traceEventCreateSparkThread(cap, tso->id);
 
-    appendToRunQueue(cap,tso);
+    joinRunQueue(cap,tso);
 }
 
 /* --------------------------------------------------------------------------

@@ -107,7 +107,8 @@ static rtsBool wakeUpSleepingThreads (LowResTime now)
 	tso->_link = END_TSO_QUEUE;
 	IF_DEBUG(scheduler,debugBelch("Waking up sleeping thread %lu\n", (unsigned long)tso->id));
 	// MainCapability: this code is !THREADED_RTS
-	pushOnRunQueue(&MainCapability,tso);
+        tso->ss_remain = 0;
+        fastJoinRunQueue(&MainCapability,tso);
 	flag = rtsTrue;
     }
     return flag;
@@ -305,7 +306,8 @@ awaitEvent(rtsBool wait)
 		IF_DEBUG(scheduler,debugBelch("Waking up blocked thread %lu\n", (unsigned long)tso->id));
 		  tso->why_blocked = NotBlocked;
 		  tso->_link = END_TSO_QUEUE;
-		  pushOnRunQueue(&MainCapability,tso);
+                  tso->ss_remain = 0;
+                  fastJoinRunQueue(&MainCapability,tso);
 	      } else {
 		  if (prev == NULL)
 		      blocked_queue_hd = tso;

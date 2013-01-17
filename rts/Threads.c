@@ -112,6 +112,13 @@ createThread(Capability *cap, W_ size)
 
     tso->trec = NO_TREC;
 
+    tso->ss_tickets = DEFAULT_TICKETS;
+    tso->ss_stride = STRIDE1 / tso->ss_tickets;
+    // This is not zero, in order to prevent starvation when lots of new
+    // threads are being created.
+    tso->ss_remain = tso->ss_stride;
+    tso->ss_pass = cap->ss_pass;
+
 #ifdef PROFILING
     tso->prof.cccs = CCS_MAIN;
 #endif
@@ -133,6 +140,57 @@ createThread(Capability *cap, W_ size)
     traceEventCreateThread(cap, tso);
 
     return tso;
+}
+
+/* ---------------------------------------------------------------------------
+ * Ticket allocations on threads
+ * ------------------------------------------------------------------------ */
+
+#define TICKET_ERROR (STRIDE1 + 1)
+
+void
+setTickets(StgTSO *tso, W_ tickets)
+{
+    if (tickets > STRIDE1) {
+        // XXX ugh magic constants
+        barf("setTickets: too many tickets");
+    } else if (tickets <= 0) {
+        barf("setTickets: too few tickets");
+    }
+    ACQUIRE_LOCK(&sched_mutex);
+    StgWord64 stride = STRIDE1 / tickets;
+    StgWord64 remain = (tso->ss_remain * stride) / tso->ss_stride;
+    tso->ss_tickets = tickets;
+    tso->ss_stride = stride;
+    tso->ss_remain = remain;
+    RELEASE_LOCK(&sched_mutex);
+}
+
+W_
+modifyTickets(StgTSO *tso, W_ n, W_ d, W_ x)
+{
+    ACQUIRE_LOCK(&sched_mutex);
+    W_ tickets = (tso->ss_tickets * n) / d + x;
+    W_ delta;
+    if (tickets > STRIDE1 || tickets <= 0) {
+        delta = TICKET_ERROR;
+        goto cleanup;
+    }
+    StgWord64 stride = STRIDE1 / tickets;
+    StgWord64 remain = (tso->ss_remain * stride) / tso->ss_stride;
+    delta = tso->ss_tickets - tickets;
+    tso->ss_tickets = tickets;
+    tso->ss_stride = stride;
+    tso->ss_remain = remain;
+cleanup:
+    RELEASE_LOCK(&sched_mutex);
+    return delta;
+}
+
+W_
+getTickets(StgTSO *tso)
+{
+    return tso->ss_tickets;
 }
 
 /* ---------------------------------------------------------------------------
@@ -167,6 +225,7 @@ rts_getThreadId(StgPtr tso)
 /* -----------------------------------------------------------------------------
    Remove a thread from a queue.
    Fails fatally if the TSO is not on the queue.
+   These should not be used on the run queue.
    -------------------------------------------------------------------------- */
 
 rtsBool // returns True if we modified queue
@@ -236,6 +295,7 @@ removeThreadFromDeQueue (Capability *cap,
 void
 tryWakeupThread (Capability *cap, StgTSO *tso)
 {
+    rtsBool migrating = rtsFalse;
     traceEventThreadWakeup (cap, tso, tso->cap->no);
 
 #ifdef THREADED_RTS
@@ -257,6 +317,7 @@ tryWakeupThread (Capability *cap, StgTSO *tso)
     case BlockedOnMVar:
     {
         if (tso->_link == END_TSO_QUEUE) {
+            // There are no other sleeping threads
             tso->block_info.closure = (StgClosure*)END_TSO_QUEUE;
             goto unblock;
         } else {
@@ -282,9 +343,10 @@ tryWakeupThread (Capability *cap, StgTSO *tso)
         goto unblock;
     }
 
+    case ThreadMigrating:
+        migrating = rtsTrue;
     case BlockedOnBlackHole:
     case BlockedOnSTM:
-    case ThreadMigrating:
         goto unblock;
 
     default:
@@ -295,8 +357,13 @@ tryWakeupThread (Capability *cap, StgTSO *tso)
 unblock:
     // just run the thread now, if the BH is not really available,
     // we'll block again.
+
     tso->why_blocked = NotBlocked;
-    appendToRunQueue(cap,tso);
+    if (migrating) {
+        joinRunQueue(cap,tso);
+    } else {
+        appendToRunQueue(cap,tso);
+    }
 
     // We used to set the context switch flag here, which would
     // trigger a context switch a short time in the future (at the end
@@ -322,6 +389,7 @@ migrateThread (Capability *from, StgTSO *tso, Capability *to)
     traceEventMigrateThread (from, tso, to->no);
     // ThreadMigrating tells the target cap that it needs to be added to
     // the run queue when it receives the MSG_TRY_WAKEUP.
+    leaveRunQueue(from, tso);
     tso->why_blocked = ThreadMigrating;
     tso->cap = to;
     tryWakeupThread(from, tso);
@@ -799,9 +867,8 @@ printAllThreads(void)
   for (i = 0; i < n_capabilities; i++) {
       cap = &capabilities[i];
       debugBelch("threads on capability %d:\n", cap->no);
-      for (t = cap->run_queue_hd; t != END_TSO_QUEUE; t = t->_link) {
-	  printThreadStatus(t);
-      }
+      // XXX do the promoted queue
+      iteratePQueue(cap->run_pqueue, printThreadStatus);
   }
 
   debugBelch("other threads:\n");
@@ -816,6 +883,7 @@ printAllThreads(void)
 }
 
 // useful from gdb
+// [SSS] slightly wrong in the new world; ok for sleeping threads
 void 
 printThreadQueue(StgTSO *t)
 {

@@ -878,16 +878,6 @@ setTSOLink (Capability *cap, StgTSO *tso, StgTSO *target)
 }
 
 void
-setTSOPrev (Capability *cap, StgTSO *tso, StgTSO *target)
-{
-    if (tso->dirty == 0) {
-        tso->dirty = 1;
-        recordClosureMutated(cap,(StgClosure*)tso);
-    }
-    tso->block_info.prev = target;
-}
-
-void
 dirty_TSO (Capability *cap, StgTSO *tso)
 {
     if (tso->dirty == 0) {

@@ -12,6 +12,7 @@
 
 #include "sm/Storage.h"
 #include "RtsUtils.h"
+#include "PQueue.h"
 #include "StgRun.h"
 #include "Schedule.h"
 #include "Interpreter.h"
@@ -148,7 +149,7 @@ static void schedulePostRunThread(Capability *cap, StgTSO *t);
 static rtsBool scheduleHandleHeapOverflow( Capability *cap, StgTSO *t );
 static rtsBool scheduleHandleYield( Capability *cap, StgTSO *t,
 				    nat prev_what_next );
-static void scheduleHandleThreadBlocked( StgTSO *t );
+static void scheduleHandleThreadBlocked( Capability *cap, StgTSO *t );
 static rtsBool scheduleHandleThreadFinished( Capability *cap, Task *task,
 					     StgTSO *t );
 static rtsBool scheduleNeedHeapProfile(rtsBool ready_to_gc);
@@ -537,7 +538,7 @@ run_thread:
 	break;
 
     case ThreadBlocked:
-	scheduleHandleThreadBlocked(t);
+	scheduleHandleThreadBlocked(cap, t);
 	break;
 
     case ThreadFinished:
@@ -560,30 +561,11 @@ run_thread:
  * -------------------------------------------------------------------------- */
 
 void
-removeFromRunQueue (Capability *cap, StgTSO *tso)
+promoteInRunQueue (Capability *cap STG_UNUSED, StgTSO *tso STG_UNUSED)
 {
-    if (tso->block_info.prev == END_TSO_QUEUE) {
-        ASSERT(cap->run_queue_hd == tso);
-        cap->run_queue_hd = tso->_link;
-    } else {
-        setTSOLink(cap, tso->block_info.prev, tso->_link);
-    }
-    if (tso->_link == END_TSO_QUEUE) {
-        ASSERT(cap->run_queue_tl == tso);
-        cap->run_queue_tl = tso->block_info.prev;
-    } else {
-        setTSOPrev(cap, tso->_link, tso->block_info.prev);
-    }
-    tso->_link = tso->block_info.prev = END_TSO_QUEUE;
-
-    IF_DEBUG(sanity, checkRunQueue(cap));
-}
-
-void
-promoteInRunQueue (Capability *cap, StgTSO *tso)
-{
-    removeFromRunQueue(cap, tso);
-    pushOnRunQueue(cap, tso);
+    // no-op, at the moment; if removeFromRunQueue was implemented it'd be
+    // removeFromRunQueue(cap, tso);
+    // pushOnRunQueue(cap, tso);
 }
 
 /* ----------------------------------------------------------------------------
@@ -700,7 +682,7 @@ schedulePushWork(Capability *cap USED_IF_THREADS,
 #if defined(THREADED_RTS)
 
     Capability *free_caps[n_capabilities], *cap0;
-    nat i, n_free_caps;
+    nat i, j, n_free_caps;
 
     // migration can be turned off with +RTS -qm
     if (!RtsFlags.ParFlags.migrate) return;
@@ -742,7 +724,7 @@ schedulePushWork(Capability *cap USED_IF_THREADS,
     //   - giving low priority to moving long-lived threads
 
     if (n_free_caps > 0) {
-	StgTSO *prev, *t, *next;
+	StgTSO *t;
 #ifdef SPARK_PUSHING
 	rtsBool pushed_to_all;
 #endif
@@ -759,41 +741,39 @@ schedulePushWork(Capability *cap USED_IF_THREADS,
 	pushed_to_all = rtsFalse;
 #endif
 
-	if (cap->run_queue_hd != END_TSO_QUEUE) {
-	    prev = cap->run_queue_hd;
-	    t = prev->_link;
-	    prev->_link = END_TSO_QUEUE;
-	    for (; t != END_TSO_QUEUE; t = next) {
-		next = t->_link;
-		t->_link = END_TSO_QUEUE;
+        // go through all of the TSOs in the run queue and decide where
+        // they should go
+        // XXX We can create the new heap more efficiently O(n) by just
+        // blitting them in and then re-heapifying
+        if (!emptyRunQueue(cap)) {
+            StgWord64 k;
+            PQueue *oq = cap->run_pqueue;
+            cap->run_pqueue = newPQueue(oq->size);
+            insertPQueue(cap->run_pqueue, oq->elements[oq->deferred]);
+            for (j = oq->deferred + 1; j < oq->size + oq->deferred; j++) {
+                t = oq->elements[j];
                 if (t->bound == task->incall // don't move my bound thread
-		    || tsoLocked(t)) {  // don't move a locked thread
-		    setTSOLink(cap, prev, t);
-                    setTSOPrev(cap, t, prev);
-		    prev = t;
-		} else if (i == n_free_caps) {
+                    || tsoLocked(t)) {  // don't move a locked thread
+                    insertPQueue(cap->run_pqueue, t);
+                } else if (i == n_free_caps) {
 #ifdef SPARK_PUSHING
-		    pushed_to_all = rtsTrue;
+                    pushed_to_all = rtsTrue;
 #endif
-		    i = 0;
-		    // keep one for us
-		    setTSOLink(cap, prev, t);
-                    setTSOPrev(cap, t, prev);
-		    prev = t;
-		} else {
-		    appendToRunQueue(free_caps[i],t);
+                    i = 0;
+                    insertPQueue(cap->run_pqueue, t); // keep one for us
+                } else {
+                    leaveRunQueue(cap, t);
+                    joinRunQueue(free_caps[i], t);
 
                     traceEventMigrateThread (cap, t, free_caps[i]->no);
 
-		    if (t->bound) { t->bound->task->cap = free_caps[i]; }
-		    t->cap = free_caps[i];
-		    i++;
-		}
-	    }
-	    cap->run_queue_tl = prev;
-
-            IF_DEBUG(sanity, checkRunQueue(cap));
-	}
+                    if (t->bound) { t->bound->task->cap = free_caps[i]; }
+                    t->cap = free_caps[i];
+                    i++;
+                }
+            }
+            freePQueue(oq);
+        }
 
 #ifdef SPARK_PUSHING
 	/* JB I left this code in place, it would work but is not necessary */
@@ -1217,22 +1197,22 @@ scheduleHandleYield( Capability *cap, StgTSO *t, nat prev_what_next )
  * -------------------------------------------------------------------------- */
 
 static void
-scheduleHandleThreadBlocked( StgTSO *t
-#if !defined(DEBUG)
-    STG_UNUSED
-#endif
-    )
+scheduleHandleThreadBlocked( Capability *cap, StgTSO *t )
 {
 
-      // We don't need to do anything.  The thread is blocked, and it
-      // has tidied up its stack and placed itself on whatever queue
-      // it needs to be on.
+    // The thread is blocked, and it
+    // has tidied up its stack and placed itself on whatever queue
+    // it needs to be on.  Adjust 'remain' appropriately.
+
+    leaveRunQueue(cap, t);
 
     // ASSERT(t->why_blocked != NotBlocked);
     // Not true: for example,
     //    - the thread may have woken itself up already, because
     //      threadPaused() might have raised a blocked throwTo
     //      exception, see maybePerformBlockedException().
+    // [SSS] I hope leaving the run queue is the right thing to do
+    // in this case!
 
 #ifdef DEBUG
     traceThreadStatus(DEBUG_sched, t);
@@ -1256,6 +1236,9 @@ scheduleHandleThreadFinished (Capability *cap STG_UNUSED, Task *task, StgTSO *t)
     // blocked exceptions can now complete, even if the thread was in
     // blocked mode (see #2910).
     awakenBlockedExceptionQueue (cap, t);
+
+    // let the capability know it can reclaim tickets
+    leaveRunQueue(cap, t);
 
       //
       // Check whether the thread that just completed was a bound
@@ -2294,9 +2277,7 @@ resumeThread (void *task_)
 void
 scheduleThread(Capability *cap, StgTSO *tso)
 {
-    // The thread goes at the *end* of the run-queue, to avoid possible
-    // starvation of any threads already on the queue.
-    appendToRunQueue(cap,tso);
+    joinRunQueue(cap,tso);
 }
 
 void
@@ -2307,12 +2288,12 @@ scheduleThreadOn(Capability *cap, StgWord cpu USED_IF_THREADS, StgTSO *tso)
 #if defined(THREADED_RTS)
     cpu %= enabled_capabilities;
     if (cpu == cap->no) {
-	appendToRunQueue(cap,tso);
+	joinRunQueue(cap,tso);
     } else {
         migrateThread(cap, tso, &capabilities[cpu]);
     }
 #else
-    appendToRunQueue(cap,tso);
+    joinRunQueue(cap,tso);
 #endif
 }
 
@@ -2337,7 +2318,7 @@ scheduleWaitThread (StgTSO* tso, /*[out]*/HaskellObj* ret, Capability **pcap)
     task->incall->ret = ret;
     task->incall->stat = NoStatus;
 
-    appendToRunQueue(cap,tso);
+    joinRunQueue(cap,tso);
 
     DEBUG_ONLY( id = tso->id );
     debugTrace(DEBUG_sched, "new bound thread (%lu)", (unsigned long)id);

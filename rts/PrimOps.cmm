@@ -628,6 +628,26 @@ stg_labelThreadzh ( gcptr threadid, W_ addr )
   return ();
 }
 
+stg_setTicketszh ( gcptr threadid, W_ n )
+{
+  ccall setTickets(threadid "ptr", n);
+  return ();
+}
+
+stg_getTicketszh ( gcptr threadid )
+{
+  W_ r;
+  (r) = ccall getTickets(threadid "ptr");
+  return (r);
+}
+
+stg_modifyTicketszh ( gcptr threadid, W_ n, W_ d, W_ x )
+{
+  W_ r;
+  (r) = ccall modifyTickets(threadid "ptr", n, d, x);
+  return (r);
+}
+
 stg_isCurrentThreadBoundzh (/* no args */)
 {
   W_ r;
