@@ -683,7 +683,7 @@ removeFromQueues(Capability *cap, StgTSO *tso)
 
  done:
   tso->why_blocked = NotBlocked;
-  appendToRunQueue(cap, tso);
+  joinRunQueue(cap, tso);
 }
 
 /* -----------------------------------------------------------------------------
@@ -1045,7 +1045,7 @@ done:
     // wake it up
     if (tso->why_blocked != NotBlocked) {
         tso->why_blocked = NotBlocked;
-        appendToRunQueue(cap,tso);
+        joinRunQueue(cap,tso);
     }        
 
     return tso;

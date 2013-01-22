@@ -303,9 +303,9 @@ start:
                         // save the StgAsyncIOResult in the
                         // stg_block_async_info stack frame, because
                         // the block_info field will be overwritten by
-                        // pushOnRunQueue().
+                        // fastJoinRunQueue().
                         tso->stackobj->sp[1] = (W_)tso->block_info.async_result;
-			pushOnRunQueue(&MainCapability, tso);
+			fastJoinRunQueue(&MainCapability, tso);
 			break;
 		    }
 		    break;

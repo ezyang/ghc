@@ -322,7 +322,7 @@ unblock:
     // just run the thread now, if the BH is not really available,
     // we'll block again.
     tso->why_blocked = NotBlocked;
-    appendToRunQueue(cap,tso);
+    joinRunQueue(cap, tso);
 
     // We used to set the context switch flag here, which would
     // trigger a context switch a short time in the future (at the end
@@ -348,6 +348,7 @@ migrateThread (Capability *from, StgTSO *tso, Capability *to)
     traceEventMigrateThread (from, tso, to->no);
     // ThreadMigrating tells the target cap that it needs to be added to
     // the run queue when it receives the MSG_TRY_WAKEUP.
+    leaveRunQueue(from, tso);
     tso->why_blocked = ThreadMigrating;
     tso->cap = to;
     tryWakeupThread(from, tso);

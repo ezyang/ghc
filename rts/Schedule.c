@@ -148,7 +148,7 @@ static void schedulePostRunThread(Capability *cap, StgTSO *t);
 static rtsBool scheduleHandleHeapOverflow( Capability *cap, StgTSO *t );
 static rtsBool scheduleHandleYield( Capability *cap, StgTSO *t,
 				    nat prev_what_next );
-static void scheduleHandleThreadBlocked( StgTSO *t );
+static void scheduleHandleThreadBlocked( Capability *cap, StgTSO *t );
 static rtsBool scheduleHandleThreadFinished( Capability *cap, Task *task,
 					     StgTSO *t );
 static rtsBool scheduleNeedHeapProfile(rtsBool ready_to_gc);
@@ -537,7 +537,7 @@ run_thread:
 	break;
 
     case ThreadBlocked:
-	scheduleHandleThreadBlocked(t);
+	scheduleHandleThreadBlocked(cap, t);
 	break;
 
     case ThreadFinished:
@@ -781,7 +781,8 @@ schedulePushWork(Capability *cap USED_IF_THREADS,
                     setTSOPrev(cap, t, prev);
 		    prev = t;
 		} else {
-		    appendToRunQueue(free_caps[i],t);
+                    leaveRunQueue(cap,t);
+		    joinRunQueue(free_caps[i],t);
 
                     traceEventMigrateThread (cap, t, free_caps[i]->no);
 
@@ -1217,11 +1218,7 @@ scheduleHandleYield( Capability *cap, StgTSO *t, nat prev_what_next )
  * -------------------------------------------------------------------------- */
 
 static void
-scheduleHandleThreadBlocked( StgTSO *t
-#if !defined(DEBUG)
-    STG_UNUSED
-#endif
-    )
+scheduleHandleThreadBlocked( Capability *cap, StgTSO *t )
 {
 
       // We don't need to do anything.  The thread is blocked, and it
@@ -1233,6 +1230,8 @@ scheduleHandleThreadBlocked( StgTSO *t
     //    - the thread may have woken itself up already, because
     //      threadPaused() might have raised a blocked throwTo
     //      exception, see maybePerformBlockedException().
+
+    leaveRunQueue(cap, t);
 
 #ifdef DEBUG
     traceThreadStatus(DEBUG_sched, t);
@@ -1257,6 +1256,8 @@ scheduleHandleThreadFinished (Capability *cap STG_UNUSED, Task *task, StgTSO *t)
     // blocked mode (see #2910).
     awakenBlockedExceptionQueue (cap, t);
 
+    leaveRunQueue(cap, t);
+
       //
       // Check whether the thread that just completed was a bound
       // thread, and if so return with the result.  
@@ -1277,7 +1278,7 @@ scheduleHandleThreadFinished (Capability *cap STG_UNUSED, Task *task, StgTSO *t)
 	      // queue also ensures that the garbage collector knows about
 	      // this thread and its return value (it gets dropped from the
 	      // step->threads list so there's no other way to find it).
-	      appendToRunQueue(cap,t);
+	      joinRunQueue(cap,t);
 	      return rtsFalse;
 #else
 	      // this cannot happen in the threaded RTS, because a
@@ -2310,7 +2311,7 @@ scheduleThread(Capability *cap, StgTSO *tso)
 {
     // The thread goes at the *end* of the run-queue, to avoid possible
     // starvation of any threads already on the queue.
-    appendToRunQueue(cap,tso);
+    joinRunQueue(cap,tso);
 }
 
 void
@@ -2321,12 +2322,12 @@ scheduleThreadOn(Capability *cap, StgWord cpu USED_IF_THREADS, StgTSO *tso)
 #if defined(THREADED_RTS)
     cpu %= enabled_capabilities;
     if (cpu == cap->no) {
-	appendToRunQueue(cap,tso);
+	joinRunQueue(cap,tso);
     } else {
         migrateThread(cap, tso, &capabilities[cpu]);
     }
 #else
-    appendToRunQueue(cap,tso);
+    joinRunQueue(cap,tso);
 #endif
 }
 
@@ -2351,7 +2352,7 @@ scheduleWaitThread (StgTSO* tso, /*[out]*/HaskellObj* ret, Capability **pcap)
     task->incall->ret = ret;
     task->incall->stat = NoStatus;
 
-    appendToRunQueue(cap,tso);
+    joinRunQueue(cap,tso);
 
     DEBUG_ONLY( id = tso->id );
     debugTrace(DEBUG_sched, "new bound thread (%lu)", (unsigned long)id);
