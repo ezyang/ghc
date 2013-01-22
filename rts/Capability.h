@@ -113,6 +113,10 @@ struct Capability_ {
     Task *returning_tasks_hd; // Singly-linked, with head/tail
     Task *returning_tasks_tl;
 
+    // [SSS] Stride scheduling extensions.  The Task with this
+    // Capability has exclusive access to this variable.
+    StgWord64 ss_pass;
+
     // Messages, or END_TSO_QUEUE.
     // Locks required: cap->lock
     Message *inbox;

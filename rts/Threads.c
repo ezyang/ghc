@@ -112,6 +112,10 @@ createThread(Capability *cap, W_ size)
 
     tso->trec = NO_TREC;
 
+    tso->ss_tickets = DEFAULT_TICKETS;
+    tso->ss_stride = STRIDE1 / tso->ss_tickets;
+    tso->ss_remain = tso->ss_stride; // avoid starvation when lots of new threads are being created
+
 #ifdef PROFILING
     tso->prof.cccs = CCS_MAIN;
 #endif

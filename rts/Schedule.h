@@ -116,6 +116,12 @@ void interruptStgRts (void);
 
 void resurrectThreads (StgTSO *);
 
+// STRIDE1 defines the maximum resolution we can achieve in scheduling.
+#define STRIDE1 (1 << 20)
+// Defualt tickets is set to STRIDE1, so that the IO manager gets
+// maximum priority.
+#define DEFAULT_TICKETS (1 << 20)
+
 /* -----------------------------------------------------------------------------
  * Some convenient macros/inline functions...
  */
