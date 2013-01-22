@@ -1851,6 +1851,24 @@ primop  ThreadStatusOp "threadStatus#" GenPrimOp
    out_of_line = True
    has_side_effects = True
 
+primop  SetTicketsOp "setTickets#" GenPrimOp
+  ThreadId# -> Int# -> State# RealWorld -> State# RealWorld
+  with
+  out_of_line = True
+  has_side_effects = True
+
+primop  GetTicketsOp "getTickets#" GenPrimOp
+  ThreadId# -> State# RealWorld -> (# State# RealWorld, Int# #)
+  with
+  out_of_line = True
+  has_side_effects = True
+
+primop  ModifyTicketsOp "modifyTickets#" GenPrimOp
+  ThreadId# -> Int# -> Int# -> Int# -> State# RealWorld -> (# State# RealWorld, Int# #)
+  with
+  out_of_line = True
+  has_side_effects = True
+
 ------------------------------------------------------------------------
 section "Weak pointers"
 ------------------------------------------------------------------------

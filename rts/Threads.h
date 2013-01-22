@@ -13,6 +13,10 @@
 
 #define END_BLOCKED_EXCEPTIONS_QUEUE ((MessageThrowTo*)END_TSO_QUEUE)
 
+void setTickets(StgTSO *tso, W_ n);
+W_ modifyTickets(StgTSO *tso, W_ n, W_ d, W_ x);
+W_ getTickets(StgTSO *tso);
+
 StgTSO * unblockOne (Capability *cap, StgTSO *tso);
 StgTSO * unblockOne_ (Capability *cap, StgTSO *tso, rtsBool allow_migrate);
 
