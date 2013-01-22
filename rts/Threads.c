@@ -136,6 +136,30 @@ createThread(Capability *cap, W_ size)
 }
 
 /* ---------------------------------------------------------------------------
+ * Ticket allocations on threads
+ * ------------------------------------------------------------------------ */
+
+void
+setTickets(StgTSO *tso, W_ tickets)
+{
+    // XXX implement me
+}
+
+W_
+modifyTickets(StgTSO *tso, W_ n, W_ d, W_ x)
+{
+    // XXX implement me
+    return 0;
+}
+
+W_
+getTickets(StgTSO *tso)
+{
+    // XXX implement me
+    return 0;
+}
+
+/* ---------------------------------------------------------------------------
  * Comparing Thread ids.
  *
  * This is used from STG land in the implementation of the
