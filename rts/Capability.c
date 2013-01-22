@@ -276,6 +276,8 @@ initCapability( Capability *cap, nat i )
     cap->pinned_object_block = NULL;
     cap->pinned_object_blocks = NULL;
 
+    cap->ss_pass = 1;
+
 #ifdef PROFILING
     cap->r.rCCCS = CCS_SYSTEM;
 #else

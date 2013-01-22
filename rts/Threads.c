@@ -264,6 +264,7 @@ removeThreadFromDeQueue (Capability *cap,
 void
 tryWakeupThread (Capability *cap, StgTSO *tso)
 {
+    rtsBool migrating = rtsFalse;
     traceEventThreadWakeup (cap, tso, tso->cap->no);
 
 #ifdef THREADED_RTS
@@ -310,9 +311,10 @@ tryWakeupThread (Capability *cap, StgTSO *tso)
         goto unblock;
     }
 
+    case ThreadMigrating:
+        migrating = rtsTrue;
     case BlockedOnBlackHole:
     case BlockedOnSTM:
-    case ThreadMigrating:
         goto unblock;
 
     default:
@@ -324,7 +326,11 @@ unblock:
     // just run the thread now, if the BH is not really available,
     // we'll block again.
     tso->why_blocked = NotBlocked;
-    appendToRunQueue(cap,tso);
+    if (migrating) {
+        joinRunQueue(cap, tso);
+    } else {
+        appendToRunQueue(cap,tso);
+    }
 
     // We used to set the context switch flag here, which would
     // trigger a context switch a short time in the future (at the end
@@ -350,6 +356,7 @@ migrateThread (Capability *from, StgTSO *tso, Capability *to)
     traceEventMigrateThread (from, tso, to->no);
     // ThreadMigrating tells the target cap that it needs to be added to
     // the run queue when it receives the MSG_TRY_WAKEUP.
+    leaveRunQueue(from, tso);
     tso->why_blocked = ThreadMigrating;
     tso->cap = to;
     tryWakeupThread(from, tso);

@@ -151,6 +151,11 @@ appendToRunQueue (Capability *cap, StgTSO *tso)
     cap->run_queue_tl = tso;
 }
 
+INLINE_HEADER void
+joinRunQueue(Capability *cap, StgTSO *tso) {
+    appendToRunQueue(cap, tso);
+}
+
 /* Push a thread on the beginning of the run queue.
  * ASSUMES: cap->running_task is the current task.
  */
@@ -169,6 +174,11 @@ pushOnRunQueue (Capability *cap, StgTSO *tso)
     if (cap->run_queue_tl == END_TSO_QUEUE) {
 	cap->run_queue_tl = tso;
     }
+}
+
+INLINE_HEADER void
+fastJoinRunQueue(Capability *cap, StgTSO *tso) {
+    pushOnRunQueue(cap, tso);
 }
 
 /* Pop the first thread off the runnable queue.
@@ -193,6 +203,12 @@ INLINE_HEADER StgTSO *
 peekRunQueue (Capability *cap)
 {
     return cap->run_queue_hd;
+}
+
+INLINE_HEADER void
+leaveRunQueue (Capability *cap STG_UNUSED, StgTSO *tso STG_UNUSED)
+{
+    // XXX implement me
 }
 
 void removeFromRunQueue (Capability *cap, StgTSO *tso);

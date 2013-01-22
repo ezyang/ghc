@@ -58,6 +58,10 @@ struct Capability_ {
     StgTSO *run_queue_hd;
     StgTSO *run_queue_tl;
 
+    // [SSS] Stride scheduling extensions.  The Task with this
+    // Capability has exclusive access to this variable.
+    StgWord64 ss_pass;
+
     // Tasks currently making safe foreign calls.  Doubly-linked.
     // When returning, a task first acquires the Capability before
     // removing itself from this list, so that the GC can find all
@@ -112,10 +116,6 @@ struct Capability_ {
     // check whether it is NULL without taking the lock, however.
     Task *returning_tasks_hd; // Singly-linked, with head/tail
     Task *returning_tasks_tl;
-
-    // [SSS] Stride scheduling extensions.  The Task with this
-    // Capability has exclusive access to this variable.
-    StgWord64 ss_pass;
 
     // Messages, or END_TSO_QUEUE.
     // Locks required: cap->lock
