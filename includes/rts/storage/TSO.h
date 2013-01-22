@@ -168,6 +168,11 @@ typedef struct StgTSO_ {
      */
     StgWord32  tot_stack_size;
 
+    // These are bounded above by STRIDE1, which is less than a max 32-bit word.
+    StgWord32 ss_tickets;
+    // 64-bit to prevent overflows; only ever accessed by the task which owns TSO.
+    StgWord64 ss_pass;
+
 } *StgTSOPtr;
 
 typedef struct StgStack_ {

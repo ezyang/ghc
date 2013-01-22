@@ -112,6 +112,8 @@ createThread(Capability *cap, W_ size)
 
     tso->trec = NO_TREC;
 
+    tso->ss_tickets = DEFAULT_TICKETS;
+
 #ifdef PROFILING
     tso->prof.cccs = CCS_MAIN;
 #endif
