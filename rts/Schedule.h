@@ -141,18 +141,45 @@ EXTERN_INLINE void
 appendToRunQueue (Capability *cap, StgTSO *tso)
 {
     ASSERT(tso->_link == END_TSO_QUEUE);
+    tso->ss_pass += tso->ss_stride;
     if (cap->run_queue_hd == END_TSO_QUEUE) {
 	cap->run_queue_hd = tso;
         tso->block_info.prev = END_TSO_QUEUE;
+        cap->run_queue_tl = tso;
     } else {
-	setTSOLink(cap, cap->run_queue_tl, tso);
-        setTSOPrev(cap, tso, cap->run_queue_tl);
+        StgTSO *t, *next;
+        next = END_TSO_QUEUE;
+        for (t = cap->run_queue_tl; t != END_TSO_QUEUE; next = t, t = t->block_info.prev) {
+            if (tso->ss_pass >= t->ss_pass || t->flags & TSO_PROMOTED) {
+                if (next == END_TSO_QUEUE) {
+                    // it's the last one!
+                    // this should overwhelmingly be the case when priorities
+                    // are not being set
+                    setTSOLink(cap, cap->run_queue_tl, tso);
+                    setTSOPrev(cap, tso, cap->run_queue_tl);
+                    cap->run_queue_tl = tso;
+                } else {
+                    // XXX is there like a necessary order or something?
+                    setTSOLink(cap, tso, next);
+                    setTSOPrev(cap, tso, t);
+                    setTSOLink(cap, t, tso);
+                    setTSOPrev(cap, next, tso);
+                }
+                break;
+            }
+        }
+        if (t == END_TSO_QUEUE) {
+            setTSOLink(cap, tso, cap->run_queue_hd);
+            tso->block_info.prev = END_TSO_QUEUE;
+            cap->run_queue_hd = tso;
+        }
     }
-    cap->run_queue_tl = tso;
 }
 
 INLINE_HEADER void
 joinRunQueue(Capability *cap, StgTSO *tso) {
+    tso->ss_pass = cap->ss_pass + tso->ss_remain;
+    tso->flags &= ~TSO_PROMOTED;
     appendToRunQueue(cap, tso);
 }
 
@@ -162,9 +189,19 @@ joinRunQueue(Capability *cap, StgTSO *tso) {
 EXTERN_INLINE void
 pushOnRunQueue (Capability *cap, StgTSO *tso);
 
+// This code is a little dangerous, since it temporarily bypasses
+// stride scheduling.  However, since we do increase ss_pass,
+// as long as the process doesn't continually get rescheduled with
+// pushOn, it will eventually be penalized for the time it took.
+// Since I think the old code was written to avoid this kid of
+// starvation, deferred punishment should be OK. (Also, failing
+// to put threads in front after they allocate causes massive
+// performance problems.)
 EXTERN_INLINE void
 pushOnRunQueue (Capability *cap, StgTSO *tso)
 {
+    tso->ss_pass += tso->ss_stride;
+    tso->flags |= TSO_PROMOTED;
     setTSOLink(cap, tso, cap->run_queue_hd);
     tso->block_info.prev = END_TSO_QUEUE;
     if (cap->run_queue_hd != END_TSO_QUEUE) {
@@ -172,12 +209,13 @@ pushOnRunQueue (Capability *cap, StgTSO *tso)
     }
     cap->run_queue_hd = tso;
     if (cap->run_queue_tl == END_TSO_QUEUE) {
-	cap->run_queue_tl = tso;
+        cap->run_queue_tl = tso;
     }
 }
 
 INLINE_HEADER void
 fastJoinRunQueue(Capability *cap, StgTSO *tso) {
+    tso->ss_pass = cap->ss_pass + tso->ss_remain;
     pushOnRunQueue(cap, tso);
 }
 
@@ -196,6 +234,17 @@ popRunQueue (Capability *cap)
     if (cap->run_queue_hd == END_TSO_QUEUE) {
 	cap->run_queue_tl = END_TSO_QUEUE;
     }
+    if (t->flags & TSO_PROMOTED) {
+        t->flags &= ~TSO_PROMOTED;
+        // its pass is nonsense, don't count it
+    } else {
+        if (cap->run_queue_hd != END_TSO_QUEUE) {
+            // relies on a PROMOTED invariant: promoted elements
+            // are ALWAYS in the front of the queue
+            ASSERT(cap->run_queue_hd->flags & TSO_PROMOTED == 0);
+            cap->ss_pass = cap->run_queue_hd->ss_pass;
+        }
+    }
     return t;
 }
 
@@ -208,7 +257,12 @@ peekRunQueue (Capability *cap)
 INLINE_HEADER void
 leaveRunQueue (Capability *cap STG_UNUSED, StgTSO *tso STG_UNUSED)
 {
-    // XXX implement me
+    int r = tso->ss_pass - cap->ss_pass;
+    if (r > 0) {
+        tso->ss_remain = (StgWord32)r;
+    } else {
+        tso->ss_remain = 0;
+    }
 }
 
 void removeFromRunQueue (Capability *cap, StgTSO *tso);

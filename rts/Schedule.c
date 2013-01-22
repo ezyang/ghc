@@ -575,6 +575,7 @@ removeFromRunQueue (Capability *cap, StgTSO *tso)
         setTSOPrev(cap, tso->_link, tso->block_info.prev);
     }
     tso->_link = tso->block_info.prev = END_TSO_QUEUE;
+    tso->flags &= ~TSO_PROMOTED;
 
     IF_DEBUG(sanity, checkRunQueue(cap));
 }

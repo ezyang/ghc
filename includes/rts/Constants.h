@@ -273,6 +273,12 @@
  */
 #define TSO_SQUEEZED 128
 
+/**
+ * Used to indicate that the TSO got promoted in the run queue, and thus
+ * that its ss_pass is not indicative of the true state of the system.
+ */
+#define TSO_PROMOTED 256
+
 /*
  * The number of times we spin in a spin lock before yielding (see
  * #3758).  To tune this value, use the benchmark in #3758: run the
