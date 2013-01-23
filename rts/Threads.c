@@ -143,24 +143,50 @@ createThread(Capability *cap, W_ size)
  * Ticket allocations on threads
  * ------------------------------------------------------------------------ */
 
+#define TICKET_ERROR (STRIDE1 + 1)
+
 void
 setTickets(StgTSO *tso, W_ tickets)
 {
-    // XXX implement me
+    if (tickets > STRIDE1) {
+        barf("setTickets: too many tickets");
+    } else if (tickets <= 0) {
+        barf("setTickets: too few tickets");
+    }
+    ACQUIRE_LOCK(&sched_mutex);
+    StgWord64 stride = STRIDE1 / tickets;
+    StgWord64 remain = (tso->ss_remain * stride) / tso->ss_stride;
+    tso->ss_tickets = tickets;
+    tso->ss_stride = stride;
+    tso->ss_remain = remain;
+    RELEASE_LOCK(&sched_mutex);
 }
 
 W_
 modifyTickets(StgTSO *tso, W_ n, W_ d, W_ x)
 {
-    // XXX implement me
-    return 0;
+    ACQUIRE_LOCK(&sched_mutex);
+    W_ tickets = (tso->ss_tickets * n) / d + x;
+    W_ delta;
+    if (tickets > STRIDE1 || tickets <= 0) {
+        delta = TICKET_ERROR;
+        goto cleanup;
+    }
+    StgWord64 stride = STRIDE1 / tickets;
+    StgWord64 remain = (tso->ss_remain * stride) / tso->ss_stride;
+    delta = tso->ss_tickets - tickets;
+    tso->ss_tickets = tickets;
+    tso->ss_stride = stride;
+    tso->ss_remain = remain;
+cleanup:
+    RELEASE_LOCK(&sched_mutex);
+    return delta;
 }
 
 W_
 getTickets(StgTSO *tso)
 {
-    // XXX implement me
-    return 0;
+    return tso->ss_tickets;
 }
 
 /* ---------------------------------------------------------------------------
