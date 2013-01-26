@@ -560,30 +560,16 @@ run_thread:
  * -------------------------------------------------------------------------- */
 
 void
-removeFromRunQueue (Capability *cap, StgTSO *tso)
+removeFromRunQueue (Capability *cap STG_UNUSED, StgTSO *tso STG_UNUSED)
 {
-    if (tso->block_info.prev == END_TSO_QUEUE) {
-        ASSERT(cap->run_queue_hd == tso);
-        cap->run_queue_hd = tso->_link;
-    } else {
-        setTSOLink(cap, tso->block_info.prev, tso->_link);
-    }
-    if (tso->_link == END_TSO_QUEUE) {
-        ASSERT(cap->run_queue_tl == tso);
-        cap->run_queue_tl = tso->block_info.prev;
-    } else {
-        setTSOPrev(cap, tso->_link, tso->block_info.prev);
-    }
-    tso->_link = tso->block_info.prev = END_TSO_QUEUE;
-
-    IF_DEBUG(sanity, checkRunQueue(cap));
+    //barf("removeFromRunQueue");
 }
 
 void
-promoteInRunQueue (Capability *cap, StgTSO *tso)
+promoteInRunQueue (Capability *cap STG_UNUSED, StgTSO *tso STG_UNUSED)
 {
-    removeFromRunQueue(cap, tso);
-    pushOnRunQueue(cap, tso);
+    //removeFromRunQueue(cap, tso);
+    //pushOnRunQueue(cap, tso);
 }
 
 /* ----------------------------------------------------------------------------
@@ -742,7 +728,7 @@ schedulePushWork(Capability *cap USED_IF_THREADS,
     //   - giving low priority to moving long-lived threads
 
     if (n_free_caps > 0) {
-	StgTSO *prev, *t, *next;
+	//StgTSO *prev, *t, *next;
 #ifdef SPARK_PUSHING
 	rtsBool pushed_to_all;
 #endif
@@ -759,6 +745,7 @@ schedulePushWork(Capability *cap USED_IF_THREADS,
 	pushed_to_all = rtsFalse;
 #endif
 
+        /*
 	if (cap->run_queue_hd != END_TSO_QUEUE) {
 	    prev = cap->run_queue_hd;
 	    t = prev->_link;
@@ -795,6 +782,7 @@ schedulePushWork(Capability *cap USED_IF_THREADS,
 
             IF_DEBUG(sanity, checkRunQueue(cap));
 	}
+        */
 
 #ifdef SPARK_PUSHING
 	/* JB I left this code in place, it would work but is not necessary */

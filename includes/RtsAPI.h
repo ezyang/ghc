@@ -37,6 +37,8 @@ typedef struct StgClosure_ *HaskellObj;
  */
 typedef struct Capability_ Capability;
 
+typedef struct StgRB_ StgRB;
+
 /*
  * The public view of a Capability: we can be sure it starts with
  * these two components (but it may have more private fields).

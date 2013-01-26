@@ -13,6 +13,7 @@
 #include "rts/OSThreads.h"
 #include "Capability.h"
 #include "Trace.h"
+#include "RBTree.h"
 
 #include "BeginPrivate.h"
 
@@ -140,15 +141,29 @@ appendToRunQueue (Capability *cap, StgTSO *tso);
 EXTERN_INLINE void
 appendToRunQueue (Capability *cap, StgTSO *tso)
 {
-    ASSERT(tso->_link == END_TSO_QUEUE);
-    if (cap->run_queue_hd == END_TSO_QUEUE) {
-	cap->run_queue_hd = tso;
-        tso->block_info.prev = END_TSO_QUEUE;
+    tso->block_info.closure = (StgClosure*)END_TSO_QUEUE;
+    tso->ss_pass += STRIDE1 / tso->ss_tickets;
+    StgTSO *cur = RB_HEAD_GET(cap->run_active);
+    cap->run_count++;
+    if (cur == END_TSO_QUEUE) {
+        // fastpath
+        ASSERT(RB_IS_BLACK(cap->run_active));
+        ASSERT(RB_LEFT_GET(cap->run_active) == RB_NULL);
+        ASSERT(RB_RIGHT_GET(cap->run_active) == RB_NULL);
+        RB_HEAD_SET(cap, cap->run_active, tso);
+        RB_TAIL_SET(cap, cap->run_active, tso);
     } else {
-	setTSOLink(cap, cap->run_queue_tl, tso);
-        setTSOPrev(cap, tso, cap->run_queue_tl);
+        StgWord64 pass = cur->ss_pass;
+        if (tso->ss_pass < pass) {
+            cap->run_active = rbInsert(cap, &cap->run_rbtree, tso);
+        } else if (tso->ss_pass == pass) {
+            setTSOLink(cap, RB_TAIL_GET(cap->run_active), tso);
+            RB_TAIL_SET(cap, cap->run_active, tso);
+        } else {
+            rbInsert(cap, &cap->run_rbtree, tso);
+        }
+        IF_DEBUG(sanity, checkRBTree(cap->run_rbtree, 1, 0, -1));
     }
-    cap->run_queue_tl = tso;
 }
 
 EXTERN_INLINE void
@@ -157,6 +172,7 @@ joinRunQueue(Capability *cap, StgTSO *tso);
 EXTERN_INLINE void
 joinRunQueue(Capability *cap, StgTSO *tso)
 {
+    tso->ss_pass = cap->ss_pass - STRIDE1 / tso->ss_tickets;
     appendToRunQueue(cap, tso);
 }
 
@@ -169,15 +185,14 @@ pushOnRunQueue (Capability *cap, StgTSO *tso);
 EXTERN_INLINE void
 pushOnRunQueue (Capability *cap, StgTSO *tso)
 {
-    setTSOLink(cap, tso, cap->run_queue_hd);
-    tso->block_info.prev = END_TSO_QUEUE;
-    if (cap->run_queue_hd != END_TSO_QUEUE) {
-        setTSOPrev(cap, cap->run_queue_hd, tso);
+    tso->block_info.closure = (StgClosure*)END_TSO_QUEUE;
+    tso->ss_pass += STRIDE1 / tso->ss_tickets;
+    cap->run_count++;
+    if (cap->promoted_run_queue_hd == END_TSO_QUEUE) {
+    } else {
+        setTSOLink(cap, tso, cap->promoted_run_queue_hd);
     }
-    cap->run_queue_hd = tso;
-    if (cap->run_queue_tl == END_TSO_QUEUE) {
-	cap->run_queue_tl = tso;
-    }
+    cap->promoted_run_queue_hd = tso;
 }
 
 EXTERN_INLINE void
@@ -186,6 +201,7 @@ fastJoinRunQueue(Capability *cap, StgTSO *tso);
 EXTERN_INLINE void
 fastJoinRunQueue(Capability *cap, StgTSO *tso)
 {
+    tso->ss_pass = cap->ss_pass - STRIDE1 / tso->ss_tickets;
     pushOnRunQueue(cap, tso);
 }
 
@@ -194,30 +210,58 @@ fastJoinRunQueue(Capability *cap, StgTSO *tso)
 INLINE_HEADER StgTSO *
 popRunQueue (Capability *cap)
 { 
-    StgTSO *t = cap->run_queue_hd;
-    ASSERT(t != END_TSO_QUEUE);
-    cap->run_queue_hd = t->_link;
-    if (t->_link != END_TSO_QUEUE) {
-        t->_link->block_info.prev = END_TSO_QUEUE;
+    cap->run_count--;
+    if (cap->promoted_run_queue_hd == END_TSO_QUEUE) {
+        StgTSO *candidate = RB_HEAD_GET(cap->run_active);
+        if (candidate == END_TSO_QUEUE) {
+            barf("popRunQueue: queue is empty");
+        }
+        if ( // unconditional fastpath (no-rb tree)
+             (candidate->_link != END_TSO_QUEUE) ||
+             // fastpath for a queue that just got emptied
+             (cap->run_rbtree == cap->run_active && RB_RIGHT_GET(cap->run_active) == RB_NULL)
+        ) {
+            RB_HEAD_SET(cap, cap->run_active, candidate->_link);
+            if (candidate->_link == END_TSO_QUEUE) {
+                RB_TAIL_SET(cap, cap->run_active, END_TSO_QUEUE);
+            }
+            candidate->_link = END_TSO_QUEUE;
+            return candidate;
+        }
+        StgTSO *t = rbRemoveMin(cap, &cap->run_rbtree);
+        IF_DEBUG(sanity, checkRBTree(cap->run_rbtree, 1, 0, -1));
+        // XXX maybe this can be folded into removeMin
+        cap->run_active = rbFirst(cap->run_rbtree);
+        if (RB_HEAD_GET(cap->run_active) != END_TSO_QUEUE) {
+            StgWord64 npass = RB_HEAD_GET(cap->run_active)->ss_pass;
+            if (npass > cap->ss_pass) {
+                cap->ss_pass = npass;
+            }
+        }
+        return t;
+    } else {
+        StgTSO *t = cap->promoted_run_queue_hd;
+        cap->promoted_run_queue_hd = t->_link;
+        t->_link = END_TSO_QUEUE; // no write barrier req'd
+        return t;
     }
-    t->_link = END_TSO_QUEUE; // no write barrier req'd
-    if (cap->run_queue_hd == END_TSO_QUEUE) {
-	cap->run_queue_tl = END_TSO_QUEUE;
-    }
-    return t;
 }
 
 INLINE_HEADER StgTSO *
 peekRunQueue (Capability *cap)
 {
-    return cap->run_queue_hd;
+    if (cap->promoted_run_queue_hd == END_TSO_QUEUE) {
+        return RB_HEAD_GET(cap->run_active);
+    } else {
+        return cap->promoted_run_queue_hd;
+    }
 }
 
 EXTERN_INLINE void
 leaveRunQueue (Capability *cap, StgTSO *tso);
 
 EXTERN_INLINE void
-leaveRunQueue (Capability *cap, StgTSO *tso)
+leaveRunQueue (Capability *cap STG_UNUSED, StgTSO *tso STG_UNUSED)
 {
     // XXX implement me
 }
@@ -233,9 +277,9 @@ appendToBlockedQueue(StgTSO *tso)
 {
     ASSERT(tso->_link == END_TSO_QUEUE);
     if (blocked_queue_hd == END_TSO_QUEUE) {
-	blocked_queue_hd = tso;
+       blocked_queue_hd = tso;
     } else {
-	setTSOLink(&MainCapability, blocked_queue_tl, tso);
+       setTSOLink(&MainCapability, blocked_queue_tl, tso);
     }
     blocked_queue_tl = tso;
 }
@@ -252,23 +296,22 @@ emptyQueue (StgTSO *q)
 INLINE_HEADER rtsBool
 emptyRunQueue(Capability *cap)
 {
-    return emptyQueue(cap->run_queue_hd);
+    return cap->run_count == 0;
 }
 
-/* assumes that the queue is not empty; so combine this with
- * an emptyRunQueue check! */
 INLINE_HEADER rtsBool
 singletonRunQueue(Capability *cap)
 {
-    ASSERT(!emptyRunQueue(cap));
-    return cap->run_queue_hd->_link == END_TSO_QUEUE;
+    return cap->run_count == 1;
 }
 
 INLINE_HEADER void
 truncateRunQueue(Capability *cap)
 {
-    cap->run_queue_hd = END_TSO_QUEUE;
-    cap->run_queue_tl = END_TSO_QUEUE;
+    cap->promoted_run_queue_hd = END_TSO_QUEUE;
+    // XXX leak
+    cap->run_rbtree = cap->run_active = rbCreateNode(cap, END_TSO_QUEUE);
+    cap->run_count = 0;
 }
 
 #if !defined(THREADED_RTS)

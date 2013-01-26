@@ -26,6 +26,7 @@
 #include "sm/GC.h" // for gcWorkerThread()
 #include "STM.h"
 #include "RtsUtils.h"
+#include "RBTree.h"
 
 #include <string.h>
 
@@ -230,8 +231,7 @@ initCapability( Capability *cap, nat i )
     cap->idle              = 0;
     cap->disabled          = rtsFalse;
 
-    cap->run_queue_hd      = END_TSO_QUEUE;
-    cap->run_queue_tl      = END_TSO_QUEUE;
+    cap->promoted_run_queue_hd = END_TSO_QUEUE;
 
 #if defined(THREADED_RTS)
     initMutex(&cap->lock);
@@ -281,6 +281,11 @@ initCapability( Capability *cap, nat i )
 #else
     cap->r.rCCCS = NULL;
 #endif
+
+    cap->rb_free_list      = RB_NULL;
+    cap->run_count         = 0;
+    cap->run_rbtree        = rbCreateNode(cap, END_TSO_QUEUE);
+    cap->run_active        = cap->run_rbtree;
 
     traceCapCreate(cap);
     traceCapsetAssignCap(CAPSET_OSPROCESS_DEFAULT, i);
@@ -1007,8 +1012,8 @@ markCapability (evac_fn evac, void *user, Capability *cap,
     // or fewer Capabilities as GC threads, but just in case there
     // are more, we mark every Capability whose number is the GC
     // thread's index plus a multiple of the number of GC threads.
-    evac(user, (StgClosure **)(void *)&cap->run_queue_hd);
-    evac(user, (StgClosure **)(void *)&cap->run_queue_tl);
+    evac(user, (StgClosure **)(void *)&cap->promoted_run_queue_hd);
+    rbEvacuate(evac, user, cap->run_rbtree);
 #if defined(THREADED_RTS)
     evac(user, (StgClosure **)(void *)&cap->inbox);
 #endif

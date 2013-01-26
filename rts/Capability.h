@@ -55,8 +55,12 @@ struct Capability_ {
     // access to its run queue, so can wake up threads without
     // taking a lock, and the common path through the scheduler is
     // also lock-free.
-    StgTSO *run_queue_hd;
-    StgTSO *run_queue_tl;
+    StgTSO *promoted_run_queue_hd;
+    // XXX move StgRB somewhere not RBTree.h to break circular dep
+    StgRB *run_rbtree;
+    StgRB *run_active; // cached pointer to min red-black tree element
+    StgRB *rb_free_list; // free list of RBNodes
+    nat run_count;
 
     // [SSS] Stride scheduling extensions.  The Task with this
     // Capability has exclusive access to this variable.
@@ -153,6 +157,11 @@ struct Capability_ {
 // These properties should be true when a Task is holding a Capability
 #define ASSERT_FULL_CAPABILITY_INVARIANTS(cap,task)			\
   ASSERT(cap->running_task != NULL && cap->running_task == task);	\
+  ASSERT((cap->run_rbtree == RB_NULL) == (cap->run_active == RB_NULL)); \
+  ASSERT((cap->run_active == RB_NULL && cap->run_rbtree == RB_NULL) ||\
+         (RB_HEAD_GET(cap->run_active) != END_TSO_QUEUE && RB_TAIL_GET(cap->run_active) != END_TSO_QUEUE) || \
+         (RB_HEAD_GET(cap->run_active) == END_TSO_QUEUE && RB_TAIL_GET(cap->run_active) == END_TSO_QUEUE && \
+            RB_LEFT_GET(cap->run_active) == RB_NULL && RB_RIGHT_GET(cap->run_active) == RB_NULL));\
   ASSERT(task->cap == cap);						\
   ASSERT_PARTIAL_CAPABILITY_INVARIANTS(cap,task)
 
@@ -162,8 +171,6 @@ struct Capability_ {
 // Task is bound, its thread has just blocked, and it may have been
 // moved to another Capability.
 #define ASSERT_PARTIAL_CAPABILITY_INVARIANTS(cap,task)	\
-  ASSERT(cap->run_queue_hd == END_TSO_QUEUE ?		\
-	    cap->run_queue_tl == END_TSO_QUEUE : 1);	\
   ASSERT(myTask() == task);				\
   ASSERT_TASK_ID(task);
 

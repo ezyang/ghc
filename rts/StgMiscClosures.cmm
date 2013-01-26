@@ -546,6 +546,11 @@ INFO_TABLE_CONSTR(stg_END_TSO_QUEUE,0,0,0,CONSTR_NOCAF_STATIC,"END_TSO_QUEUE","E
 
 CLOSURE(stg_END_TSO_QUEUE_closure,stg_END_TSO_QUEUE);
 
+INFO_TABLE_CONSTR(stg_RB_NULL,0,0,0,CONSTR_NOCAF_STATIC,"RB_NULL","RB_NULL")
+{ foreign "C" barf("RB_NULL object entered!") never returns; }
+
+CLOSURE(stg_RB_NULL_closure,stg_RB_NULL);
+
 /* ----------------------------------------------------------------------------
    STM_AWOKEN
 
