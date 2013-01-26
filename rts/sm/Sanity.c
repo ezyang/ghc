@@ -789,14 +789,7 @@ findMemoryLeak (void)
 void
 checkRunQueue(Capability *cap)
 {
-    StgTSO *prev, *tso;
-    prev = END_TSO_QUEUE;
-    for (tso = cap->run_queue_hd; tso != END_TSO_QUEUE; 
-         prev = tso, tso = tso->_link) {
-        ASSERT(prev == END_TSO_QUEUE || prev->_link == tso);
-        ASSERT(tso->block_info.prev == prev);
-    }
-    ASSERT(cap->run_queue_tl == prev);
+    // [SSS] no-op
 }
 
 /* -----------------------------------------------------------------------------

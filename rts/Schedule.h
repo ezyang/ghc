@@ -129,6 +129,19 @@ void resurrectThreads (StgTSO *);
 #if !IN_STG_CODE
 
 /* END_TSO_QUEUE and friends now defined in includes/stg/MiscClosures.h */
+EXTERN_INLINE void
+annulTSO(StgTSO *tso);
+
+EXTERN_INLINE void
+annulTSO(StgTSO *tso) {
+    // hack to make some invariants with regards to block_info and _link work
+    // this is called whereever we would have stepped all over the
+    // fields in the linked list implementation
+    ASSERT(tso->_link == END_TSO_QUEUE);
+    tso->block_info.closure = (StgClosure*)END_TSO_QUEUE;
+}
+
+/* END_TSO_QUEUE and friends now defined in includes/StgMiscClosures.h */
 
 /* Add a thread to the end of the run queue.
  * NOTE: tso->link should be END_TSO_QUEUE before calling this macro.
@@ -140,15 +153,10 @@ appendToRunQueue (Capability *cap, StgTSO *tso);
 EXTERN_INLINE void
 appendToRunQueue (Capability *cap, StgTSO *tso)
 {
-    ASSERT(tso->_link == END_TSO_QUEUE);
-    if (cap->run_queue_hd == END_TSO_QUEUE) {
-	cap->run_queue_hd = tso;
-        tso->block_info.prev = END_TSO_QUEUE;
-    } else {
-	setTSOLink(cap, cap->run_queue_tl, tso);
-        setTSOPrev(cap, tso, cap->run_queue_tl);
-    }
-    cap->run_queue_tl = tso;
+    tso->ss_pass = cap->ss_pass++;                                          // [EMU]
+    //tso->ss_pass += STRIDE1 / tso->ss_tickets;                            // [EMU]
+    annulTSO(tso);
+    insertPQueue(cap->run_pqueue, tso);
 }
 
 EXTERN_INLINE void
@@ -157,6 +165,7 @@ joinRunQueue(Capability *cap, StgTSO *tso);
 EXTERN_INLINE void
 joinRunQueue(Capability *cap, StgTSO *tso)
 {
+    tso->ss_pass = cap->ss_pass++;
     appendToRunQueue(cap, tso);
 }
 
@@ -169,15 +178,14 @@ pushOnRunQueue (Capability *cap, StgTSO *tso);
 EXTERN_INLINE void
 pushOnRunQueue (Capability *cap, StgTSO *tso)
 {
-    setTSOLink(cap, tso, cap->run_queue_hd);
-    tso->block_info.prev = END_TSO_QUEUE;
-    if (cap->run_queue_hd != END_TSO_QUEUE) {
-        setTSOPrev(cap, cap->run_queue_hd, tso);
+    annulTSO(tso);                                                          // [EMU]
+    //tso->ss_pass += STRIDE1 / tso->ss_tickets;                            // [EMU]
+    if (cap->promoted_run_queue_hd == END_TSO_QUEUE) {
+        // annulTSO invariant used here
+    } else {
+        setTSOLink(cap, tso, cap->promoted_run_queue_hd);
     }
-    cap->run_queue_hd = tso;
-    if (cap->run_queue_tl == END_TSO_QUEUE) {
-	cap->run_queue_tl = tso;
-    }
+    cap->promoted_run_queue_hd = tso;
 }
 
 EXTERN_INLINE void
@@ -186,6 +194,7 @@ fastJoinRunQueue(Capability *cap, StgTSO *tso);
 EXTERN_INLINE void
 fastJoinRunQueue(Capability *cap, StgTSO *tso)
 {
+    tso->ss_pass = cap->ss_pass++;                                          // [EMU]
     pushOnRunQueue(cap, tso);
 }
 
@@ -193,36 +202,43 @@ fastJoinRunQueue(Capability *cap, StgTSO *tso)
  */
 INLINE_HEADER StgTSO *
 popRunQueue (Capability *cap)
-{ 
-    StgTSO *t = cap->run_queue_hd;
-    ASSERT(t != END_TSO_QUEUE);
-    cap->run_queue_hd = t->_link;
-    if (t->_link != END_TSO_QUEUE) {
-        t->_link->block_info.prev = END_TSO_QUEUE;
+{
+    if (cap->promoted_run_queue_hd == END_TSO_QUEUE) {
+        StgTSO *t = deleteMinPQueue(cap->run_pqueue);
+        StgTSO *next = peekMinPQueue(cap->run_pqueue);
+        /* if (next != NULL) {
+            if (cap->ss_pass < next->ss_pass) {
+                cap->ss_pass = next->ss_pass;
+            }
+        } */                                                                // [EMU]
+        return t;
+    } else {
+        StgTSO *t = cap->promoted_run_queue_hd;
+        cap->promoted_run_queue_hd = t->_link;
+        t->_link = END_TSO_QUEUE; // no write barrier req'd
+        return t;
     }
-    t->_link = END_TSO_QUEUE; // no write barrier req'd
-    if (cap->run_queue_hd == END_TSO_QUEUE) {
-	cap->run_queue_tl = END_TSO_QUEUE;
-    }
-    return t;
 }
 
 INLINE_HEADER StgTSO *
 peekRunQueue (Capability *cap)
 {
-    return cap->run_queue_hd;
+    if (cap->promoted_run_queue_hd == END_TSO_QUEUE) {
+        return peekMinPQueue(cap->run_pqueue);
+    } else {
+        return cap->promoted_run_queue_hd;
+    }
 }
 
 EXTERN_INLINE void
-leaveRunQueue (Capability *cap, StgTSO *tso);
+leaveRunQueue(Capability *cap, StgTSO *tso);
 
 EXTERN_INLINE void
-leaveRunQueue (Capability *cap, StgTSO *tso)
+leaveRunQueue(Capability *cap, StgTSO *tso)
 {
     // XXX implement me
 }
 
-void removeFromRunQueue (Capability *cap, StgTSO *tso);
 extern void promoteInRunQueue (Capability *cap, StgTSO *tso);
 
 /* Add a thread to the end of the blocked queue.
@@ -252,7 +268,7 @@ emptyQueue (StgTSO *q)
 INLINE_HEADER rtsBool
 emptyRunQueue(Capability *cap)
 {
-    return emptyQueue(cap->run_queue_hd);
+    return cap->promoted_run_queue_hd == END_TSO_QUEUE && peekMinPQueue(cap->run_pqueue) == NULL;
 }
 
 /* assumes that the queue is not empty; so combine this with
@@ -260,15 +276,19 @@ emptyRunQueue(Capability *cap)
 INLINE_HEADER rtsBool
 singletonRunQueue(Capability *cap)
 {
-    ASSERT(!emptyRunQueue(cap));
-    return cap->run_queue_hd->_link == END_TSO_QUEUE;
+    if (cap->promoted_run_queue_hd != END_TSO_QUEUE) {
+        if (cap->run_pqueue->size != 0) return 0;
+        return cap->promoted_run_queue_hd->_link == END_TSO_QUEUE;
+    } else {
+        return cap->run_pqueue->size == 1;
+    }
 }
 
 INLINE_HEADER void
 truncateRunQueue(Capability *cap)
 {
-    cap->run_queue_hd = END_TSO_QUEUE;
-    cap->run_queue_tl = END_TSO_QUEUE;
+    cap->promoted_run_queue_hd = END_TSO_QUEUE;
+    truncatePQueue(cap->run_pqueue);
 }
 
 #if !defined(THREADED_RTS)

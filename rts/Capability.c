@@ -230,8 +230,8 @@ initCapability( Capability *cap, nat i )
     cap->idle              = 0;
     cap->disabled          = rtsFalse;
 
-    cap->run_queue_hd      = END_TSO_QUEUE;
-    cap->run_queue_tl      = END_TSO_QUEUE;
+    cap->run_pqueue        = newPQueue(4); // tune this...
+    cap->promoted_run_queue_hd = END_TSO_QUEUE;
 
 #if defined(THREADED_RTS)
     initMutex(&cap->lock);
@@ -1007,8 +1007,11 @@ markCapability (evac_fn evac, void *user, Capability *cap,
     // or fewer Capabilities as GC threads, but just in case there
     // are more, we mark every Capability whose number is the GC
     // thread's index plus a multiple of the number of GC threads.
-    evac(user, (StgClosure **)(void *)&cap->run_queue_hd);
-    evac(user, (StgClosure **)(void *)&cap->run_queue_tl);
+    nat i;
+    if (cap->promoted_run_queue_hd != END_TSO_QUEUE) {
+        evac(user, (StgClosure **)&cap->promoted_run_queue_hd);
+    }
+    markPQueue(cap->run_pqueue, evac, user);
 #if defined(THREADED_RTS)
     evac(user, (StgClosure **)(void *)&cap->inbox);
 #endif

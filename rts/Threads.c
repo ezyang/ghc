@@ -113,6 +113,7 @@ createThread(Capability *cap, W_ size)
     tso->trec = NO_TREC;
 
     tso->ss_tickets = DEFAULT_TICKETS;
+    tso->ss_pass = cap->ss_pass;
 
 #ifdef PROFILING
     tso->prof.cccs = CCS_MAIN;
@@ -844,9 +845,8 @@ printAllThreads(void)
   for (i = 0; i < n_capabilities; i++) {
       cap = &capabilities[i];
       debugBelch("threads on capability %d:\n", cap->no);
-      for (t = cap->run_queue_hd; t != END_TSO_QUEUE; t = t->_link) {
-	  printThreadStatus(t);
-      }
+      // XXX do the promoted queue
+      iteratePQueue(cap->run_pqueue, printThreadStatus);
   }
 
   debugBelch("other threads:\n");
