@@ -14,12 +14,14 @@ typedef struct PQueue_ {
     StgWord capacity;
     // the elements array
     StgTSO **elements;
-    // If deferred = 0, elements is an ordinary zero-indexed heap
+    // - if deferred = 0, elements is an ordinary zero-indexed heap
     // occupying elements 0 ... (size-1)
-    // If deferred = 1, then elements is a zero-indexed heap with
+    // - if deferred = 1, then elements is a zero-indexed heap with
     // a "hole" at zero; valid elements live at 1 ... size.
     // Modulo the hole, the heap property is still obeyed.
     int deferred;
+    // min element (only valid when deferred == 1)
+    StgTSO *min;
 } PQueue;
 
 #define ASSERT_PQUEUE_INVARIANTS(p) \

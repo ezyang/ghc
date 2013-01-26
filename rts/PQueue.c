@@ -23,6 +23,7 @@ newPQueue (nat size)
     q->capacity = realsize;
     q->size = 0;
     q->deferred = 0;
+    q->min = NULL;
     ASSERT_PQUEUE_INVARIANTS(q);
     return q;
 }
@@ -56,6 +57,9 @@ markPQueue(PQueue *q, evac_fn evac, void *user)
     for (i = q->deferred; i < q->size + q->deferred; i++) {
         evac(user, (StgClosure **)&q->elements[i]);
     }
+    if (q->deferred) {
+        evac(user, (StgClosure **)&q->min);
+    }
 }
 
 void checkHeapProperty(PQueue*);
@@ -65,6 +69,9 @@ void checkHeapProperty(PQueue *q)
     nat i;
     for (i = q->deferred ? 3 : 1; i < q->size + q->deferred; i++) {
         ASSERT(q->elements[i]->ss_pass <= q->elements[PARENT(i)]->ss_pass);
+    }
+    if (q->deferred && q->size >= 2) {
+        ASSERT(q->min->ss_pass <= q->elements[1] && q->min->ss_pass <= q->elements[2]);
     }
 }
 
@@ -132,14 +139,13 @@ insertPQueue(PQueue *q, StgTSO *elem)
 void *
 peekMinPQueue(PQueue *q)
 {
+    ASSERT_PQUEUE_INVARIANTS(q);
     if (q->size == 0) {
         return NULL;
     }
     if (q->deferred) {
-        q->deferred = 0;
-        upHeap(q, q->elements[q->size]);
+        return q->min;
     }
-    ASSERT_PQUEUE_INVARIANTS(q);
     return q->elements[0];
 }
 
@@ -148,6 +154,10 @@ deleteMinPQueue(PQueue *q)
 {
     if (q->size == 0) {
         return NULL;
+    } else if (q->size == 1) {
+        ASSERT(!q->deferred);
+        q->size--;
+        return q->elements[0];
     }
     if (q->deferred) {
         q->deferred = 0;
@@ -160,6 +170,12 @@ deleteMinPQueue(PQueue *q)
 #ifdef DEBUG
     q->elements[0] = NULL; // for debugging
 #endif
+    if (q->size == 1) {
+        q->deferred = 0;
+        q->elements[0] = q->elements[1];
+    } else {
+        q->min = q->elements[1]->ss_pass > q->elements[2]->ss_pass ? q->elements[2] : q->elements[1];
+    }
     ASSERT_PQUEUE_INVARIANTS(q);
     return min;
 }

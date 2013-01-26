@@ -207,7 +207,14 @@ INLINE_HEADER StgTSO *
 popRunQueue (Capability *cap)
 {
     if (cap->promoted_run_queue_hd == END_TSO_QUEUE) {
-        return deleteMinPQueue(cap->run_pqueue);
+        StgTSO *t = deleteMinPQueue(cap->run_pqueue);
+        StgTSO *next = peekMinPQueue(cap->run_pqueue);
+        if (next != NULL) {
+            if (next->ss_pass > cap->ss_pass) {
+                cap->ss_pass = next->ss_pass;
+            }
+        }
+        return t;
     } else {
         StgTSO *t = cap->promoted_run_queue_hd;
         cap->promoted_run_queue_hd = t->_link;
