@@ -187,6 +187,8 @@ schedule (Capability *initialCapability, Task *task)
 #if defined(THREADED_RTS)
   rtsBool first = rtsTrue;
 #endif
+  Time quantum = RtsFlags.MiscFlags.tickInterval * RtsFlags.ConcFlags.ctxtSwitchTicks;
+  if (quantum == 0) { quantum = 1; }
   
   cap = initialCapability;
 
@@ -400,6 +402,7 @@ run_thread:
     cap->r.rCurrentTSO = t;
 
     startHeapProfTimer();
+    Time run_start = getProcessElapsedTime();
 
     // ----------------------------------------------------------------------
     // Run the current thread 
@@ -510,6 +513,11 @@ run_thread:
     
     // Costs for the scheduler are assigned to CCS_SYSTEM
     stopHeapProfTimer();
+    Time run_end = getProcessElapsedTime();
+    // XXX watch out for overflow
+    // XXX inefficient???
+    StgWord64 delta = ((run_end - run_start) * (STRIDE1 / t->ss_tickets)) / quantum;
+    t->ss_pass += delta ? delta : 1;
 #if defined(PROFILING)
     cap->r.rCCCS = CCS_SYSTEM;
 #endif
