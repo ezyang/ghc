@@ -1021,6 +1021,17 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(stg_INTLIKE_closure)
 #endif
 
+/* XXX maybe add the rest too */
+#ifdef PROFILING
+#define RTS_PROFILING_SYMBOLS                          \
+      SymI_HasProto(stg_LISTENER_info)                 \
+      SymI_HasProto(stg_END_LISTENER_LIST_info)        \
+      SymI_HasProto(stg_END_LISTENER_LIST_closure)     \
+      SymI_HasProto(CC_DYNAMIC)                        \
+      SymI_HasProto(CCS_DYNAMIC)
+#else
+#define RTS_PROFILING_SYMBOLS
+#endif
 
 #define RTS_SYMBOLS                                                     \
       Maybe_Stable_Names                                                \
@@ -1230,6 +1241,7 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(stg_TVAR_CLEAN_info)                                \
       SymI_HasProto(stg_TVAR_DIRTY_info)                                \
       SymI_HasProto(stg_IND_STATIC_info)                                \
+      SymI_HasProto(stg_IND_PERM_info)                                  \
       SymI_HasProto(stg_ARR_WORDS_info)                                 \
       SymI_HasProto(stg_MUT_ARR_PTRS_DIRTY_info)                        \
       SymI_HasProto(stg_MUT_ARR_PTRS_FROZEN_info)                       \
@@ -1328,6 +1340,14 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(unlockFile)                                         \
       SymI_HasProto(startProfTimer)                                     \
       SymI_HasProto(stopProfTimer)                                      \
+      SymI_HasProto(stg_newCCzh)                                        \
+      SymI_HasProto(stg_pushCCzh)                                       \
+      SymI_HasProto(stg_setCCSOfzh)                                     \
+      SymI_HasProto(stg_queryCCSzh)                                     \
+      SymI_HasProto(stg_withCCSzh)                                      \
+      SymI_HasProto(stg_listenCCSzh)                                    \
+      SymI_HasProto(stg_unlistenCCSzh)                                  \
+      RTS_PROFILING_SYMBOLS                                             \
       RTS_USER_SIGNALS_SYMBOLS                                          \
       RTS_INTCHAR_SYMBOLS
 
@@ -3750,6 +3770,9 @@ ocGetNames_PEi386 ( ObjectCode* oc )
           && 0 != strcmp(".pdata", (char*)secname)
           && 0 != strcmp(".xdata", (char*)secname)
           /* ignore constructor section for now */
+          /* this (as well as dtors) needs to be implemented if we want
+           * to support dynamically loading profiled code, since ctors
+           * are used to setup cost-centres */
           && 0 != strcmp(".ctors", (char*)secname)
           /* ignore section generated from .ident */
           && 0!= strncmp(".debug", (char*)secname, 6)

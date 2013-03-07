@@ -427,7 +427,15 @@ wanteds = concat
 
           ,thunkSize C "StgSelector"
 
+          ,closureSize  C "StgInd"
           ,closureFieldGcptr C "StgInd" "indirectee"
+
+          ,closureSize  C "StgListener"
+          ,closureFieldGcptr C "StgListener" "callback"
+          ,closureFieldGcptr C "StgListener" "link"
+          ,closureField C "StgListener" "ccs"
+          ,closureField C "StgListener" "type"
+          ,closureField C "StgListener" "limit"
 
           ,closureSize  C "StgMutVar"
           ,closureField C "StgMutVar" "var"

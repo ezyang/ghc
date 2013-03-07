@@ -103,7 +103,9 @@ struct PROFILING_FLAGS {
     Time                heapProfileInterval; /* time between samples */
     nat                 heapProfileIntervalTicks; /* ticks between samples (derived) */
     rtsBool             includeTSOs;
+    rtsBool             inMemory; /* don't write to file system, but preserve heap census for program access */
 
+    rtsBool             enterFunNop; /* don't change CCCS on function entry */
 
     rtsBool		showCCSOnException;
 

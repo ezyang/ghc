@@ -1470,6 +1470,11 @@ doubleX2PrimTyConKey = mkPreludeTyConUnique 171
 int32X4PrimTyConKey  = mkPreludeTyConUnique 172
 int64X2PrimTyConKey  = mkPreludeTyConUnique 173
 
+costCentrePrimTyConKey, costCentreStackPrimTyConKey, listenerPrimTyConKey :: Unique
+costCentrePrimTyConKey = mkPreludeTyConUnique 180
+costCentreStackPrimTyConKey = mkPreludeTyConUnique 181
+listenerPrimTyConKey = mkPreludeTyConUnique 182
+
 ---------------- Template Haskell -------------------
 --      USES TyConUniques 200-299
 -----------------------------------------------------

@@ -2082,22 +2082,6 @@ primop  GetApStackValOp "getApStackVal#" GenPrimOp
    out_of_line = True
 
 ------------------------------------------------------------------------
-section "Misc"
-        {These aren't nearly as wired in as Etc...}
-------------------------------------------------------------------------
-
-primop  GetCCSOfOp "getCCSOf#" GenPrimOp
-   a -> State# s -> (# State# s, Addr# #)
-
-primop  GetCurrentCCSOp "getCurrentCCS#" GenPrimOp
-   a -> State# s -> (# State# s, Addr# #)
-   { Returns the current {\tt CostCentreStack} (value is {\tt NULL} if
-     not profiling).  Takes a dummy argument which can be used to
-     avoid the call to {\tt getCCCS\#} being floated out by the
-     simplifier, which would result in an uninformative stack
-     ("CAF"). }
-
-------------------------------------------------------------------------
 section "Etc" 
 	{Miscellaneous built-ins}
 ------------------------------------------------------------------------
@@ -2705,6 +2689,79 @@ primop PrefetchMutableByteArrayOp "prefetchMutableByteArray#" GenPrimOp
 primop PrefetchAddrOp "prefetchAddr#" GenPrimOp
    Addr# -> Int# -> Addr#
    with llvm_only = True
+
+------------------------------------------------------------------------
+section "Cost centres"
+        {Cost centre operations}
+------------------------------------------------------------------------
+
+primtype CostCentre#
+primtype CCS#
+primtype Listener#
+
+primop NewCCOp "newCC#" GenPrimOp
+    State# RealWorld -> (# State# RealWorld, CostCentre# #)
+    with
+    out_of_line = True
+    has_side_effects = True
+
+primop SetCCSOp "setCCSOf#" GenPrimOp
+    CostCentreStack# -> a -> State# RealWorld -> (# State# RealWorld, () #)
+    with
+    out_of_line = True
+    has_side_effects = True
+
+primop WithCCSOp "withCCS#" GenPrimOp
+    CostCentreStack# -> (State# s -> (# State# s, a #)) -> State# s -> (# State# s, a #)
+    with
+    out_of_line = True
+    has_side_effects = True
+
+primop PushCC "pushCC#" GenPrimOp
+    CostCentreStack# -> CostCentre# -> State# RealWorld -> (# State# RealWorld, CostCentreStack# #)
+    with
+    out_of_line = True
+    has_side_effects = True
+
+primop QueryCCS "queryCCS#" GenPrimOp
+    CostCentreStack# -> Int# -> State# RealWorld -> (# State# RealWorld, Int# #)
+    {Integer indicates type of allocation, same as first int in listen}
+    with
+    out_of_line = True
+    has_side_effects = True
+
+primop ListenCCSOp "listenCCS#" GenPrimOp
+    CostCentreStack# -> Int# -> Int# -> c -> State# RealWorld -> (# State# RealWorld, Listener# #)
+    {First int indicates type of listener, second int is the limit}
+    with
+    out_of_line = True
+    has_side_effects = True
+
+primop UnlistenCCSOp "unlistenCCS#" GenPrimOp
+    Listener# -> State# RealWorld -> (# State# RealWorld, () #)
+    with
+    out_of_line = True
+    has_side_effects = True
+
+primop GetCCSOfOp "getCCSOf#" GenPrimOp
+   a -> State# s -> (# State# s, CostCentreStack# #)
+
+primop  GetCurrentCCSOp "getCurrentCCS#" GenPrimOp
+   a -> State# s -> (# State# s, CostCentreStack# #)
+   { Returns the current {\tt CostCentreStack} (value is {\tt NULL} if
+     not profiling).  Takes a dummy argument which can be used to
+     avoid the call to {\tt getCCCS\#} being floated out by the
+     simplifier, which would result in an uninformative stack
+     ("CAF"). }
+
+primop CCToAddrOp  "ccToAddr"  GenPrimOp CostCentre# -> Addr#
+    with code_size = 0
+primop AddrToCCOp  "addrToCC"  GenPrimOp Addr# -> CostCentre#
+    with code_size = 0
+primop CCSToAddrOp "ccsToAddr" GenPrimOp CostCentreStack# -> Addr#
+    with code_size = 0
+primop AddrToCCSOp "addrToCCS" GenPrimOp Addr# -> CostCentreStack#
+    with code_size = 0
 
 ------------------------------------------------------------------------
 ---                                                                  ---

@@ -79,7 +79,11 @@ module TysPrim(
 	floatX4PrimTyCon,		floatX4PrimTy,
 	doubleX2PrimTyCon,		doubleX2PrimTy,
 	int32X4PrimTyCon,		int32X4PrimTy,
-	int64X2PrimTyCon,		int64X2PrimTy
+        int64X2PrimTyCon,               int64X2PrimTy,
+
+        costCentrePrimTyCon, costCentrePrimTy,
+        costCentreStackPrimTyCon, costCentreStackPrimTy,
+        listenerPrimTyCon, listenerPrimTy
   ) where
 
 #include "HsVersions.h"
@@ -146,6 +150,10 @@ primTyCons
     , doubleX2PrimTyCon
     , int32X4PrimTyCon
     , int64X2PrimTyCon
+
+    , costCentrePrimTyCon
+    , costCentreStackPrimTyCon
+    , listenerPrimTyCon
     ]
 
 mkPrimTc :: FastString -> Unique -> TyCon -> Name
@@ -155,7 +163,7 @@ mkPrimTc fs unique tycon
 		  (ATyCon tycon)	-- Relevant TyCon
 		  UserSyntax		-- None are built-in syntax
 
-charPrimTyConName, intPrimTyConName, int32PrimTyConName, int64PrimTyConName, wordPrimTyConName, word32PrimTyConName, word64PrimTyConName, addrPrimTyConName, floatPrimTyConName, doublePrimTyConName, statePrimTyConName, realWorldTyConName, arrayPrimTyConName, arrayArrayPrimTyConName, byteArrayPrimTyConName, mutableArrayPrimTyConName, mutableByteArrayPrimTyConName, mutableArrayArrayPrimTyConName, mutVarPrimTyConName, mVarPrimTyConName, tVarPrimTyConName, stablePtrPrimTyConName, stableNamePrimTyConName, bcoPrimTyConName, weakPrimTyConName, threadIdPrimTyConName, eqPrimTyConName, floatX4PrimTyConName, doubleX2PrimTyConName, int32X4PrimTyConName, int64X2PrimTyConName :: Name
+charPrimTyConName, intPrimTyConName, int32PrimTyConName, int64PrimTyConName, wordPrimTyConName, word32PrimTyConName, word64PrimTyConName, addrPrimTyConName, floatPrimTyConName, doublePrimTyConName, statePrimTyConName, realWorldTyConName, arrayPrimTyConName, arrayArrayPrimTyConName, byteArrayPrimTyConName, mutableArrayPrimTyConName, mutableByteArrayPrimTyConName, mutableArrayArrayPrimTyConName, mutVarPrimTyConName, mVarPrimTyConName, tVarPrimTyConName, stablePtrPrimTyConName, stableNamePrimTyConName, bcoPrimTyConName, weakPrimTyConName, threadIdPrimTyConName, eqPrimTyConName, floatX4PrimTyConName, doubleX2PrimTyConName, int32X4PrimTyConName, int64X2PrimTyConName, costCentrePrimTyConName, costCentreStackPrimTyConName, listenerPrimTyConName :: Name
 charPrimTyConName    	      = mkPrimTc (fsLit "Char#") charPrimTyConKey charPrimTyCon
 intPrimTyConName     	      = mkPrimTc (fsLit "Int#") intPrimTyConKey  intPrimTyCon
 int32PrimTyConName	      = mkPrimTc (fsLit "Int32#") int32PrimTyConKey int32PrimTyCon
@@ -187,6 +195,10 @@ floatX4PrimTyConName          = mkPrimTc (fsLit "FloatX4#") floatX4PrimTyConKey 
 doubleX2PrimTyConName         = mkPrimTc (fsLit "DoubleX2#") doubleX2PrimTyConKey doubleX2PrimTyCon
 int32X4PrimTyConName          = mkPrimTc (fsLit "Int32X4#") int32X4PrimTyConKey int32X4PrimTyCon
 int64X2PrimTyConName          = mkPrimTc (fsLit "Int64X2#") int64X2PrimTyConKey int64X2PrimTyCon
+costCentrePrimTyConName       = mkPrimTc (fsLit "CostCentre#") costCentrePrimTyConKey costCentrePrimTyCon
+costCentreStackPrimTyConName  = mkPrimTc (fsLit "CostCentreStack#") costCentreStackPrimTyConKey costCentreStackPrimTyCon
+listenerPrimTyConName         = mkPrimTc (fsLit "Listener#") listenerPrimTyConKey listenerPrimTyCon
+
 \end{code}
 
 %************************************************************************
@@ -771,4 +783,27 @@ int64X2PrimTy :: Type
 int64X2PrimTy = mkTyConTy int64X2PrimTyCon
 int64X2PrimTyCon :: TyCon
 int64X2PrimTyCon = pcPrimTyCon0 int64X2PrimTyConName (VecRep 2 Int64ElemRep)
+\end{code}
+
+%************************************************************************
+%*									*
+\subsection{Cost centre types}
+%*									*
+%************************************************************************
+
+\begin{code}
+costCentrePrimTy    :: Type
+costCentrePrimTy    = mkTyConTy costCentrePrimTyCon
+costCentrePrimTyCon :: TyCon
+costCentrePrimTyCon = pcPrimTyCon0 costCentrePrimTyConName AddrRep
+
+costCentreStackPrimTy    :: Type
+costCentreStackPrimTy    = mkTyConTy costCentreStackPrimTyCon
+costCentreStackPrimTyCon :: TyCon
+costCentreStackPrimTyCon = pcPrimTyCon0 costCentreStackPrimTyConName AddrRep
+
+listenerPrimTy    :: Type
+listenerPrimTy    = mkTyConTy listenerPrimTyCon
+listenerPrimTyCon :: TyCon
+listenerPrimTyCon = pcPrimTyCon0 listenerPrimTyConName PtrRep
 \end{code}

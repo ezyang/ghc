@@ -51,6 +51,11 @@
 #include "Papi.h"
 #include "Stable.h"
 
+#ifdef PROFILING
+#include "ProfHeap.h"
+#include "Profiling.h"
+#endif
+
 #include <string.h> // for memset()
 #include <unistd.h>
 
@@ -392,6 +397,11 @@ GarbageCollect (nat collect_gen,
   // Mark the stable pointer table.
   markStableTables(mark_root, gct);
 
+#ifdef PROFILING
+  markAllocationListeners(mark_root, gct);
+  markCensusListeners(mark_root, gct);
+#endif
+
   /* -------------------------------------------------------------------------
    * Repeatedly scavenge all the areas we know about until there's no
    * more scavenging to be done.
@@ -711,6 +721,12 @@ GarbageCollect (nat collect_gen,
   scheduleFinalizers(cap, old_weak_ptr_list);
   ACQUIRE_SM_LOCK;
 
+#ifdef PROFILING
+  RELEASE_SM_LOCK;
+  checkAllocationListeners(cap);
+  ACQUIRE_SM_LOCK;
+#endif
+
   // check sanity after GC
   // before resurrectThreads(), because that might overwrite some
   // closures, which will cause problems with THREADED where we don't
@@ -724,7 +740,11 @@ GarbageCollect (nat collect_gen,
   if (do_heap_census) {
       debugTrace(DEBUG_sched, "performing heap census");
       RELEASE_SM_LOCK;
+#ifdef PROFILING
+      heapCensus(cap, gct->gc_start_cpu);
+#else
       heapCensus(gct->gc_start_cpu);
+#endif
       ACQUIRE_SM_LOCK;
   }
 

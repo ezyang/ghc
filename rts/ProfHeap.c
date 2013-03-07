@@ -18,6 +18,7 @@
 #include "LdvProfile.h"
 #include "Arena.h"
 #include "Printer.h"
+#include "Schedule.h"
 #include "sm/GCThread.h"
 
 #include <string.h>
@@ -90,11 +91,22 @@ static nat n_censuses = 0;
 
 #ifdef PROFILING
 static void aggregateCensusInfo( void );
+static void checkResidentListeners ( Capability *cap, Census *census );
 #endif
 
 static void dumpCensus( Census *census );
 
 static rtsBool closureSatisfiesConstraints( StgClosure* p );
+
+#ifdef PROFILING
+StgListener *census_listener_list = END_LISTENER_LIST;
+
+void markCensusListeners(evac_fn evac, void *user) {
+    if (census_listener_list != END_LISTENER_LIST) {
+        evac(user, (StgClosure **)&census_listener_list);
+    }
+}
+#endif
 
 /* ----------------------------------------------------------------------------
  * Find the "closure identity", which is a unique pointer representing
@@ -262,12 +274,10 @@ initEra(Census *census)
 STATIC_INLINE void
 freeEra(Census *census)
 {
-    if (RtsFlags.ProfFlags.bioSelector != NULL)
-        // when bioSelector==NULL, these are freed in heapCensus()
-    {
-        arenaFree(census->arena);
-        freeHashTable(census->hash, NULL);
-    }
+    arenaFree(census->arena);
+    freeHashTable(census->hash, NULL);
+    census->hash = NULL;
+    census->arena = NULL;
 }
 
 /* --------------------------------------------------------------------------
@@ -331,7 +341,7 @@ void initProfiling2 (void)
     }
 #endif
 
-  if (RtsFlags.ProfFlags.doHeapProfile) {
+  if (RtsFlags.ProfFlags.doHeapProfile && !RtsFlags.ProfFlags.inMemory) {
     /* Initialise the log file name */
     hp_filename = stgMallocBytes(strlen(prog) + 6, "hpFileName");
     sprintf(hp_filename, "%s.hp", prog);
@@ -359,6 +369,7 @@ void endProfiling( void )
 static void
 printSample(rtsBool beginSample, StgDouble sampleValue)
 {
+    ASSERT(!RtsFlags.ProfFlags.inMemory);
     StgDouble fractionalPart, integralPart;
     fractionalPart = modf(sampleValue, &integralPart);
     fprintf(hp_file, "%s %" FMT_Word64 ".%02" FMT_Word64 "\n",
@@ -400,31 +411,36 @@ initHeapProfiling(void)
     n_censuses = 32;
     censuses = stgMallocBytes(sizeof(Census) * n_censuses, "initHeapProfiling");
 
+    // The first census needs to be initialized here if we're doing LDV
+    // profiling.  Otherwise, it can wait until we actually carry out a
+    // census.
     initEra( &censuses[era] );
 
     /* initProfilingLogFile(); */
-    fprintf(hp_file, "JOB \"%s", prog_name);
+    if (!RtsFlags.ProfFlags.inMemory) {
+        fprintf(hp_file, "JOB \"%s", prog_name);
 
 #ifdef PROFILING
-    {
-	int count;
-	for(count = 1; count < prog_argc; count++)
-	    fprintf(hp_file, " %s", prog_argv[count]);
-	fprintf(hp_file, " +RTS");
-	for(count = 0; count < rts_argc; count++)
-	    fprintf(hp_file, " %s", rts_argv[count]);
-    }
+        {
+            int count;
+            for(count = 1; count < prog_argc; count++)
+                fprintf(hp_file, " %s", prog_argv[count]);
+            fprintf(hp_file, " +RTS");
+            for(count = 0; count < rts_argc; count++)
+                fprintf(hp_file, " %s", rts_argv[count]);
+        }
 #endif /* PROFILING */
 
-    fprintf(hp_file, "\"\n" );
+        fprintf(hp_file, "\"\n" );
 
-    fprintf(hp_file, "DATE \"%s\"\n", time_str());
+        fprintf(hp_file, "DATE \"%s\"\n", time_str());
 
-    fprintf(hp_file, "SAMPLE_UNIT \"seconds\"\n");
-    fprintf(hp_file, "VALUE_UNIT \"bytes\"\n");
+        fprintf(hp_file, "SAMPLE_UNIT \"seconds\"\n");
+        fprintf(hp_file, "VALUE_UNIT \"bytes\"\n");
 
-    printSample(rtsTrue, 0);
-    printSample(rtsFalse, 0);
+        printSample(rtsTrue, 0);
+        printSample(rtsFalse, 0);
+    }
 
 #ifdef PROFILING
     if (doingRetainerProfiling()) {
@@ -476,10 +492,12 @@ endHeapProfiling(void)
 
     stgFree(censuses);
 
-    seconds = mut_user_time();
-    printSample(rtsTrue, seconds);
-    printSample(rtsFalse, seconds);
-    fclose(hp_file);
+    if (!RtsFlags.ProfFlags.inMemory) {
+        seconds = mut_user_time();
+        printSample(rtsTrue, seconds);
+        printSample(rtsFalse, seconds);
+        fclose(hp_file);
+    }
 }
 
 
@@ -501,6 +519,7 @@ static void
 fprint_ccs(FILE *fp, CostCentreStack *ccs, nat max_length)
 {
     char buf[max_length+1], *p, *buf_end;
+    ASSERT(!RtsFlags.ProfFlags.inMemory);
 
     // MAIN on its own gets printed as "MAIN", otherwise we ignore MAIN.
     if (ccs == CCS_MAIN) {
@@ -726,6 +745,68 @@ aggregateCensusInfo( void )
 #endif
 
 /* -----------------------------------------------------------------------------
+ * Check if any cost-centres which we have listeners on have exceeded residency
+ * -------------------------------------------------------------------------- */
+#ifdef PROFILING
+
+static void
+checkResidentListeners( Capability *cap, Census *census )
+{
+    if (RtsFlags.ProfFlags.doHeapProfile != HEAP_BY_CCS) return;
+    StgListener *p = census_listener_list;
+    StgListener *prev = END_LISTENER_LIST;
+    counter *ctr;
+    StgTSO *t;
+    while (p != END_LISTENER_LIST) {
+        if (p->header.info == &stg_IND_info) {
+            // maybe this should never happen, since GC should have
+            // removed the indirections
+            p = (StgListener*)((StgInd*)p)->indirectee;
+            continue;
+        }
+        ASSERT(p->type == PROF_TYPE_RESIDENT);
+        ctr = lookupHashTable( census->hash, (StgWord)p->ccs );
+        if (ctr != NULL && ctr->c.resid > p->limit) {
+            // trigger it!
+            t = createIOThread(cap, RtsFlags.GcFlags.initialStkSize, p->callback);
+            scheduleThread(cap, t);
+            // safe to modify this because this only occurs during a GC,
+            // so we have all the capabilities and no one else is
+            // traversing this list
+            StgListener *next = p->link;
+            p->link = END_LISTENER_LIST;
+            if (prev == END_LISTENER_LIST) {
+                census_listener_list = next;
+            } else {
+                prev->link = next;
+            }
+            p = next;
+        } else {
+            prev = p;
+            p = p->link;
+        }
+    }
+}
+
+StgInt
+queryCCS(CostCentreStack *ccs, StgWord type) {
+    if (type == PROF_TYPE_RESIDENT && RtsFlags.ProfFlags.inMemory) {
+        Census *census = &censuses[era];
+        counter *ctr = lookupHashTable( census->hash, (StgWord)ccs );
+        if (ctr == NULL) {
+            return 0;
+        } else {
+            return ctr->c.resid;
+        }
+    } else if (type == PROF_TYPE_ALLOCATED) {
+        return ccs->mem_alloc;
+    } else {
+        return -1;
+    }
+}
+#endif
+
+/* -----------------------------------------------------------------------------
  * Print out the results of a heap census.
  * -------------------------------------------------------------------------- */
 static void
@@ -733,6 +814,8 @@ dumpCensus( Census *census )
 {
     counter *ctr;
     long count;
+
+    ASSERT(!RtsFlags.ProfFlags.inMemory);
 
     printSample(rtsTrue, census->time);
 
@@ -1071,13 +1154,24 @@ heapCensusChain( Census *census, bdescr *bd )
     }
 }
 
+#ifdef PROFILING
+void heapCensus (Capability *cap, Time t)
+#else
 void heapCensus (Time t)
+#endif
 {
   nat g, n;
   Census *census;
   gen_workspace *ws;
 
   census = &censuses[era];
+
+  if (RtsFlags.ProfFlags.inMemory) {
+    freeEra(census);
+    nextEra();
+    ASSERT(census == &censuses[era]);
+  }
+
   census->time  = mut_user_time_until(t);
     
   // calculate retainer sets if necessary
@@ -1106,7 +1200,13 @@ void heapCensus (Time t)
       }
   }
 
-  // dump out the census info
+  // trigger any listeners
+#ifdef PROFILING
+  checkResidentListeners(cap, census);
+#endif
+
+  if (!RtsFlags.ProfFlags.inMemory) {
+    // dump out the census info
 #ifdef PROFILING
     // We can't generate any info for LDV profiling until
     // the end of the run...
@@ -1116,21 +1216,17 @@ void heapCensus (Time t)
     dumpCensus( census );
 #endif
 
-
-  // free our storage, unless we're keeping all the census info for
-  // future restriction by biography.
+    // free our storage, unless we're keeping all the census info for
+    // future restriction by biography.
 #ifdef PROFILING
-  if (RtsFlags.ProfFlags.bioSelector == NULL)
-  {
-      freeHashTable( census->hash, NULL/* don't free the elements */ );
-      arenaFree( census->arena );
-      census->hash = NULL;
-      census->arena = NULL;
-  }
+    if (!doingLDVProfiling()) {
+        freeEra(census);
+    }
 #endif
 
-  // we're into the next time period now
-  nextEra();
+    // we're into the next time period now
+    nextEra();
+  }
 
 #ifdef PROFILING
   stat_endHeapCensus();
