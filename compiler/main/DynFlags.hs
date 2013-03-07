@@ -317,6 +317,7 @@ data DynFlag
    | Opt_DeferTypeErrors
    | Opt_Parallel
    | Opt_GranMacros
+   | Opt_ProfDrop
 
    -- output style opts
    | Opt_PprCaseAsLet
@@ -633,6 +634,9 @@ data DynFlags = DynFlags {
 
   -- | what kind of {-# SCC #-} to add automatically
   profAuto              :: ProfAuto,
+
+  -- | whether or not to drop all explicit SCC annotations
+  profDrop              :: Bool,
 
   interactivePrint      :: Maybe String,
 
@@ -993,6 +997,7 @@ defaultDynFlags mySettings =
         pprCols = 100,
         traceLevel = 1,
         profAuto = NoProfAuto,
+        profDrop = False,
         llvmVersion = panic "defaultDynFlags: No llvmVersion",
         interactivePrint = Nothing
       }
@@ -1822,6 +1827,7 @@ dynamic_flags = [
   , Flag "fprof-auto-exported"    (noArg (\d -> d { profAuto = ProfAutoExports } ))
   , Flag "fprof-auto-calls"       (noArg (\d -> d { profAuto = ProfAutoCalls } ))
   , Flag "fno-prof-auto"          (noArg (\d -> d { profAuto = NoProfAuto } ))
+  , Flag "fprof-drop"             (noArg (\d -> d { profDrop = True } ))
 
         ------ Compiler flags -----------------------------------------------
 
