@@ -138,6 +138,12 @@ RTS_ENTRY(stg_END_INVARIANT_CHECK_QUEUE);
 RTS_ENTRY(stg_END_STM_CHUNK_LIST);
 RTS_ENTRY(stg_NO_TREC);
 
+#ifdef PROFILING
+RTS_ENTRY(stg_LISTENER);
+RTS_ENTRY(stg_END_LISTENER_LIST);
+RTS_CLOSURE(stg_END_LISTENER_LIST_closure);
+#endif
+
 /* closures */
 
 RTS_CLOSURE(stg_END_TSO_QUEUE_closure);
@@ -455,6 +461,14 @@ RTS_FUN_DECL(stg_noDuplicatezh);
 RTS_FUN_DECL(stg_traceCcszh);
 RTS_FUN_DECL(stg_traceEventzh);
 
+RTS_FUN_DECL(stg_newCCzh);
+RTS_FUN_DECL(stg_pushCCzh);
+RTS_FUN_DECL(stg_setCCSOfzh);
+RTS_FUN_DECL(stg_queryCCSzh);
+RTS_FUN_DECL(stg_withCCSzh);
+RTS_FUN_DECL(stg_listenCCSzh);
+RTS_FUN_DECL(stg_unlistenCCSzh);
+
 /* Other misc stuff */
 // See wiki:Commentary/Compiler/Backends/PprC#Prototypes
 
@@ -497,6 +511,11 @@ extern StgWord      RTS_VAR(CCS_LIST);         /* registered CCS list */
 extern StgWord      CCS_SYSTEM[];
 extern unsigned int RTS_VAR(CC_ID);	/* global ids */
 extern unsigned int RTS_VAR(CCS_ID);
+
+#ifdef PROFILING
+extern StgWord RTS_VAR(census_listener_list);
+extern StgWord RTS_VAR(alloc_listener_list);
+#endif
 
 #endif
 

@@ -2145,3 +2145,118 @@ stg_traceEventzh
 #endif
    jump %ENTRY_CODE(Sp(0));
 }
+
+// Note: use W_ for the CC and CCS pointers, since they are
+// not garbage collected
+
+stg_newCCzh ()
+{
+#ifdef PROFILING
+    W_ cc;
+    (cc) = ccall newCostCentre();
+    return (cc);
+#else
+    return (NULL);
+#endif
+}
+
+stg_setCCSOfzh ( W_ ccs, P_ closure )
+{
+#ifdef PROFILING
+    // XXX Synchronization???
+    SET_HDR(closure, %INFO_PTR(closure), ccs);
+    return ();
+#else
+    return ();
+#endif
+}
+
+stg_pushCCzh ( W_ ccs, W_ cc )
+{
+#ifdef PROFILING
+    W_ nccs;
+    (nccs) = ccall pushCostCentre(ccs, cc);
+    return (nccs);
+#else
+    return (NULL);
+#endif
+}
+
+// Invariant: type == 0 || type == 1
+stg_listenCCSzh ( W_ ccs, W_ type, W_ limit, gcptr cb )
+{
+#ifdef PROFILING
+    P_ p;
+
+    ALLOC_PRIM (SIZEOF_StgListener);
+
+    p = Hp - SIZEOF_StgListener + WDS(1);
+    SET_HDR(p, stg_LISTENER_info, CCS_SYSTEM);
+    StgListener_callback(p) = cb;
+    StgListener_ccs(p) = ccs;
+    StgListener_type(p) = type;
+    StgListener_limit(p) = limit;
+
+    ACQUIRE_LOCK(sm_mutex); // can probably do something more fine-grained
+    if (type == 0) {
+        StgListener_link(p) = W_[census_listener_list];
+        W_[census_listener_list] = p;
+    } else {
+        if (type == 1) {
+            StgListener_link(p) = W_[alloc_listener_list];
+            W_[alloc_listener_list] = p;
+        } else {
+            ccall barf("strange listener type %d", type) never returns;
+        }
+    }
+    RELEASE_LOCK(sm_mutex);
+
+    return (p);
+#else
+    return (); // XXX wrong!
+#endif
+}
+
+stg_unlistenCCSzh ( P_ p )
+{
+#ifdef PROFILING
+    // If a listener gets removed, it stubbed out with an indirection.
+    // We could use the lockClosure machinery for locking.
+
+    ACQUIRE_LOCK(sm_mutex);
+    if (StgHeader_info(p) == stg_LISTENER_info) {
+        ccall removeListener(p "ptr");
+    }
+    RELEASE_LOCK(sm_mutex);
+
+    return ();
+#else
+    return ();
+#endif
+}
+
+stg_withCCSzh( W_ ccs, P_ io )
+{
+#ifdef PROFILING
+    STK_CHK_GEN();
+    Sp(-1) = CCCS;
+    Sp(-2) = stg_restore_cccs_info;
+    Sp_adj(-2);
+    CCCS = ccs;
+#endif
+    R1 = io;
+
+    TICK_UNKNOWN_CALL();
+    TICK_SLOW_CALL_v();
+    jump stg_ap_v_fast [R1];
+}
+
+stg_queryCCSzh (W_ ccs, W_ type) {
+#ifdef PROFILING
+    W_ r;
+    (r) = ccall queryCCS(ccs, type);
+    return (r);
+#else
+    return (-1);
+#endif
+}

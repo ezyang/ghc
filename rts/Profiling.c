@@ -19,6 +19,7 @@
 #include "RetainerProfile.h"
 #include "Printer.h"
 #include "Capability.h"
+#include "Schedule.h"
 
 #include <string.h>
 
@@ -51,6 +52,14 @@ FILE *prof_file;
 
 static char *hp_filename;	/* heap profile (hp2ps style) log file */
 FILE *hp_file;
+
+StgListener *alloc_listener_list = END_LISTENER_LIST;
+
+void markAllocationListeners(evac_fn evac, void *user) {
+    if (alloc_listener_list != END_LISTENER_LIST) {
+        evac(user, (StgClosure **)&alloc_listener_list);
+    }
+}
 
 /* Linked lists to keep track of CCs and CCSs that haven't
  * been declared in the log file yet
@@ -94,6 +103,7 @@ CC_DECLARE(CC_OVERHEAD,  "OVERHEAD_of", "PROFILING", "<built-in>", CC_NOT_CAF, )
 CC_DECLARE(CC_DONT_CARE, "DONT_CARE",   "MAIN",      "<built-in>", CC_NOT_CAF, );
 CC_DECLARE(CC_PINNED,    "PINNED",      "SYSTEM",    "<built-in>", CC_NOT_CAF, );
 CC_DECLARE(CC_IDLE,      "IDLE",        "IDLE",      "<built-in>", CC_NOT_CAF, );
+CC_DECLARE(CC_DYNAMIC,   "DYNAMIC",     "DYNAMIC",   "<built-in>", CC_NOT_CAF, );
 
 CCS_DECLARE(CCS_MAIN, 	    CC_MAIN,       );
 CCS_DECLARE(CCS_SYSTEM,	    CC_SYSTEM,     );
@@ -102,6 +112,7 @@ CCS_DECLARE(CCS_OVERHEAD,   CC_OVERHEAD,   );
 CCS_DECLARE(CCS_DONT_CARE,  CC_DONT_CARE,  );
 CCS_DECLARE(CCS_PINNED,     CC_PINNED,     );
 CCS_DECLARE(CCS_IDLE,       CC_IDLE,       );
+CCS_DECLARE(CCS_DYNAMIC,    CC_DYNAMIC,    );
 
 /*
  * Static Functions
@@ -184,6 +195,7 @@ initProfiling2 (void)
     REGISTER_CC(CC_DONT_CARE);
     REGISTER_CC(CC_PINNED);
     REGISTER_CC(CC_IDLE);
+    REGISTER_CC(CC_DYNAMIC);
 
     REGISTER_CCS(CCS_SYSTEM);
     REGISTER_CCS(CCS_GC);
@@ -191,6 +203,8 @@ initProfiling2 (void)
     REGISTER_CCS(CCS_DONT_CARE);
     REGISTER_CCS(CCS_PINNED);
     REGISTER_CCS(CCS_IDLE);
+    REGISTER_CCS(CCS_DYNAMIC);
+
     REGISTER_CCS(CCS_MAIN);
 
     /* find all the registered cost centre stacks, and make them
@@ -265,7 +279,7 @@ initProfilingLogFile(void)
         }
     }
     
-    if (RtsFlags.ProfFlags.doHeapProfile) {
+    if (RtsFlags.ProfFlags.doHeapProfile && !RtsFlags.ProfFlags.inMemory) {
 	/* Initialise the log file name */
 	hp_filename = arenaAlloc(prof_arena, strlen(prog) + 6);
 	sprintf(hp_filename, "%s.hp", prog);
@@ -296,6 +310,22 @@ endProfiling ( void )
     if (RtsFlags.ProfFlags.doHeapProfile) {
         endHeapProfiling();
     }
+}
+
+CostCentre *newCostCentre()
+{
+    // XXX this is gonna leak memory, since we have no way of safely
+    // reclaiming. I don't know what to do about it
+    CostCentre *cc = stgMallocBytes(sizeof(CostCentre), "newCostCentre");
+    cc->label  = "DYNAMIC(*)";
+    cc->module = "DYNAMIC(*)";
+    cc->srcloc = "<runtime>";
+    cc->mem_alloc = 0;
+    cc->time_ticks = 0;
+    cc->is_caf = 0;
+    cc->link = NULL;
+    REGISTER_CC(cc);
+    return cc;
 }
 
 /* -----------------------------------------------------------------------------
@@ -357,6 +387,11 @@ enterFunCurShorter (CostCentreStack *ccsapp, CostCentreStack *ccsfn, StgWord n)
 void enterFunCCS (StgRegTable *reg, CostCentreStack *ccsfn)
 {
     CostCentreStack *ccsapp;
+
+    // check if function entry CCCS twiddling is disabled
+    if (RtsFlags.ProfFlags.enterFunNop) {
+        return;
+    }
 
     // common case 1: both stacks are the same
     if (ccsfn == reg->rCCCS) {
@@ -1143,5 +1178,42 @@ debugCCS( CostCentreStack *ccs )
     debugBelch(">");
 }
 #endif /* DEBUG */
+
+// See also comments on checkListeners in ProfHeap.c
+void checkAllocationListeners( Capability *cap ) {
+    StgListener *p = alloc_listener_list;
+    StgListener *prev = END_LISTENER_LIST;
+    StgTSO *t;
+    while (p != END_LISTENER_LIST) {
+        if (p->header.info == &stg_IND_info) {
+            p = (StgListener*)((StgInd*)p)->indirectee;
+            continue;
+        }
+        ASSERT(p->type == PROF_TYPE_ALLOCATED);
+        if (p->ccs->mem_alloc > p->limit) {
+            t = createIOThread(cap, RtsFlags.GcFlags.initialStkSize, p->callback);
+            scheduleThread(cap, t);
+            StgListener *next = p->link;
+            p->link = END_LISTENER_LIST;
+            if (prev == END_LISTENER_LIST) {
+                alloc_listener_list = next;
+            } else {
+                prev->link = next;
+            }
+            p = next;
+        } else {
+            prev = p;
+            p = p->link;
+        }
+    }
+}
+
+// invariants: lock is taken out, info table is stg_LISTENER_info
+void
+removeListener(StgListener *l) {
+    StgListener *p = l->link;
+    OVERWRITE_INFO(l, &stg_IND_info);
+    ((StgInd*)l)->indirectee = (StgClosure*)p;
+}
 
 #endif /* PROFILING */

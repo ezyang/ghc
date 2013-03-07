@@ -160,6 +160,8 @@ void initRtsFlagsDefaults(void)
 
 #ifdef PROFILING
     RtsFlags.ProfFlags.includeTSOs        = rtsFalse;
+    RtsFlags.ProfFlags.inMemory           = rtsFalse;
+    RtsFlags.ProfFlags.enterFunNop        = rtsFalse;
     RtsFlags.ProfFlags.showCCSOnException = rtsFalse;
     RtsFlags.ProfFlags.maxRetainerSetSize = 8;
     RtsFlags.ProfFlags.ccsLength          = 25;
@@ -1031,6 +1033,8 @@ error = rtsTrue;
 		case 'r':
 		case 'B':
 		case 'b':
+                case 'l':
+                case 'L':
 		    if (rts_argv[arg][2] != '\0' && rts_argv[arg][3] != '\0') {
 			{
 			    char *left  = strchr(rts_argv[arg], '{');
@@ -1075,6 +1079,11 @@ error = rtsTrue;
 			    case 'b': // biography select
 				RtsFlags.ProfFlags.bioSelector = left;
 				break;
+                            case 'L':
+                            case 'l':
+                                errorBelch("invalid heap selector, use -hcXXX instead: %s",rts_argv[arg]);
+                                error = rtsTrue;
+                                break;
 			    }
 			}
 			break;
@@ -1112,6 +1121,11 @@ error = rtsTrue;
 		    case 'b':
 			  RtsFlags.ProfFlags.doHeapProfile = HEAP_BY_LDV;
 			  break;
+                    case 'L':
+                    case 'l':
+                          RtsFlags.ProfFlags.doHeapProfile = HEAP_BY_CCS;
+                          RtsFlags.ProfFlags.inMemory = rtsTrue;
+                          break;
 		    }
 		    break;
 		      
@@ -1339,6 +1353,13 @@ error = rtsTrue;
 			RtsFlags.ProfFlags.showCCSOnException = rtsTrue;
 			);
 		    break;
+
+                case 'f':
+                    OPTION_UNSAFE;
+                    PROFILING_BUILD_ONLY(
+                        RtsFlags.ProfFlags.enterFunNop = rtsTrue;
+                        );
+                    break;
 
 		case 't':  /* Include memory used by TSOs in a heap profile */
 		    OPTION_SAFE;

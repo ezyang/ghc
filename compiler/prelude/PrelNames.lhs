@@ -1410,6 +1410,11 @@ typeNatAddTyFamNameKey    = mkPreludeTyConUnique 162
 typeNatMulTyFamNameKey    = mkPreludeTyConUnique 163
 typeNatExpTyFamNameKey    = mkPreludeTyConUnique 164
 
+costCentrePrimTyConKey, costCentreStackPrimTyConKey, listenerPrimTyConKey :: Unique
+costCentrePrimTyConKey = mkPreludeTyConUnique 180
+costCentreStackPrimTyConKey = mkPreludeTyConUnique 181
+listenerPrimTyConKey = mkPreludeTyConUnique 182
+
 ---------------- Template Haskell -------------------
 --      USES TyConUniques 200-299
 -----------------------------------------------------

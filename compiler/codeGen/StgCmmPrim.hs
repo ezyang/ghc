@@ -689,6 +689,10 @@ nopOp Int2AddrOp     = True
 nopOp Addr2IntOp     = True
 nopOp ChrOp	     = True  -- Int# and Char# are rep'd the same
 nopOp OrdOp	     = True
+nopOp CCToAddrOp     = True
+nopOp AddrToCCOp     = True
+nopOp CCSToAddrOp    = True
+nopOp AddrToCCSOp    = True
 nopOp _		     = False
 
 -- These PrimOps turn into double casts

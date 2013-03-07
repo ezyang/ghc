@@ -465,4 +465,23 @@ typedef struct MessageBlackHole_ {
     StgClosure *bh;
 } MessageBlackHole;
 
+#ifdef PROFILING
+
+/* ----------------------------------------------------------------------------
+   Listeners
+   ------------------------------------------------------------------------- */
+
+// XXX maybe make this more generic, but then you'll probably want a
+// variable length payload and its own closure type
+typedef struct StgListener_ {
+    StgHeader        header;
+    struct StgListener_  *link;
+    StgClosure      *callback;
+    CostCentreStack *ccs;
+    StgWord          type;
+    StgWord          limit;
+} StgListener;
+
+#endif
+
 #endif /* RTS_STORAGE_CLOSURES_H */

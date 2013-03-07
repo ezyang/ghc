@@ -337,7 +337,15 @@ main(int argc, char *argv[])
 
     thunk_size(StgSelector);
 
+    thunk_size(StgInd);
     closure_field_gcptr(StgInd, indirectee);
+
+    thunk_size(StgListener);
+    closure_field_gcptr(StgListener, callback);
+    closure_field_gcptr(StgListener, link);
+    closure_field(StgListener, ccs);
+    closure_field(StgListener, type);
+    closure_field(StgListener, limit);
 
     closure_size(StgMutVar);
     closure_field(StgMutVar, var);

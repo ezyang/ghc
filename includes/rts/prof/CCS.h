@@ -132,6 +132,9 @@ extern StgWord CCS_OVERHEAD[];   // Profiling overhead
 extern StgWord CC_DONT_CARE[];
 extern StgWord CCS_DONT_CARE[];  // CCS attached to static constructors
 
+extern StgWord CC_DYNAMIC[];
+extern StgWord CCS_DYNAMIC[];
+
 #else
 
 extern CostCentre      CC_MAIN[];	
@@ -155,6 +158,9 @@ extern CostCentreStack CCS_PINNED[];     // pinned memory
 extern CostCentre      CC_IDLE[];
 extern CostCentreStack CCS_IDLE[];       // capability is idle
 
+extern CostCentre      CC_DYNAMIC[];
+extern CostCentreStack CCS_DYNAMIC[];
+
 #endif /* IN_STG_CODE */
 
 extern unsigned int RTS_VAR(CC_ID);     // global ids
@@ -168,6 +174,8 @@ extern unsigned int RTS_VAR(era);
 
 CostCentreStack * pushCostCentre (CostCentreStack *, CostCentre *);
 void              enterFunCCS    (StgRegTable *reg, CostCentreStack *);
+CostCentre      * newCostCentre  (void);
+void              listenCCS      (CostCentreStack *, nat limit, void * listener);
 
 /* -----------------------------------------------------------------------------
    Registering CCs and CCSs
@@ -231,6 +239,8 @@ extern CostCentreStack * RTS_VAR(CCS_LIST);         // registered CCS list
 	    inherited_ticks 	: 0,                    \
             inherited_alloc     : 0                     \
        }};
+
+#define END_LISTENER_LIST  ((StgListener *)(void*)&stg_END_LISTENER_LIST_closure)
 
 /* -----------------------------------------------------------------------------
  * Time / Allocation Macros
