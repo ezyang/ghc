@@ -345,6 +345,7 @@ data GeneralFlag
    | Opt_RPath
    | Opt_RelativeDynlibPaths
    | Opt_Hpc
+   | Opt_ProfDrop
 
    -- PreInlining is on by default. The option is there just to see how
    -- bad things get if you turn it off!
@@ -719,6 +720,9 @@ data DynFlags = DynFlags {
 
   -- | what kind of {-# SCC #-} to add automatically
   profAuto              :: ProfAuto,
+
+  -- | whether or not to drop all explicit SCC annotations
+  profDrop              :: Bool,
 
   interactivePrint      :: Maybe String,
 
@@ -1323,6 +1327,7 @@ defaultDynFlags mySettings =
         useUnicodeQuotes = False,
         traceLevel = 1,
         profAuto = NoProfAuto,
+        profDrop = False,
         llvmVersion = panic "defaultDynFlags: No llvmVersion",
         interactivePrint = Nothing,
         nextWrapperNum = panic "defaultDynFlags: No nextWrapperNum",
@@ -2262,6 +2267,7 @@ dynamic_flags = [
   , Flag "fprof-auto-exported"    (noArg (\d -> d { profAuto = ProfAutoExports } ))
   , Flag "fprof-auto-calls"       (noArg (\d -> d { profAuto = ProfAutoCalls } ))
   , Flag "fno-prof-auto"          (noArg (\d -> d { profAuto = NoProfAuto } ))
+  , Flag "fprof-drop"             (noArg (\d -> d { profDrop = True } ))
 
         ------ Compiler flags -----------------------------------------------
 

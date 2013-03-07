@@ -293,10 +293,14 @@ dsExpr (ExplicitTuple tup_args boxity)
                            (map (Type . exprType) args ++ args) }
 
 dsExpr (HsSCC cc expr@(L loc _)) = do
-    mod_name <- getModule
-    count <- goptM Opt_ProfCountEntries
-    uniq <- newUnique
-    Tick (ProfNote (mkUserCC cc mod_name loc uniq) count True) <$> dsLExpr expr
+    dflags <- getDynFlags
+    if profDrop dflags
+        then dsLExpr expr
+        else do
+            mod_name <- getModule
+            count <- goptM Opt_ProfCountEntries
+            uniq <- newUnique
+            Tick (ProfNote (mkUserCC cc mod_name loc uniq) count True) <$> dsLExpr expr
 
 dsExpr (HsCoreAnn _ expr)
   = dsLExpr expr
