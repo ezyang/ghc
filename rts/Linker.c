@@ -1015,6 +1015,15 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(stg_LISTENER_info)                 \
       SymI_HasProto(stg_END_LISTENER_LIST_info)        \
       SymI_HasProto(stg_END_LISTENER_LIST_closure)     \
+      SymI_HasProto(stg_restore_cccs_info)             \
+      SymI_HasProto(pushCostCentre)                    \
+      SymI_HasProto(enterFunCCS)                       \
+      SymI_HasProto(era)                               \
+      SymI_HasProto(CC_ID)                             \
+      SymI_HasProto(CCS_ID)                            \
+      SymI_HasProto(CCS_DONT_CARE)                     \
+      SymI_HasProto(CC_LIST)                           \
+      SymI_HasProto(CCS_LIST)                          \
       SymI_HasProto(CC_DYNAMIC)                        \
       SymI_HasProto(CCS_DYNAMIC)
 #else
@@ -2031,7 +2040,7 @@ loadArchive( pathchar *path )
     size_t thisFileNameSize;
     char *fileName;
     size_t fileNameSize;
-    int isObject, isGnuIndex;
+    int isObject, isProfiledObject, isGnuIndex;
     char tmp[20];
     char *gnuFileIndex;
     int gnuFileIndexSize;
@@ -2301,10 +2310,16 @@ loadArchive( pathchar *path )
                 && fileName[thisFileNameSize - 2] == '.'
                 && fileName[thisFileNameSize - 1] == 'o';
 
+        isProfiledObject = thisFileNameSize >= 3
+                && fileName[thisFileNameSize - 4] == '.'
+                && fileName[thisFileNameSize - 3] == 'p'
+                && fileName[thisFileNameSize - 2] == '_'
+                && fileName[thisFileNameSize - 1] == 'o';
+
         IF_DEBUG(linker, debugBelch("loadArchive: \tthisFileNameSize = %d\n", (int)thisFileNameSize));
         IF_DEBUG(linker, debugBelch("loadArchive: \tisObject = %d\n", isObject));
 
-        if (isObject) {
+        if (isObject || isProfiledObject) {
             char *archiveMemberName;
 
             IF_DEBUG(linker, debugBelch("loadArchive: Member is an object file...loading...\n"));
@@ -4496,6 +4511,12 @@ static int getSectionKind_ELF( Elf_Shdr *hdr, int *is_bss )
         /* .bss-style section */
         *is_bss = TRUE;
         return SECTIONKIND_RWDATA;
+    }
+
+    if (hdr->sh_type == SHT_INIT_ARRAY
+        && (hdr->sh_flags & SHF_ALLOC) && !(hdr->sh_flags & SHF_WRITE)) {
+        /* .ctors-style section */
+        return SECTIONKIND_CTORS;
     }
 
     return SECTIONKIND_OTHER;
