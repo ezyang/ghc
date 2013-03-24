@@ -18,6 +18,7 @@ typedef enum { OBJECT_LOADED, OBJECT_RESOLVED } OStatus;
 typedef 
    enum { SECTIONKIND_CODE_OR_RODATA,
           SECTIONKIND_RWDATA,
+          SECTIONKIND_CTORS,
           SECTIONKIND_OTHER,
           SECTIONKIND_NOINFOAVAIL } 
    SectionKind;
