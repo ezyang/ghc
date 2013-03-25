@@ -156,6 +156,7 @@ void initRtsFlagsDefaults(void)
 #endif /* PROFILING */
 
     RtsFlags.ProfFlags.doHeapProfile      = rtsFalse;
+    RtsFlags.ProfFlags.incrementalHeapProfile = rtsFalse;
     RtsFlags.ProfFlags. heapProfileInterval = USToTime(100000); // 100ms
 
 #ifdef PROFILING
@@ -279,6 +280,7 @@ usage_text[] = {
 "",
 "  -h<break-down> Heap residency profile (hp2ps) (output file <program>.hp)",
 "     break-down: c = cost centre stack (default)",
+"                 l = cost centre stack, but don't write output file",
 "                 m = module",
 "                 d = closure description",
 "                 y = type description",
@@ -329,6 +331,7 @@ usage_text[] = {
 "  -h       Heap residency profile (output file <program>.hp)",
 #endif
 "  -i<sec>  Time between heap profile samples (seconds, default: 0.1)",
+"  -ii      Use incremental heap profiling (sample taken every GC)",
 "",
 #if defined(TICKY_TICKY)
 "  -r<file>  Produce ticky-ticky statistics (with -rstderr for stderr)",
@@ -1141,6 +1144,9 @@ error = rtsTrue;
 		OPTION_UNSAFE;
 		if (rts_argv[arg][2] == '\0') {
 		  /* use default */
+                } else if (rts_argv[arg][2] == 'i') {
+                    RtsFlags.ProfFlags.incrementalHeapProfile = rtsTrue;
+                    RtsFlags.ProfFlags.heapProfileInterval = 0;
 		} else {
                     RtsFlags.ProfFlags.heapProfileInterval =
                         fsecondsToTime(atof(rts_argv[arg]+2));

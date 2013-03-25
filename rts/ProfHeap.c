@@ -25,7 +25,8 @@
 
 /* -----------------------------------------------------------------------------
  * era stores the current time period.  It is the same as the
- * number of censuses that have been performed.
+ * number of censuses that have been performed.  It is only used
+ * for LDV profiling.
  *
  * RESTRICTION:
  *   era must be no longer than LDV_SHIFT (15 or 30) bits.
@@ -37,7 +38,9 @@
  * store only up to (max_era - 1) as its creation or last use time.
  * -------------------------------------------------------------------------- */
 unsigned int era;
+#ifdef PROFILING
 static nat max_era;
+#endif
 
 /* -----------------------------------------------------------------------------
  * Counters
@@ -86,12 +89,17 @@ typedef struct {
     long       drag_total;
 } Census;
 
+#ifdef PROFILING
 static Census *censuses = NULL;
 static nat n_censuses = 0;
+#endif
+
+static Census global_census;
+static Census *gen_censuses = NULL;
 
 #ifdef PROFILING
 static void aggregateCensusInfo( void );
-static void checkResidentListeners ( Capability *cap, Census *census );
+static void checkResidentListeners ( Capability *cap );
 #endif
 
 static void dumpCensus( Census *census );
@@ -258,7 +266,7 @@ LDV_recordDead( StgClosure *c, nat size )
  * ----------------------------------------------------------------------- */
 
 STATIC_INLINE void
-initEra(Census *census)
+initCensus(Census *census)
 {
     census->hash  = allocHashTable();
     census->ctrs  = NULL;
@@ -272,7 +280,7 @@ initEra(Census *census)
 }
 
 STATIC_INLINE void
-freeEra(Census *census)
+freeCensus(Census *census)
 {
     arenaFree(census->arena);
     freeHashTable(census->hash, NULL);
@@ -285,11 +293,10 @@ freeEra(Census *census)
  * Reallocates gi[] and increases its size if needed.
  * ----------------------------------------------------------------------- */
 
+#ifdef PROFILING
 static void
 nextEra( void )
 {
-#ifdef PROFILING
-    if (doingLDVProfiling()) { 
 	era++;
 
 	if (era == max_era) {
@@ -302,11 +309,8 @@ nextEra( void )
 	    censuses = stgReallocBytes(censuses, sizeof(Census) * n_censuses,
 				       "nextEra");
 	}
-    }
-#endif /* PROFILING */
-
-    initEra( &censuses[era] );
 }
+#endif /* PROFILING */
 
 /* ----------------------------------------------------------------------------
  * Heap profiling by info table
@@ -394,27 +398,26 @@ initHeapProfiling(void)
     }
 #endif
 
-    // we only count eras if we're doing LDV profiling.  Otherwise era
-    // is fixed at zero.
+    // we only use eras if we're doing LDV profiling.
 #ifdef PROFILING
     if (doingLDVProfiling()) {
-	era = 1;
+        era = 1;
+        max_era = 1 << LDV_SHIFT;
+
+        n_censuses = 32;
+        censuses = stgMallocBytes(sizeof(Census) * n_censuses, "initHeapProfiling");
+        initCensus( &censuses[era] );
     } else
 #endif
-    {
-	era = 0;
+    /* else */ if (RtsFlags.ProfFlags.incrementalHeapProfile) {
+        nat g;
+        gen_censuses = stgMallocBytes(sizeof(Census) * RtsFlags.GcFlags.generations, "initHeapProfiling");
+        for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
+            initCensus( &gen_censuses[g] );
+        }
+    } else {
+        initCensus( &global_census );
     }
-
-    // max_era = 2^LDV_SHIFT
-	max_era = 1 << LDV_SHIFT;
-
-    n_censuses = 32;
-    censuses = stgMallocBytes(sizeof(Census) * n_censuses, "initHeapProfiling");
-
-    // The first census needs to be initialized here if we're doing LDV
-    // profiling.  Otherwise, it can wait until we actually carry out a
-    // census.
-    initEra( &censuses[era] );
 
     /* initProfilingLogFile(); */
     if (!RtsFlags.ProfFlags.inMemory) {
@@ -481,16 +484,20 @@ endHeapProfiling(void)
     if (doingLDVProfiling()) {
         nat t;
         for (t = 1; t <= era; t++) {
-            freeEra( &censuses[t] );
+            freeCensus( &censuses[t] );
         }
-    } else {
-        freeEra( &censuses[0] );
-    }
-#else
-    freeEra( &censuses[0] );
+        stgFree(censuses);
+    } else
 #endif
-
-    stgFree(censuses);
+    /* else */ if (RtsFlags.ProfFlags.incrementalHeapProfile) {
+        nat g;
+        for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
+            freeCensus( &gen_censuses[g] );
+        }
+        stgFree(gen_censuses);
+    } else {
+        freeCensus( &global_census );
+    }
 
     if (!RtsFlags.ProfFlags.inMemory) {
         seconds = mut_user_time();
@@ -750,12 +757,11 @@ aggregateCensusInfo( void )
 #ifdef PROFILING
 
 static void
-checkResidentListeners( Capability *cap, Census *census )
+checkResidentListeners( Capability *cap )
 {
     if (RtsFlags.ProfFlags.doHeapProfile != HEAP_BY_CCS) return;
     StgListener *p = census_listener_list;
     StgListener *prev = END_LISTENER_LIST;
-    counter *ctr;
     StgTSO *t;
     while (p != END_LISTENER_LIST) {
         if (p->header.info == &stg_IND_info) {
@@ -765,8 +771,8 @@ checkResidentListeners( Capability *cap, Census *census )
             continue;
         }
         ASSERT(p->type == PROF_TYPE_RESIDENT);
-        ctr = lookupHashTable( census->hash, (StgWord)p->ccs );
-        if (ctr != NULL && ctr->c.resid > p->limit) {
+        nat tot_resid = queryCCS(p->ccs, p->type);
+        if (tot_resid > p->limit) {
             // trigger it!
             t = createIOThread(cap, RtsFlags.GcFlags.initialStkSize, p->callback);
             scheduleThread(cap, t);
@@ -791,13 +797,19 @@ checkResidentListeners( Capability *cap, Census *census )
 StgInt
 queryCCS(CostCentreStack *ccs, StgWord type) {
     if (type == PROF_TYPE_RESIDENT && RtsFlags.ProfFlags.inMemory) {
-        Census *census = &censuses[era];
-        counter *ctr = lookupHashTable( census->hash, (StgWord)ccs );
-        if (ctr == NULL) {
-            return 0;
-        } else {
-            return ctr->c.resid;
+      nat tot_resid = 0;
+      counter *ctr;
+      if (RtsFlags.ProfFlags.incrementalHeapProfile) {
+        nat g;
+        for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
+          ctr = lookupHashTable( gen_censuses[g].hash, (StgWord)ccs );
+          tot_resid += ctr == NULL ? 0 : ctr->c.resid;
         }
+      } else {
+        ctr = lookupHashTable( global_census.hash, (StgWord)ccs );
+        tot_resid = ctr == NULL ? 0 : ctr->c.resid;
+      }
+      return tot_resid;
     } else if (type == PROF_TYPE_ALLOCATED) {
         return ccs->mem_alloc;
     } else {
@@ -992,14 +1004,14 @@ static void heapProfObject(Census *census, StgClosure *p, nat size,
  * Code to perform a heap census.
  * -------------------------------------------------------------------------- */
 static void
-heapCensusChain( Census *census, bdescr *bd )
+heapCensusChain( Census *census, bdescr *bd, bdescr *bdend )
 {
     StgPtr p;
     StgInfoTable *info;
     nat size;
     rtsBool prim;
 
-    for (; bd != NULL; bd = bd->link) {
+    for (; bd != bdend && bd != NULL; bd = bd->link) {
 
         // HACK: pretend a pinned block is just one big ARR_WORDS
         // owned by CCS_PINNED.  These blocks can be full of holes due
@@ -1012,7 +1024,12 @@ heapCensusChain( Census *census, bdescr *bd )
             continue;
         }
 
-	p = bd->start;
+        if (RtsFlags.ProfFlags.incrementalHeapProfile) {
+            p = bd->slopend;
+            ASSERT(p >= bd->start && p <= bd->free);
+        } else {
+            p = bd->start;
+        }
 	while (p < bd->free) {
 	    info = get_itbl((StgClosure *)p);
             prim = rtsFalse;
@@ -1150,85 +1167,127 @@ heapCensusChain( Census *census, bdescr *bd )
 
 	    p += size;
 	}
+        if (RtsFlags.ProfFlags.incrementalHeapProfile) {
+            bd->slopend = bd->free;
+        }
     }
+    ASSERT(bd == bdend);
 }
 
 #ifdef PROFILING
-void heapCensus (Capability *cap, Time t)
-#else
-void heapCensus (Time t)
-#endif
+// specialized copy of heapCensus; keep these two in sync
+static void ldvHeapCensus (Time t)
 {
   nat g, n;
   Census *census;
   gen_workspace *ws;
 
   census = &censuses[era];
+  census->time  = mut_user_time_until(t);
 
-  if (RtsFlags.ProfFlags.inMemory) {
-    freeEra(census);
-    nextEra();
-    ASSERT(census == &censuses[era]);
+  stat_startHeapCensus();
+
+  // Traverse the heap, collecting the census info
+  for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
+      heapCensusChain( census, generations[g].blocks, NULL );
+      heapCensusChain( census, generations[g].large_objects, NULL );
+      for (n = 0; n < n_capabilities; n++) {
+          ws = &gc_threads[n]->gens[g];
+          heapCensusChain(census, ws->todo_bd, NULL);
+          heapCensusChain(census, ws->part_list, NULL);
+          heapCensusChain(census, ws->scavd_list, NULL);
+      }
   }
 
-  census->time  = mut_user_time_until(t);
-    
+  nextEra();
+  stat_endHeapCensus();
+}
+#endif
+
+#ifdef PROFILING
+void heapCensus (nat collect_gen, Capability *cap, Time t)
+#else
+void heapCensus (nat collect_gen, Time t)
+#endif
+{
+  nat g, n;
+  Census *census;
+  gen_workspace *ws;
+
+#ifdef PROFILING
+  if (doingLDVProfiling()) {
+    ldvHeapCensus(t);
+    return;
+  }
+#endif
+
+  if (!RtsFlags.ProfFlags.incrementalHeapProfile) {
+    census = &global_census;
+    if (RtsFlags.ProfFlags.inMemory) {
+      freeCensus(census);
+      initCensus(census);
+    }
+    census->time  = mut_user_time_until(t);
+  } // free censuses of generations inside loop below...
+
   // calculate retainer sets if necessary
 #ifdef PROFILING
   if (doingRetainerProfiling()) {
       retainerProfile();
   }
-#endif
-
-#ifdef PROFILING
   stat_startHeapCensus();
 #endif
 
   // Traverse the heap, collecting the census info
   for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
-      heapCensusChain( census, generations[g].blocks );
+      if (RtsFlags.ProfFlags.incrementalHeapProfile) {
+          census = &gen_censuses[g];
+          if (g <= collect_gen) {
+              // possible optimization: always throw out gen 0, since it
+              // will always get GC'd and thus freed
+              freeCensus(census);
+              initCensus(census);
+              census->time = mut_user_time_until(t);
+          } // reuse old census of not collected generations!
+      } else {
+          generations[g].block_finger = NULL;
+          generations[g].large_objects_finger = NULL;
+      }
+      heapCensusChain( census, generations[g].blocks, generations[g].block_finger );
       // Are we interested in large objects?  might be
       // confusing to include the stack in a heap profile.
-      heapCensusChain( census, generations[g].large_objects );
+      heapCensusChain( census, generations[g].large_objects, generations[g].large_objects_finger );
 
       for (n = 0; n < n_capabilities; n++) {
           ws = &gc_threads[n]->gens[g];
-          heapCensusChain(census, ws->todo_bd);
-          heapCensusChain(census, ws->part_list);
-          heapCensusChain(census, ws->scavd_list);
+          heapCensusChain(census, ws->todo_bd, NULL); // XXX ?
+          heapCensusChain(census, ws->part_list, NULL);
+          heapCensusChain(census, ws->scavd_list, NULL);
       }
   }
 
   // trigger any listeners
 #ifdef PROFILING
-  checkResidentListeners(cap, census);
+  checkResidentListeners(cap);
 #endif
 
+  // if performing in-memory census, delay freeing the census
+  // information until the next census.  Of course, if we're
+  // just dumping the census info, no point letting it hog memory;
+  // free it immediately
   if (!RtsFlags.ProfFlags.inMemory) {
     // dump out the census info
-#ifdef PROFILING
-    // We can't generate any info for LDV profiling until
-    // the end of the run...
-    if (!doingLDVProfiling())
-	dumpCensus( census );
-#else
-    dumpCensus( census );
-#endif
-
-    // free our storage, unless we're keeping all the census info for
-    // future restriction by biography.
-#ifdef PROFILING
-    if (!doingLDVProfiling()) {
-        freeEra(census);
+    if (!RtsFlags.ProfFlags.incrementalHeapProfile) {
+      dumpCensus(&global_census);
+      freeCensus(&global_census);
+      initCensus(&global_census);
+    } else {
+      barf("heapCensus: dumping incremental heap profile not supported yet!");
     }
-#endif
-
-    // we're into the next time period now
-    nextEra();
   }
 
 #ifdef PROFILING
   stat_endHeapCensus();
 #endif
-}    
+}
 

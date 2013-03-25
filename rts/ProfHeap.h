@@ -20,9 +20,9 @@
 extern StgListener *census_listener_list;
 void    markCensusListeners(evac_fn evac, void *user);
 StgInt  queryCCS(CostCentreStack *ccs, StgWord type);
-void    heapCensus         (Capability *cap, Time t);
+void    heapCensus         (nat collect_gen, Capability *cap, Time t);
 #else
-void    heapCensus         (Time t);
+void    heapCensus         (nat collect_gen, Time t);
 #endif
 nat     initHeapProfiling  (void);
 void    endHeapProfiling   (void);

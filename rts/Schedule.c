@@ -1359,6 +1359,8 @@ scheduleNeedHeapProfile( rtsBool ready_to_gc STG_UNUSED )
 {
     // When we have +RTS -i0 and we're heap profiling, do a census at
     // every GC.  This lets us get repeatable runs for debugging.
+    // Note that incremental heap profiling REQUIRES that we do a census
+    // every GC; otherwise slopends will not get updated!
     if (performHeapProfile ||
         (RtsFlags.ProfFlags.heapProfileInterval==0 &&
 	 RtsFlags.ProfFlags.doHeapProfile && ready_to_gc)) {
@@ -1457,6 +1459,7 @@ scheduleDoGC (Capability **pcap, Task *task USED_IF_THREADS,
 {
     Capability *cap = *pcap;
     rtsBool heap_census;
+    rtsBool collect_gen;
 #ifdef THREADED_RTS
     rtsBool idle_cap[n_capabilities];
     rtsBool gc_type;
@@ -1648,13 +1651,17 @@ delete_threads_and_gc:
 
     heap_census = scheduleNeedHeapProfile(rtsTrue);
 
+    // Figure out which generation we are collecting, so that we can
+    // decide whether this is a parallel GC or not.
+    collect_gen = force_major || (!RtsFlags.ProfFlags.incrementalHeapProfile && heap_census);
+
 #if defined(THREADED_RTS)
     // reset pending_sync *before* GC, so that when the GC threads
     // emerge they don't immediately re-enter the GC.
     pending_sync = 0;
-    GarbageCollect(force_major || heap_census, heap_census, gc_type, cap);
+    GarbageCollect(collect_gen, heap_census, gc_type, cap);
 #else
-    GarbageCollect(force_major || heap_census, heap_census, 0, cap);
+    GarbageCollect(collect_gen, heap_census, 0, cap);
 #endif
 
     traceSparkCounters(cap);

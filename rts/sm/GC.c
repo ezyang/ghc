@@ -718,9 +718,9 @@ GarbageCollect (rtsBool force_major_gc,
       debugTrace(DEBUG_sched, "performing heap census");
       RELEASE_SM_LOCK;
 #ifdef PROFILING
-      heapCensus(cap, gct->gc_start_cpu);
+      heapCensus(collect_gen, cap, gct->gc_start_cpu);
 #else
-      heapCensus(gct->gc_start_cpu);
+      heapCensus(collect_gen, gct->gc_start_cpu);
 #endif
       ACQUIRE_SM_LOCK;
   }
@@ -882,7 +882,7 @@ new_gc_thread (nat n, gc_thread *t)
             bdescr *bd = allocBlock(); // no lock, locks aren't initialised yet
             initBdescr(bd, ws->gen, ws->gen->to);
             bd->flags = BF_EVACUATED;
-            bd->u.scan = bd->free = bd->start;
+            bd->u.scan = bd->slopend = bd->free = bd->start;
 
             ws->todo_bd = bd;
             ws->todo_free = bd->free;
@@ -1271,6 +1271,9 @@ prepare_collected_gen (generation *gen)
     gen_workspace *ws;
     bdescr *bd, *next;
 
+    gen->block_finger = NULL;
+    gen->large_objects_finger = NULL;
+
     // Throw away the current mutable list.  Invariant: the mutable
     // list always has at least one block; this means we can avoid a
     // check for NULL in recordMutable().
@@ -1411,6 +1414,9 @@ prepare_uncollected_gen (generation *gen)
     for (i = 0; i < n_capabilities; i++) {
         stash_mut_list(&capabilities[i], gen->no);
     }
+
+    gen->block_finger = gen->blocks;
+    gen->large_objects_finger = gen->large_objects;
 
     ASSERT(gen->scavenged_large_objects == NULL);
     ASSERT(gen->n_scavenged_large_blocks == 0);
