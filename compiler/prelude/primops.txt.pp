@@ -2696,7 +2696,7 @@ section "Cost centres"
 ------------------------------------------------------------------------
 
 primtype CostCentre#
-primtype CCS#
+primtype CostCentreStack#
 primtype Listener#
 
 primop NewCCOp "newCC#" GenPrimOp
