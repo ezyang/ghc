@@ -775,7 +775,7 @@ checkResidentListeners( Capability *cap )
         if (tot_resid > p->limit) {
             // trigger it!
             t = createIOThread(cap, RtsFlags.GcFlags.initialStkSize, p->callback);
-            scheduleThread(cap, t);
+            pushOnRunQueue(cap, t);
             // safe to modify this because this only occurs during a GC,
             // so we have all the capabilities and no one else is
             // traversing this list

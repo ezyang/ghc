@@ -1194,7 +1194,7 @@ void checkAllocationListeners( Capability *cap ) {
         ASSERT(p->type == PROF_TYPE_ALLOCATED);
         if (p->ccs->mem_alloc > p->limit) {
             t = createIOThread(cap, RtsFlags.GcFlags.initialStkSize, p->callback);
-            scheduleThread(cap, t);
+            pushOnRunQueue(cap, t);
             StgListener *next = p->link;
             p->link = END_LISTENER_LIST;
             if (prev == END_LISTENER_LIST) {
