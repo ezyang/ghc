@@ -64,6 +64,8 @@ typedef struct bdescr_ {
                                // value (StgPtr)(-1) is used to
                                // indicate that a block is unallocated.
 
+    StgPtr slopend;            // end of slop; values after are "new"
+
     struct bdescr_ *link;      // used for chaining blocks together
 
     union {
@@ -84,9 +86,10 @@ typedef struct bdescr_ {
                                // (if group head, 0 otherwise)
 
 #if SIZEOF_VOID_P == 8
-    StgWord32 _padding[3];
+    StgWord32 _padding[1];
 #else
     StgWord32 _padding[0];
+#error "XXX FIXME"
 #endif
 } bdescr;
 #endif

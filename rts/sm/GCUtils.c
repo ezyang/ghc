@@ -270,7 +270,7 @@ alloc_todo_block (gen_workspace *ws, nat size)
         }
         initBdescr(bd, ws->gen, ws->gen->to);
         bd->flags = BF_EVACUATED;
-        bd->u.scan = bd->free = bd->start;
+        bd->u.scan = bd->slopend = bd->free = bd->start;
     }
 
     bd->link = NULL;

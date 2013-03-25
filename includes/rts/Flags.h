@@ -100,6 +100,7 @@ struct PROFILING_FLAGS {
 
 # define HEAP_BY_CLOSURE_TYPE   8
 
+    rtsBool             incrementalHeapProfile; /* profile every GC */
     Time                heapProfileInterval; /* time between samples */
     nat                 heapProfileIntervalTicks; /* ticks between samples (derived) */
     rtsBool             includeTSOs;

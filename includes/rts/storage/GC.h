@@ -79,6 +79,9 @@ typedef struct generation_ {
     memcount       n_new_large_words;   // words of new large objects
                                         // (for doYouWantToGC())
 
+    bdescr *       block_finger;
+    bdescr *       large_objects_finger;
+
     memcount       max_blocks;          // max blocks
 
     StgTSO *       threads;             // threads in this gen

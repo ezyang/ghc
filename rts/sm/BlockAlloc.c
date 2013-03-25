@@ -172,6 +172,7 @@ initGroup(bdescr *head)
 
   n = head->blocks;
   head->free   = head->start;
+  head->slopend = head->start;
   head->link   = NULL;
   for (i=1, bd = head+1; i < n; i++, bd++) {
       bd->free = 0;
