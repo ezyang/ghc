@@ -836,7 +836,7 @@ memInventory (rtsBool show)
 {
   nat g, i;
   W_ gen_blocks[RtsFlags.GcFlags.generations];
-  W_ nursery_blocks, retainer_blocks,
+  W_ nursery_blocks, retainer_blocks, recorded_static_object_blocks,
        arena_blocks, exec_blocks;
   W_ live_blocks = 0, free_blocks = 0;
   rtsBool leak;
@@ -871,6 +871,9 @@ memInventory (rtsBool show)
   }
 #endif
 
+  // count recorded_static_object_list
+  recorded_static_object_blocks = recorded_static_object_list != NULL ? countBlocks(recorded_static_object_list) : 0;
+
   // count the blocks allocated by the arena allocator
   arena_blocks = arenaBlocks();
 
@@ -884,7 +887,7 @@ memInventory (rtsBool show)
   for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
       live_blocks += gen_blocks[g];
   }
-  live_blocks += nursery_blocks + 
+  live_blocks += nursery_blocks + recorded_static_object_blocks
                + retainer_blocks + arena_blocks + exec_blocks;
 
 #define MB(n) (((double)(n) * BLOCK_SIZE_W) / ((1024*1024)/sizeof(W_)))
@@ -906,6 +909,8 @@ memInventory (rtsBool show)
                  nursery_blocks, MB(nursery_blocks));
       debugBelch("  retainer     : %5" FMT_Word " blocks (%6.1lf MB)\n",
                  retainer_blocks, MB(retainer_blocks));
+      debugBelch("  static list  : %5" FMT_Word " blocks (%6.1lf MB)\n",
+                 recorded_static_object_blocks, MB(recorded_static_object_blocks));
       debugBelch("  arena blocks : %5" FMT_Word " blocks (%6.1lf MB)\n",
                  arena_blocks, MB(arena_blocks));
       debugBelch("  exec         : %5" FMT_Word " blocks (%6.1lf MB)\n",

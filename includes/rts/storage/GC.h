@@ -258,4 +258,9 @@ INLINE_HEADER void initBdescr(bdescr *bd, generation *gen, generation *dest)
     bd->dest_no = dest->no;
 }
 
+/* record static objects */
+void freeRecordedStaticObjectList(void);
+extern rtsBool record_static;
+extern bdescr *recorded_static_object_list;
+
 #endif /* RTS_STORAGE_GC_H */

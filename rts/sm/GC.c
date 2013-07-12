@@ -133,6 +133,9 @@ long copied;        // *words* copied & scavenged during this GC
 
 rtsBool work_stealing;
 
+rtsBool record_static = rtsFalse;
+bdescr *recorded_static_object_list = NULL;
+
 DECLARE_GCT
 
 /* -----------------------------------------------------------------------------
@@ -154,6 +157,8 @@ static void wakeup_gc_threads       (nat me);
 static void shutdown_gc_threads     (nat me);
 static void collect_gct_blocks      (void);
 static void collect_pinned_object_blocks (void);
+
+static void markRecordedStaticObjectList(void);
 
 #if 0 && defined(DEBUG)
 static void gcCAFs                  (void);
@@ -379,6 +384,8 @@ GarbageCollect (nat collect_gen,
   // Mark the weak pointer list, and prepare to detect dead weak pointers.
   markWeakPtrList();
   initWeakForGC();
+
+  markRecordedStaticObjectList();
 
   // Mark the stable pointer table.
   markStableTables(mark_root, gct);
@@ -677,6 +684,10 @@ GarbageCollect (nat collect_gen,
   // zero the scavenged static object list
   if (major_gc) {
       nat i;
+      if (record_static) {
+          freeRecordedStaticObjectList();
+          recorded_static_object_list = allocBlock();
+      }
       if (n_gc_threads == 1) {
           zero_static_object_list(gct->scavenged_static_objects);
       } else {
@@ -686,6 +697,7 @@ GarbageCollect (nat collect_gen,
               }
           }
       }
+      record_static = rtsFalse;
   }
 
   // Update the stable pointer hash table.
@@ -1496,9 +1508,48 @@ zero_static_object_list(StgClosure* first_static)
 
   for (p = first_static; p != END_OF_STATIC_LIST; p = link) {
     info = get_itbl(p);
+    if (record_static) {
+        bdescr *bd = recorded_static_object_list;
+        ASSERT(bd != NULL);
+        if (bd->free + 1 >= bd->start + bd->blocks * BLOCK_SIZE_W) {
+            bd = allocBlock();
+            bd->gen_no  = 0;
+            bd->gen     = NULL;
+            bd->dest_no = 0;
+            bd->flags   = 0;
+            bd->free    = bd->start;
+            bd->link    = recorded_static_object_list;
+            recorded_static_object_list = bd;
+        }
+        *((StgClosure**)bd->free) = p;
+        bd->free++;
+    }
     link = *STATIC_LINK(info, p);
     *STATIC_LINK(info,p) = NULL;
   }
+}
+
+void markRecordedStaticObjectList(void) {
+    bdescr *bd = recorded_static_object_list;
+    StgClosure **p;
+    if (bd == NULL) return;
+    do {
+        for (p = (StgClosure **)bd->start; p < (StgClosure **)bd->free; p++) {
+            evacuate(p);
+        }
+    } while ((bd = bd->link));
+}
+
+void freeRecordedStaticObjectList(void) {
+    // this needs to be done in C (atomically) because a preemption
+    // between freeing the chain and zeroing the static pointer
+    // would be bad! (We trample all over free blocks).  We
+    // can't do it the other direction either: now, if a preemption
+    // happens, GHC will report a memory leak.
+    if (recorded_static_object_list != NULL) {
+        freeChain(recorded_static_object_list);
+        recorded_static_object_list = NULL;
+    }
 }
 
 /* ----------------------------------------------------------------------------
