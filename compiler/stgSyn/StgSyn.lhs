@@ -409,6 +409,7 @@ data GenStgRhs bndr occ
                                 -- a set, because order is important
         !UpdateFlag             -- ReEntrant | Updatable | SingleEntry
         SRT                     -- The SRT reference
+        (Maybe Id)              -- noupd variant
         [bndr]                  -- arguments; if empty, then not a function;
                                 -- as above, order is important.
         (GenStgExpr bndr occ)   -- body
@@ -437,7 +438,7 @@ The second flavour of right-hand-side is for constructors (simple but important)
         [GenStgArg occ]  -- args
 
 stgRhsArity :: StgRhs -> Int
-stgRhsArity (StgRhsClosure _ _ _ _ _ bndrs _)
+stgRhsArity (StgRhsClosure _ _ _ _ _ _ bndrs _)
   = ASSERT( all isId bndrs ) length bndrs
   -- The arity never includes type parameters, but they should have gone by now
 stgRhsArity (StgRhsCon _ _ _) = 0
@@ -447,7 +448,7 @@ stgBindHasCafRefs (StgNonRec _ rhs) = rhsHasCafRefs rhs
 stgBindHasCafRefs (StgRec binds)    = any rhsHasCafRefs (map snd binds)
 
 rhsHasCafRefs :: GenStgRhs bndr Id -> Bool
-rhsHasCafRefs (StgRhsClosure _ _ _ upd srt _ _)
+rhsHasCafRefs (StgRhsClosure _ _ _ upd srt _ _ _)
   = isUpdatable upd || nonEmptySRT srt
 rhsHasCafRefs (StgRhsCon _ _ args)
   = any stgArgHasCafRefs args
@@ -791,18 +792,20 @@ pprStgRhs :: (OutputableBndr bndr, Outputable bdee, Ord bdee)
           => GenStgRhs bndr bdee -> SDoc
 
 -- special case
-pprStgRhs (StgRhsClosure cc bi [free_var] upd_flag srt [{-no args-}] (StgApp func []))
+pprStgRhs (StgRhsClosure cc bi [free_var] upd_flag srt noupd [{-no args-}] (StgApp func []))
   = hcat [ ppr cc,
            pp_binder_info bi,
            brackets (ifPprDebug (ppr free_var)),
+           angleBrackets (ptext (sLit "noupd:") <+> ppr noupd),
            ptext (sLit " \\"), ppr upd_flag, pprMaybeSRT srt, ptext (sLit " [] "), ppr func ]
 
 -- general case
-pprStgRhs (StgRhsClosure cc bi free_vars upd_flag srt args body)
+pprStgRhs (StgRhsClosure cc bi free_vars upd_flag srt noupd args body)
   = sdocWithDynFlags $ \dflags ->
     hang (hsep [if gopt Opt_SccProfilingOn dflags then ppr cc else empty,
                 pp_binder_info bi,
                 ifPprDebug (brackets (interppSP free_vars)),
+                ifPprDebug (angleBrackets (ptext (sLit "noupd:") <+> ppr noupd)),
                 char '\\' <> ppr upd_flag, pprMaybeSRT srt, brackets (interppSP args)])
          4 (ppr body)
 

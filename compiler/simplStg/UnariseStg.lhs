@@ -72,9 +72,9 @@ unariseBinding us rho bind = case bind of
 
 unariseRhs :: UniqSupply -> UnariseEnv -> StgRhs -> StgRhs
 unariseRhs us rho rhs = case rhs of
-  StgRhsClosure ccs b_info fvs update_flag srt args expr
+  StgRhsClosure ccs b_info fvs update_flag srt noupd args expr
     -> StgRhsClosure ccs b_info (unariseIds rho fvs) update_flag 
-                     (unariseSRT rho srt) args' (unariseExpr us' rho' expr)
+                     (unariseSRT rho srt) noupd args' (unariseExpr us' rho' expr)
     where (us', rho', args') = unariseIdBinders us rho args
   StgRhsCon ccs con args
     -> StgRhsCon ccs con (unariseArgs rho args)

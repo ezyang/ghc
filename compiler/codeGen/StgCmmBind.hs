@@ -63,11 +63,12 @@ cgTopRhsClosure :: RecFlag              -- member of a recursive group?
                 -> CostCentreStack      -- Optional cost centre annotation
                 -> StgBinderInfo
                 -> UpdateFlag
+                -> Maybe Id
                 -> [Id]                 -- Args
                 -> StgExpr
                 -> FCode (CgIdInfo, FCode ())
 
-cgTopRhsClosure rec id ccs _ upd_flag args body
+cgTopRhsClosure rec id ccs _ upd_flag noupd args body
  = do { dflags <- getDynFlags
       ; lf_info <- mkClosureLFInfo id TopLevel [] upd_flag args
       ; let closure_label = mkLocalClosureLabel (idName id) (idCafInfo id)
@@ -101,7 +102,8 @@ cgTopRhsClosure rec id ccs _ upd_flag args body
           let name = idName id
         ; mod_name <- getModuleName
         ; let descr         = closureDescription dflags mod_name name
-              closure_info  = mkClosureInfo dflags True id lf_info 0 0 descr
+              closure_info  = closureSetNoupd (mkClosureInfo dflags True id lf_info 0 0 descr)
+                                 (fmap (\i -> mkLocalInfoTableLabel (idName i) (idCafInfo i)) noupd)
 
               caffy         = idCafInfo id
               info_tbl      = mkCmmInfo closure_info -- XXX short-cut
@@ -207,9 +209,9 @@ cgRhs id (StgRhsCon cc con args)
   = withNewTickyCounterThunk False (idName id) $ -- False for "not static"
     buildDynCon id True cc con args
 
-cgRhs name (StgRhsClosure cc bi fvs upd_flag _srt args body)
+cgRhs name (StgRhsClosure cc bi fvs upd_flag _srt noupd args body)
   | null fvs   -- See Note [Nested constant closures]
-  = do { (info, fcode) <- cgTopRhsClosure Recursive name dontCareCCS bi upd_flag args body 
+  = do { (info, fcode) <- cgTopRhsClosure Recursive name dontCareCCS bi upd_flag noupd args body 
        ; return (info, fcode >> return mkNop) }
   | otherwise 
   = do dflags <- getDynFlags
@@ -587,7 +589,7 @@ thunkCode cl_info fv_details _cc node arity body
             -- in update frame CAF/DICT functions will be
             -- subsumed by this enclosing cc
             do { tickyEnterThunk cl_info
-               ; enterCostCentreThunk (CmmReg nodeReg)
+               ; when (closureUpdReqd cl_info) $ enterCostCentreThunk (CmmReg nodeReg)
                ; let lf_info = closureLFInfo cl_info
                ; fv_bindings <- mapM bind_fv fv_details
                ; load_fvs node lf_info fv_bindings

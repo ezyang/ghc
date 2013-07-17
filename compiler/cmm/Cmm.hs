@@ -144,7 +144,8 @@ data CmmInfoTable
       cit_lbl  :: CLabel, -- Info table label
       cit_rep  :: SMRep,
       cit_prof :: ProfilingInfo,
-      cit_srt  :: C_SRT
+      cit_srt  :: C_SRT,
+      cit_noupd_lbl :: Maybe CLabel
     }
 
 data ProfilingInfo

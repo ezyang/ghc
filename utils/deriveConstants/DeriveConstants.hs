@@ -430,6 +430,7 @@ wanteds = concat
           ,thunkSize C "StgSelector"
 
           ,closureFieldGcptr C "StgInd" "indirectee"
+          ,closureFieldGcptr C "StgIndStatic" "noupd_info"
 
           ,closureSize  C "StgMutVar"
           ,closureField C "StgMutVar" "var"

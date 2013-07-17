@@ -131,10 +131,10 @@ lint_binds_help (binder, rhs)
 \begin{code}
 lintStgRhs :: StgRhs -> LintM (Maybe Type)   -- Just ty => type is exact
 
-lintStgRhs (StgRhsClosure _ _ _ _ _ [] expr)
+lintStgRhs (StgRhsClosure _ _ _ _ _ _ [] expr)
   = lintStgExpr expr
 
-lintStgRhs (StgRhsClosure _ _ _ _ _ binders expr)
+lintStgRhs (StgRhsClosure _ _ _ _ _ _ binders expr)
   = addLoc (LambdaBodyOf binders) $
       addInScopeVars binders $ runMaybeT $ do
         body_ty <- MaybeT $ lintStgExpr expr

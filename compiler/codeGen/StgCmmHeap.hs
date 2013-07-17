@@ -49,6 +49,7 @@ import FastString( mkFastString, fsLit )
 
 import Control.Monad (when)
 import Data.Maybe (isJust)
+import Panic (panic)
 
 -----------------------------------------------------------
 --              Initialise dynamic heap objects
@@ -163,13 +164,14 @@ mkStaticClosureFields
         -> [CmmLit]             -- The full closure
 mkStaticClosureFields dflags info_tbl ccs caf_refs payload
   = mkStaticClosure dflags info_lbl ccs payload padding
-        static_link_field saved_info_field
+        static_link_field saved_info_field noupd_info_field
   where
     info_lbl = cit_lbl info_tbl
 
     -- CAFs must have consistent layout, regardless of whether they
     -- are actually updatable or not.  The layout of a CAF is:
     --
+    --        4 noupd_info
     --        3 saved_info
     --        2 static_link
     --        1 indirectee
@@ -202,16 +204,21 @@ mkStaticClosureFields dflags info_tbl ccs caf_refs payload
         | mayHaveCafRefs caf_refs  = mkIntCLit dflags 0
         | otherwise                = mkIntCLit dflags 1  -- No CAF refs
 
+    noupd_info_field
+        | is_caf = [maybe (mkIntCLit dflags 0) CmmLabel (cit_noupd_lbl info_tbl)]
+        | otherwise = []
+
 
 mkStaticClosure :: DynFlags -> CLabel -> CostCentreStack -> [CmmLit]
-  -> [CmmLit] -> [CmmLit] -> [CmmLit] -> [CmmLit]
-mkStaticClosure dflags info_lbl ccs payload padding static_link_field saved_info_field
+  -> [CmmLit] -> [CmmLit] -> [CmmLit] -> [CmmLit] -> [CmmLit]
+mkStaticClosure dflags info_lbl ccs payload padding static_link_field saved_info_field noupd_info_field
   =  [CmmLabel info_lbl]
   ++ variable_header_words
   ++ concatMap (padLitToWord dflags) payload
   ++ padding
   ++ static_link_field
   ++ saved_info_field
+  ++ noupd_info_field
   where
     variable_header_words
         =  staticGranHdr

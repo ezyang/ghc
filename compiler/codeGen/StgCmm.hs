@@ -142,9 +142,9 @@ cgTopRhs :: RecFlag -> Id -> StgRhs -> FCode (CgIdInfo, FCode ())
 cgTopRhs _rec bndr (StgRhsCon _cc con args)
   = forkStatics (cgTopRhsCon bndr con args)
 
-cgTopRhs rec bndr (StgRhsClosure cc bi fvs upd_flag _srt args body)
+cgTopRhs rec bndr (StgRhsClosure cc bi fvs upd_flag _srt noupd args body)
   = ASSERT(null fvs)    -- There should be no free variables
-    forkStatics (cgTopRhsClosure rec bndr cc bi upd_flag args body)
+    forkStatics (cgTopRhsClosure rec bndr cc bi upd_flag noupd args body)
 
 
 ---------------------------------------------------------------

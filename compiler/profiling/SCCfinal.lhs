@@ -89,7 +89,7 @@ stgMassageForProfiling dflags mod_name _us stg_binds
     ----------
     do_top_rhs :: Id -> StgRhs -> MassageM StgRhs
 
-    do_top_rhs _ (StgRhsClosure _ _ _ _ _ []
+    do_top_rhs _ (StgRhsClosure _ _ _ _ _ _ []
                      (StgSCC _cc False{-not tick-} _push (StgConApp con args)))
       | not (isDllConApp dflags mod_name con args)
         -- Trivial _scc_ around nothing but static data
@@ -98,7 +98,7 @@ stgMassageForProfiling dflags mod_name _us stg_binds
         -- isDllConApp checks for LitLit args too
       = return (StgRhsCon dontCareCCS con args)
 
-    do_top_rhs binder (StgRhsClosure _ bi fv u srt [] body)
+    do_top_rhs binder (StgRhsClosure _ bi fv u srt noupd [] body)
       = do
         -- Top level CAF without a cost centre attached
         -- Attach CAF cc (collect if individual CAF ccs)
@@ -117,11 +117,11 @@ stgMassageForProfiling dflags mod_name _us stg_binds
                    else
                         return all_cafs_ccs
         body' <- do_expr body
-        return (StgRhsClosure caf_ccs bi fv u srt [] body')
+        return (StgRhsClosure caf_ccs bi fv u srt noupd [] body')
 
-    do_top_rhs _ (StgRhsClosure _no_ccs bi fv u srt args body)
+    do_top_rhs _ (StgRhsClosure _no_ccs bi fv u srt noupd args body)
       = do body' <- do_expr body
-           return (StgRhsClosure dontCareCCS bi fv u srt args body')
+           return (StgRhsClosure dontCareCCS bi fv u srt noupd args body')
 
     do_top_rhs _ (StgRhsCon _ con args)
         -- Top-level (static) data is not counted in heap
@@ -197,14 +197,14 @@ stgMassageForProfiling dflags mod_name _us stg_binds
         -- allocation of the constructor to the wrong place (XXX)
         -- We should really attach (PushCC cc CurrentCCS) to the rhs,
         -- but need to reinstate PushCC for that.
-    do_rhs (StgRhsClosure _closure_cc _bi _fv _u _srt []
+    do_rhs (StgRhsClosure _closure_cc _bi _fv _u _srt _noupd []
                (StgSCC cc False{-not tick-} _push (StgConApp con args)))
       = do collectCC cc
            return (StgRhsCon currentCCS con args)
 
-    do_rhs (StgRhsClosure _ bi fv u srt args expr) = do
+    do_rhs (StgRhsClosure _ bi fv u srt noupd args expr) = do
         expr' <- do_expr expr
-        return (StgRhsClosure currentCCS bi fv u srt args expr')
+        return (StgRhsClosure currentCCS bi fv u srt noupd args expr')
 
     do_rhs (StgRhsCon _ con args)
       = return (StgRhsCon currentCCS con args)

@@ -42,6 +42,7 @@ module StgCmmClosure (
 	ClosureInfo,
         mkClosureInfo,
         mkCmmInfo,
+        closureSetNoupd,
 
         -- ** Inspection
         closureLFInfo, closureName,
@@ -676,7 +677,8 @@ data ClosureInfo
           -- the rest is just an unpacked CmmInfoTable.
         closureInfoLabel :: !CLabel,
         closureSMRep     :: !SMRep,          -- representation used by storage mgr
-        closureProf      :: !ProfilingInfo
+        closureProf      :: !ProfilingInfo,
+        closureNoupdInfoLabel :: !(Maybe CLabel)
     }
 
 -- | Convert from 'ClosureInfo' to 'CmmInfoTable'.
@@ -685,7 +687,9 @@ mkCmmInfo ClosureInfo {..}
   = CmmInfoTable { cit_lbl  = closureInfoLabel
                  , cit_rep  = closureSMRep
                  , cit_prof = closureProf
-                 , cit_srt  = NoC_SRT }
+                 , cit_srt  = NoC_SRT
+                 , cit_noupd_lbl = closureNoupdInfoLabel
+                 }
 
 
 --------------------------------------
@@ -704,7 +708,8 @@ mkClosureInfo dflags is_static id lf_info tot_wds ptr_wds val_descr
                   closureLFInfo    = lf_info,
                   closureInfoLabel = info_lbl,  -- These three fields are
                   closureSMRep     = sm_rep,    -- (almost) an info table
-                  closureProf      = prof }     -- (we don't have an SRT yet)
+                  closureProf      = prof,      -- (we don't have an SRT yet)
+                  closureNoupdInfoLabel = Nothing } -- XXX stubbed in later
   where
     name       = idName id
     sm_rep     = mkHeapRep dflags is_static ptr_wds nonptr_wds (lfClosureType lf_info)
@@ -770,6 +775,9 @@ closureReEntrant _ = False
 
 closureFunInfo :: ClosureInfo -> Maybe (RepArity, ArgDescr)
 closureFunInfo (ClosureInfo { closureLFInfo = lf_info }) = lfFunInfo lf_info
+
+closureSetNoupd :: ClosureInfo -> Maybe CLabel -> ClosureInfo
+closureSetNoupd info n = info { closureNoupdInfoLabel = n }
 
 lfFunInfo :: LambdaFormInfo ->  Maybe (RepArity, ArgDescr)
 lfFunInfo (LFReEntrant _ arity _ arg_desc)  = Just (arity, arg_desc)
@@ -907,7 +915,8 @@ mkDataConInfoTable dflags data_con is_static ptr_wds nonptr_wds
  = CmmInfoTable { cit_lbl  = info_lbl
                 , cit_rep  = sm_rep
                 , cit_prof = prof
-                , cit_srt  = NoC_SRT }
+                , cit_srt  = NoC_SRT
+                , cit_noupd_lbl = Nothing }
  where
    name = dataConName data_con
 
@@ -932,14 +941,16 @@ cafBlackHoleInfoTable
   = CmmInfoTable { cit_lbl  = mkCAFBlackHoleInfoTableLabel
                  , cit_rep  = blackHoleRep
                  , cit_prof = NoProfilingInfo
-                 , cit_srt  = NoC_SRT }
+                 , cit_srt  = NoC_SRT
+                 , cit_noupd_lbl = Nothing }
 
 indStaticInfoTable :: CmmInfoTable
 indStaticInfoTable
   = CmmInfoTable { cit_lbl  = mkIndStaticInfoLabel
                  , cit_rep  = indStaticRep
                  , cit_prof = NoProfilingInfo
-                 , cit_srt  = NoC_SRT }
+                 , cit_srt  = NoC_SRT
+                 , cit_noupd_lbl = Nothing }
 
 staticClosureNeedsLink :: Bool -> CmmInfoTable -> Bool
 -- A static closure needs a link field to aid the GC when traversing

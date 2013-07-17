@@ -281,6 +281,7 @@ mkTopStgRhs _ _ rhs_fvs srt _ binder_info (StgLam bndrs body)
                   (getFVs rhs_fvs)
                   ReEntrant
                   srt
+                  Nothing
                   bndrs body
 
 mkTopStgRhs dflags this_mod _ _ _ _ (StgConApp con args)
@@ -292,6 +293,7 @@ mkTopStgRhs _ _ rhs_fvs srt bndr binder_info rhs
                   (getFVs rhs_fvs)
                   (getUpdateFlag bndr)
                   srt
+                  Nothing
                   [] rhs
 
 getUpdateFlag :: Id -> UpdateFlag
@@ -800,12 +802,12 @@ mkStgRhs rhs_fvs srt _ binder_info (StgLam bndrs body)
   = StgRhsClosure noCCS binder_info
                   (getFVs rhs_fvs)
                   ReEntrant
-                  srt bndrs body
+                  srt Nothing bndrs body
 
 mkStgRhs rhs_fvs srt bndr binder_info rhs
   = StgRhsClosure noCCS binder_info
                   (getFVs rhs_fvs)
-                  upd_flag srt [] rhs
+                  upd_flag srt Nothing [] rhs
   where
    upd_flag = getUpdateFlag bndr
   {-

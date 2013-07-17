@@ -1796,10 +1796,11 @@ data StgToDo
   -- There's also setStgVarInfo, but its absolute "lastness"
   -- is so critical that it is hardwired in (no flag).
   | D_stg_stats
+  | StgGenerateNonUpdatableClosures
 
 getStgToDo :: DynFlags -> [StgToDo]
 getStgToDo dflags
-  = todo2
+  = todo3
   where
         stg_stats = gopt Opt_StgStats dflags
 
@@ -1809,6 +1810,8 @@ getStgToDo dflags
               = StgDoMassageForProfiling : todo1
               | otherwise
               = todo1
+
+        todo3 = StgGenerateNonUpdatableClosures : todo1
 
 {- **********************************************************************
 %*                                                                      *
