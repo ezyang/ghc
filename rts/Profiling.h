@@ -30,6 +30,17 @@ extern FILE *hp_file;
 
 #ifdef PROFILING
 
+#include "sm/GC.h" // for evac_fn below
+
+#define PROF_TYPE_RESIDENT 0
+#define PROF_TYPE_ALLOCATED 1
+
+extern StgListener *alloc_listener_list;
+void checkAllocationListeners(Capability *cap);
+void markAllocationListeners(evac_fn evac, void*);
+
+void removeListener(StgListener *l);
+
 void reportCCSProfiling ( void );
 
 void PrintNewStackDecls ( void );

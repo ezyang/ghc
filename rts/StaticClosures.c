@@ -125,6 +125,9 @@ initStaticClosures(void)
     }
 
     processStaticClosures();
+
+    // deferred initialization
+    RC_MAIN->listeners = END_LISTENER_LIST;
 }
 
 void

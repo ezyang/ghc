@@ -2704,6 +2704,7 @@ section "Resource containers"
 ------------------------------------------------------------------------
 
 primtype RC#
+primtype Listener#
 
 primop NewRCOp "newRC#" GenPrimOp
     Word# -> RC# -> State# RealWorld -> (# State# RealWorld, RC# #)
@@ -2719,6 +2720,24 @@ primop WithRCOp "withRC#" GenPrimOp
 
 primop GetRCOfOp "getRCOf#" GenPrimOp
    a -> State# s -> (# State# s, RC# #)
+
+primop UsedBlocksRC "usedBlocksRC#" GenPrimOp
+    RC# -> State# RealWorld -> (# State# RealWorld, Int# #)
+    with
+    out_of_line = True
+    has_side_effects = True
+
+primop ListenRCOp "listenRC#" GenPrimOp
+    RC# -> Int# -> c -> State# RealWorld -> (# State# RealWorld, Listener# #)
+    with
+    out_of_line = True
+    has_side_effects = True
+
+primop UnlistenRCOp "unlistenRC#" GenPrimOp
+    Listener# -> State# RealWorld -> (# State# RealWorld, () #)
+    with
+    out_of_line = True
+    has_side_effects = True
 
 primop  GetCurrentRCOp "getCurrentRC#" GenPrimOp
    a -> State# s -> (# State# s, RC# #)

@@ -647,6 +647,18 @@ INFO_TABLE_CONSTR(stg_MVAR_TSO_QUEUE,2,0,0,PRIM,"MVAR_TSO_QUEUE","MVAR_TSO_QUEUE
 { foreign "C" barf("MVAR_TSO_QUEUE object entered!") never returns; }
 
 /* ----------------------------------------------------------------------------
+   LISTENER
+   ------------------------------------------------------------------------- */
+
+INFO_TABLE_CONSTR(stg_LISTENER,2,2,0,PRIM,"LISTENER","LISTENER")
+{ foreign "C" barf("LISTENER object entered!") never returns; }
+
+INFO_TABLE_CONSTR(stg_END_LISTENER_LIST,0,0,0,CONSTR_NOCAF_STATIC,"END_LISTENER_LIST","END_LISTENER_LIST")
+{ foreign "C" barf("END_LISTENER_LIST object entered!") never returns; }
+
+CLOSURE(stg_END_LISTENER_LIST);
+
+/* ----------------------------------------------------------------------------
    CHARLIKE and INTLIKE closures.
 
    These are static representations of Chars and small Ints, so that

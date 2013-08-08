@@ -141,6 +141,9 @@ RTS_ENTRY(stg_END_STM_WATCH_QUEUE);
 RTS_ENTRY(stg_END_INVARIANT_CHECK_QUEUE);
 RTS_ENTRY(stg_END_STM_CHUNK_LIST);
 RTS_ENTRY(stg_NO_TREC);
+RTS_ENTRY(stg_LISTENER);
+RTS_ENTRY(stg_END_LISTENER_LIST);
+RTS_CLOSURE(stg_END_LISTENER_LIST);
 
 /* closures */
 
@@ -458,6 +461,9 @@ RTS_FUN_DECL(stg_traceMarkerzh);
 
 RTS_FUN_DECL(stg_newRCzh);
 RTS_FUN_DECL(stg_withRCzh);
+RTS_FUN_DECL(stg_usedBlocksRCzh);
+RTS_FUN_DECL(stg_listenRCzh);
+RTS_FUN_DECL(stg_unlistenRCzh);
 
 /* Other misc stuff */
 // See wiki:Commentary/Compiler/Backends/PprC#Prototypes

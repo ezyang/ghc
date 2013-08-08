@@ -359,6 +359,7 @@ wanteds = concat
           ,structField C    "Capability" "sparks"
 
           ,fieldOffset Both "ResourceContainer" "threads"
+          ,structField C    "ResourceContainer" "used_blocks"
 
           ,structField Both "rcthread" "workspaces"
           ,structField Both "rcthread" "nursery"
@@ -537,6 +538,11 @@ wanteds = concat
           ,closureField C "StgBlockingQueue" "owner"
           ,closureField C "StgBlockingQueue" "queue"
           ,closureField C "StgBlockingQueue" "link"
+
+          ,closureSize  C "StgListener"
+          ,closureField C "StgListener" "callback"
+          ,closureField C "StgListener" "rc"
+          ,closureField C "StgListener" "limit"
 
           ,closureSize  C "MessageBlackHole"
           ,closureField C "MessageBlackHole" "link"

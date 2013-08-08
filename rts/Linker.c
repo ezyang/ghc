@@ -1256,6 +1256,8 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(stg_MUT_VAR_CLEAN_info)                             \
       SymI_HasProto(stg_MUT_VAR_DIRTY_info)                             \
       SymI_HasProto(stg_WEAK_info)                                      \
+      SymI_HasProto(stg_LISTENER_info)                                  \
+      SymI_HasProto(stg_END_LISTENER_LIST_info)                         \
       SymI_HasProto(stg_ap_v_info)                                      \
       SymI_HasProto(stg_ap_f_info)                                      \
       SymI_HasProto(stg_ap_d_info)                                      \
@@ -1375,6 +1377,9 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(atomic_dec)                                         \
       SymI_HasProto(stg_newRCzh)                                        \
       SymI_HasProto(stg_withRCzh)                                       \
+      SymI_HasProto(stg_usedBlocksRCzh)                                 \
+      SymI_HasProto(stg_listenRCzh)                                     \
+      SymI_HasProto(stg_unlistenRCzh)                                   \
       RTS_USER_SIGNALS_SYMBOLS                                          \
       RTS_INTCHAR_SYMBOLS
 

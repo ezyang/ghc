@@ -19,6 +19,7 @@
 #include "RetainerProfile.h"
 #include "Printer.h"
 #include "Capability.h"
+#include "Schedule.h"
 
 #include <string.h>
 
@@ -51,6 +52,14 @@ FILE *prof_file;
 
 static char *hp_filename;	/* heap profile (hp2ps style) log file */
 FILE *hp_file;
+
+StgListener *alloc_listener_list = END_LISTENER_LIST;
+
+void markAllocationListeners(evac_fn evac, void *user) {
+    if (alloc_listener_list != END_LISTENER_LIST) {
+        evac(user, (StgClosure **)&alloc_listener_list);
+    }
+}
 
 /* Linked lists to keep track of CCs and CCSs that haven't
  * been declared in the log file yet
@@ -265,7 +274,7 @@ initProfilingLogFile(void)
         }
     }
     
-    if (RtsFlags.ProfFlags.doHeapProfile) {
+    if (RtsFlags.ProfFlags.doHeapProfile && !RtsFlags.ProfFlags.inMemory) {
 	/* Initialise the log file name */
 	hp_filename = arenaAlloc(prof_arena, strlen(prog) + 6);
 	sprintf(hp_filename, "%s.hp", prog);
@@ -1145,5 +1154,42 @@ debugCCS( CostCentreStack *ccs )
     debugBelch(">");
 }
 #endif /* DEBUG */
+
+// See also comments on checkListeners in ProfHeap.c
+void checkAllocationListeners( Capability *cap ) {
+    StgListener *p = alloc_listener_list;
+    StgListener *prev = END_LISTENER_LIST;
+    StgTSO *t;
+    while (p != END_LISTENER_LIST) {
+        if (p->header.info == &stg_IND_info) {
+            p = (StgListener*)((StgInd*)p)->indirectee;
+            continue;
+        }
+        ASSERT(p->type == PROF_TYPE_ALLOCATED);
+        if (p->ccs->mem_alloc > p->limit) {
+            t = createIOThread(cap, RtsFlags.GcFlags.initialStkSize, p->callback);
+            pushOnRunQueue(cap, t);
+            StgListener *next = p->link;
+            p->link = END_LISTENER_LIST;
+            if (prev == END_LISTENER_LIST) {
+                alloc_listener_list = next;
+            } else {
+                prev->link = next;
+            }
+            p = next;
+        } else {
+            prev = p;
+            p = p->link;
+        }
+    }
+}
+
+// invariants: lock is taken out, info table is stg_LISTENER_info
+void
+removeListener(StgListener *l) {
+    StgListener *p = l->link;
+    OVERWRITE_INFO(l, &stg_IND_info);
+    ((StgInd*)l)->indirectee = (StgClosure*)p;
+}
 
 #endif /* PROFILING */

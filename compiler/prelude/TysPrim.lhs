@@ -79,6 +79,7 @@ module TysPrim(
 	anyTy, anyTyCon, anyTypeOfKind,
 
         resourceContainerPrimTyCon, resourceContainerPrimTy,
+        listenerPrimTyCon, listenerPrimTy,
 
 	-- * SIMD
 #include "primop-vector-tys-exports.hs-incl"
@@ -147,6 +148,7 @@ primTyCons
     , anyKindTyCon
 
     , resourceContainerPrimTyCon
+    , listenerPrimTyCon
 
 #include "primop-vector-tycons.hs-incl"
     ]
@@ -158,7 +160,7 @@ mkPrimTc fs unique tycon
 		  (ATyCon tycon)	-- Relevant TyCon
 		  UserSyntax		-- None are built-in syntax
 
-charPrimTyConName, intPrimTyConName, int32PrimTyConName, int64PrimTyConName, wordPrimTyConName, word32PrimTyConName, word64PrimTyConName, addrPrimTyConName, floatPrimTyConName, doublePrimTyConName, statePrimTyConName, proxyPrimTyConName, realWorldTyConName, arrayPrimTyConName, arrayArrayPrimTyConName, byteArrayPrimTyConName, mutableArrayPrimTyConName, mutableByteArrayPrimTyConName, mutableArrayArrayPrimTyConName, mutVarPrimTyConName, mVarPrimTyConName, tVarPrimTyConName, stablePtrPrimTyConName, stableNamePrimTyConName, bcoPrimTyConName, weakPrimTyConName, threadIdPrimTyConName, eqPrimTyConName, eqReprPrimTyConName, resourceContainerPrimTyConName  :: Name
+charPrimTyConName, intPrimTyConName, int32PrimTyConName, int64PrimTyConName, wordPrimTyConName, word32PrimTyConName, word64PrimTyConName, addrPrimTyConName, floatPrimTyConName, doublePrimTyConName, statePrimTyConName, proxyPrimTyConName, realWorldTyConName, arrayPrimTyConName, arrayArrayPrimTyConName, byteArrayPrimTyConName, mutableArrayPrimTyConName, mutableByteArrayPrimTyConName, mutableArrayArrayPrimTyConName, mutVarPrimTyConName, mVarPrimTyConName, tVarPrimTyConName, stablePtrPrimTyConName, stableNamePrimTyConName, bcoPrimTyConName, weakPrimTyConName, threadIdPrimTyConName, eqPrimTyConName, eqReprPrimTyConName, resourceContainerPrimTyConName, listenerPrimTyConName :: Name
 charPrimTyConName    	      = mkPrimTc (fsLit "Char#") charPrimTyConKey charPrimTyCon
 intPrimTyConName     	      = mkPrimTc (fsLit "Int#") intPrimTyConKey  intPrimTyCon
 int32PrimTyConName	      = mkPrimTc (fsLit "Int32#") int32PrimTyConKey int32PrimTyCon
@@ -189,6 +191,7 @@ bcoPrimTyConName 	      = mkPrimTc (fsLit "BCO#") bcoPrimTyConKey bcoPrimTyCon
 weakPrimTyConName  	      = mkPrimTc (fsLit "Weak#") weakPrimTyConKey weakPrimTyCon
 threadIdPrimTyConName  	      = mkPrimTc (fsLit "ThreadId#") threadIdPrimTyConKey threadIdPrimTyCon
 resourceContainerPrimTyConName = mkPrimTc (fsLit "RC#") resourceContainerPrimTyConKey resourceContainerPrimTyCon
+listenerPrimTyConName         = mkPrimTc (fsLit "Listener#") listenerPrimTyConKey listenerPrimTyCon
 
 \end{code}
 
@@ -794,4 +797,9 @@ resourceContainerPrimTy :: Type
 resourceContainerPrimTy = mkTyConTy resourceContainerPrimTyCon
 resourceContainerPrimTyCon :: TyCon
 resourceContainerPrimTyCon = pcPrimTyCon0 resourceContainerPrimTyConName AddrRep
+
+listenerPrimTy    :: Type
+listenerPrimTy    = mkTyConTy listenerPrimTyCon
+listenerPrimTyCon :: TyCon
+listenerPrimTyCon = pcPrimTyCon0 listenerPrimTyConName PtrRep
 \end{code}
