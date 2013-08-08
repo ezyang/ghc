@@ -2234,6 +2234,42 @@ stg_newRCzh ( W_ limit, W_ parent )
     return (rc);
 }
 
+stg_listenRCzh ( W_ rc, W_ limit, gcptr cb )
+{
+    P_ p;
+    W_ r;
+
+    ALLOC_PRIM (SIZEOF_StgListener);
+
+    p = Hp - SIZEOF_StgListener + WDS(1);
+    SET_HDR(p, stg_LISTENER_info, CCS_SYSTEM);
+    StgListener_callback(p) = cb;
+    StgListener_rc(p) = rc;
+    StgListener_limit(p) = limit;
+
+    (r) = ccall listenRC(MyCapability() "ptr", rc, p "ptr");
+
+    if (r == 1) {
+        jump stg_yieldzh();
+    }
+
+    return (p);
+}
+
+stg_unlistenRCzh ( P_ p )
+{
+    // If a listener gets removed, it stubbed out with an indirection.
+    // We could use the lockClosure machinery for locking.
+
+    ACQUIRE_LOCK(sm_mutex);
+    if (StgHeader_info(p) == stg_LISTENER_info) {
+        ccall unlistenRC(p "ptr");
+    }
+    RELEASE_LOCK(sm_mutex);
+
+    return ();
+}
+
 stg_withRCzh ( W_ rc, P_ io )
 {
     STK_CHK_GEN();
@@ -2259,4 +2295,10 @@ stg_withRCzh ( W_ rc, P_ io )
 stg_killRCzh (W_ rc) {
     ccall killRC(rc);
     return ();
+}
+
+stg_usedBlocksRCzh (W_ rc) {
+    W_ r;
+    r = ResourceContainer_used_blocks(rc);
+    return (r);
 }

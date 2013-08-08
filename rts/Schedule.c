@@ -1138,6 +1138,10 @@ scheduleHandleHeapOverflow( Capability *cap, StgTSO *t )
             }
             RELEASE_SM_LOCK;
             cap->r.rNursery->n_blocks += blocks;
+
+            checkListenersRC(cap, rc);
+            // ignore return value, since we want the listener thread
+            // to run after the big block is used
 	    
 	    // link the new group into the list
 	    bd->link = cap->r.rCurrentNursery;

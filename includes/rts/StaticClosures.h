@@ -30,6 +30,7 @@
 #define stg_END_INVARIANT_CHECK_QUEUE_closure STATIC_CLOSURE(stg_END_INVARIANT_CHECK_QUEUE)
 #define stg_END_STM_CHUNK_LIST_closure STATIC_CLOSURE(stg_END_STM_CHUNK_LIST)
 #define stg_NO_TREC_closure STATIC_CLOSURE(stg_NO_TREC)
+#define stg_END_LISTENER_LIST_closure STATIC_CLOSURE(stg_END_LISTENER_LIST)
 
 #ifndef CMINUSMINUS
 typedef struct StaticClosureInds_ {
