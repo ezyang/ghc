@@ -778,6 +778,7 @@
 
 #define NO_TREC                   stg_NO_TREC_closure
 #define END_TSO_QUEUE             stg_END_TSO_QUEUE_closure
+#define END_LISTENER_LIST         stg_LISTENER_LIST_closure
 #define STM_AWOKEN                stg_STM_AWOKEN_closure
 #define END_INVARIANT_CHECK_QUEUE stg_END_INVARIANT_CHECK_QUEUE_closure
 

@@ -753,6 +753,9 @@ allocateLargeFor(StgPtr *pp, rtsBool force, Capability *cap, W_ n, ResourceConta
             return rtsFalse;
         }
     }
+    if (checkListenersRC(cap, rc)) {
+        stopCapability(cap);
+    }
     dbl_link_onto(bd, &g0->large_objects);
     g0->n_large_blocks += bd->blocks; // might be larger than req_blocks
     g0->n_new_large_words += n;
@@ -816,6 +819,9 @@ forceAllocateFor (Capability *cap, ResourceContainer *rc, W_ n)
             ACQUIRE_SM_LOCK;
             bd = forceAllocBlockFor(rc);
             rct->nursery.n_blocks++;
+            if (checkListenersRC(cap, rc)) {
+                stopCapability(cap);
+            }
             RELEASE_SM_LOCK;
             initBdescr(bd, g0, g0);
             bd->flags = 0;
@@ -893,6 +899,12 @@ allocate0 (StgPtr *pp, rtsBool force, Capability *cap, W_ n)
                 }
             }
             cap->r.rNursery->n_blocks++;
+            // Best effort to induce a context switch; most of
+            // the time we can't just directly jump to yield because
+            // we have something we need to return.
+            if (checkListenersRC(cap, cap->r.rRC)) {
+                stopCapability(cap);
+            }
             RELEASE_SM_LOCK;
             initBdescr(bd, g0, g0);
             bd->flags = 0;
