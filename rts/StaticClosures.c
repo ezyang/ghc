@@ -188,6 +188,9 @@ initStaticClosures(void)
 
     processStaticClosures(SCI_LIST, &global_block);
     SCI_LIST = NULL;
+
+    // deferred initialization
+    RC_MAIN->listeners = END_LISTENER_LIST;
 }
 
 void
