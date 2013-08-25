@@ -69,7 +69,7 @@ cgTopRhsClosure :: DynFlags
 
 cgTopRhsClosure dflags rec id ccs _ upd_flag args body =
   let closure_label = mkLocalClosureLabel (idName id) (idCafInfo id)
-      cg_id_info    = litIdInfo dflags id lf_info (CmmLabel closure_label)
+      cg_id_info    = closureIdInfo dflags id lf_info closure_label
       lf_info       = mkClosureLFInfo dflags id TopLevel [] upd_flag args
   in (cg_id_info, gen_code dflags lf_info closure_label)
   where
@@ -92,6 +92,7 @@ cgTopRhsClosure dflags rec id ccs _ upd_flag args body =
                                     indStaticInfoTable ccs MayHaveCafRefs
                                     [unLit (idInfoToAmode cg_info)]
          emitDataLits closure_label closure_rep
+         emitDataLits (genIndClosureLabel closure_label) [CmmLabel closure_label]
          return ()
 
   gen_code dflags lf_info closure_label
@@ -107,6 +108,7 @@ cgTopRhsClosure dflags rec id ccs _ upd_flag args body =
 
                  -- BUILD THE OBJECT, AND GENERATE INFO TABLE (IF NECESSARY)
         ; emitDataLits closure_label closure_rep
+        ; emitDataLits (genIndClosureLabel closure_label) [CmmLabel closure_label]
         ; let fv_details :: [(NonVoid Id, VirtualHpOffset)]
               (_, _, fv_details) = mkVirtHeapOffsets dflags (isLFThunk lf_info)
                                                (addIdReps [])
@@ -116,8 +118,11 @@ cgTopRhsClosure dflags rec id ccs _ upd_flag args body =
 
         ; return () }
 
+  -- XXX duplication
   unLit (CmmLit l) = l
-  unLit _ = panic "unLit"
+  unLit (CmmMachOp (MO_Add _) [CmmLoad (CmmLit (CmmLabel l)) _, CmmLit (CmmInt offset _)]) = CmmLabelOff (genClosureLabel l) (fromInteger offset)
+  unLit (CmmLoad (CmmLit (CmmLabel l)) _) = CmmLabel (genClosureLabel l)
+  unLit l = pprPanic "unLit" (ppr l)
 
 ------------------------------------------------------------------------
 --              Non-top-level bindings

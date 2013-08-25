@@ -56,7 +56,7 @@ cgTopRhsCon :: DynFlags
             -> [StgArg]         -- Args
             -> (CgIdInfo, FCode ())
 cgTopRhsCon dflags id con args =
-    let id_info = litIdInfo dflags id (mkConLFInfo con) (CmmLabel closure_label)
+    let id_info = closureIdInfo dflags id (mkConLFInfo con) closure_label
     in (id_info, gen_code)
   where
    name          = idName id
@@ -83,8 +83,19 @@ cgTopRhsCon dflags id con args =
              -- needs to poke around inside it.
             info_tbl = mkDataConInfoTable dflags con True ptr_wds nonptr_wds
 
-            get_lit (arg, _offset) = do { CmmLit lit <- getArgAmode arg
-                                        ; return lit }
+            get_lit (arg, _offset) = do { expr <- getArgAmode arg
+                                        ; return $ case expr of
+                                            CmmLit lit -> lit
+                                            -- Why do we have to match both the offset explicitly?
+                                            -- Because ordinarily the offset smart constructor
+                                            -- will factor the offset into a CmmLabelOffset,
+                                            -- but when there's a load in the way you can't do that.
+                                            -- (Maybe the proper way to do this is add a specific
+                                            -- CmmExpr for this case.)
+                                            CmmLoad (CmmLit (CmmLabel l)) _ -> CmmLabel (genClosureLabel l)
+                                            CmmMachOp (MO_Add _) [CmmLoad (CmmLit (CmmLabel l)) _, CmmLit (CmmInt offset _)] -> CmmLabelOff (genClosureLabel l) (fromInteger offset)
+                                            e -> pprPanic "get_lit" (ppr e)
+                                        }
 
         ; payload <- mapM get_lit nv_args_w_offsets
                 -- NB1: nv_args_w_offsets is sorted into ptrs then non-ptrs
@@ -99,6 +110,7 @@ cgTopRhsCon dflags id con args =
 
                 -- BUILD THE OBJECT
         ; emitDataLits closure_label closure_rep
+        ; emitDataLits (genIndClosureLabel closure_label) [CmmLabel closure_label]
 
         ; return () }
 

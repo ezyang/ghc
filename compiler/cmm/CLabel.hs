@@ -27,6 +27,9 @@ module CLabel (
         mkApInfoTableLabel,
         mkClosureTableLabel,
 
+        genIndClosureLabel,
+        genClosureLabel,
+
         mkLocalClosureLabel,
         mkLocalInfoTableLabel,
         mkLocalEntryLabel,
@@ -274,6 +277,7 @@ pprDebugCLabel lbl
 
 data IdLabelInfo
   = Closure             -- ^ Label for closure
+  | IndClosure          -- ^ Label for a closure indirection
   | SRT                 -- ^ Static reference table (TODO: could be removed
                         -- with the old code generator, but might be needed
                         -- when we implement the New SRT Plan)
@@ -332,6 +336,8 @@ data CmmLabelInfo
   | CmmCode                     -- ^ misc rts code
   | CmmClosure                  -- ^ closures eg CHARLIKE_closure
   | CmmPrimCall                 -- ^ a prim call to some hand written Cmm code
+  | CmmDataInd
+  | CmmClosureInd
   deriving (Eq, Ord)
 
 data DynamicLinkerLabelInfo
@@ -391,6 +397,18 @@ mkLocalStaticInfoTableLabel c con = IdLabel con c StaticInfoTable
 mkLocalStaticConEntryLabel  c con = IdLabel con c StaticConEntry
 mkConInfoTableLabel name    c     = IdLabel name c ConInfoTable
 mkStaticInfoTableLabel name c     = IdLabel name c StaticInfoTable
+
+genIndClosureLabel :: CLabel -> CLabel
+genIndClosureLabel (IdLabel name c Closure) = IdLabel name c IndClosure
+genIndClosureLabel (CmmLabel pkg str CmmData) = CmmLabel pkg str CmmDataInd
+genIndClosureLabel (CmmLabel pkg str CmmClosure) = CmmLabel pkg str CmmClosureInd
+genIndClosureLabel l = pprPanic "genIndClosureLabel" (ppr l)
+
+genClosureLabel :: CLabel -> CLabel
+genClosureLabel (IdLabel name c IndClosure) = IdLabel name c Closure
+genClosureLabel (CmmLabel pkg str CmmDataInd) = CmmLabel pkg str CmmData
+genClosureLabel (CmmLabel pkg str CmmClosureInd) = CmmLabel pkg str CmmClosure
+genClosureLabel l = pprPanic "genClosureLabel" (ppr l)
 
 mkConEntryLabel       :: Name -> CafInfo -> CLabel
 mkStaticConEntryLabel :: Name -> CafInfo -> CLabel
@@ -822,6 +840,7 @@ idInfoLabelType info =
     InfoTable     -> DataLabel
     LocalInfoTable -> DataLabel
     Closure       -> GcPtrLabel
+    IndClosure    -> DataLabel
     ConInfoTable  -> DataLabel
     StaticInfoTable -> DataLabel
     ClosureTable  -> DataLabel
@@ -1100,6 +1119,7 @@ ppIdFlavor :: IdLabelInfo -> SDoc
 ppIdFlavor x = pp_cSEP <>
                (case x of
                        Closure          -> ptext (sLit "closure")
+                       IndClosure       -> ptext (sLit "closure_ind")
                        SRT              -> ptext (sLit "srt")
                        InfoTable        -> ptext (sLit "info")
                        LocalInfoTable   -> ptext (sLit "info")

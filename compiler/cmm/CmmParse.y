@@ -1033,7 +1033,9 @@ staticClosure :: PackageId -> FastString -> FastString -> [CmmLit] -> CmmParse (
 staticClosure pkg cl_label info payload
   = do dflags <- getDynFlags
        let lits = mkStaticClosure dflags (mkCmmInfoLabel pkg info) dontCareCCS payload [] [] []
-       code $ emitDataLits (mkCmmDataLabel pkg cl_label) lits
+           closure_label = mkCmmDataLabel pkg cl_label
+       code $ emitDataLits closure_label lits
+       code $ emitDataLits (genIndClosureLabel closure_label) [CmmLabel closure_label]
 
 foreignCall
         :: String
