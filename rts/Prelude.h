@@ -14,10 +14,10 @@
  */
 #if IN_STG_CODE
 #define PRELUDE_INFO(i)       extern W_(i)[]
-#define PRELUDE_CLOSURE(i)    extern W_(i ## _static_closure)[]
+#define PRELUDE_CLOSURE(i)    extern W_*(i ## _static_closure_ind)[]
 #else
 #define PRELUDE_INFO(i)       extern const StgInfoTable DLL_IMPORT_DATA_VARNAME(i)
-#define PRELUDE_CLOSURE(i)    extern StgClosure DLL_IMPORT_DATA_VARNAME(i ## _static_closure)
+#define PRELUDE_CLOSURE(i)    extern StgClosure *DLL_IMPORT_DATA_VARNAME(i ## _static_closure_ind)
 #endif
 
 /* Define canonical names so we can abstract away from the actual
@@ -29,10 +29,11 @@ PRELUDE_CLOSURE(ghczmprim_GHCziTypes_False);
 PRELUDE_CLOSURE(base_GHCziPack_unpackCString);
 PRELUDE_CLOSURE(base_GHCziWeak_runFinalizzerBatch);
 
+// XXX why is this special-cased?
 #ifdef IN_STG_CODE
-extern W_ ZCMain_main_closure[];
+extern W_ **ZCMain_main_static_closure_ind;
 #else
-extern StgClosure ZCMain_main_closure;
+extern StgClosure *ZCMain_main_static_closure_ind;
 #endif
 
 PRELUDE_CLOSURE(base_GHCziIOziException_stackOverflow);
@@ -85,10 +86,11 @@ PRELUDE_INFO(base_GHCziWord_W64zh_con_info);
 PRELUDE_INFO(base_GHCziStable_StablePtr_static_info);
 PRELUDE_INFO(base_GHCziStable_StablePtr_con_info);
 
-#define mainIO_closure            (&ZCMain_main_closure)
+#define mainIO_closure            (STATIC_CLOSURE(ZCMain_main))
 
-// XXX update me
-#define IMPORT_CLOSURE(name) DLL_IMPORT_DATA_REF(name ## _static_closure)
+/* XXX does the wrong thing on Windows
+ * s/STATIC_CLOSURE/DLL_IMPORT_DATA_REF/ and add _static_closure */
+#define IMPORT_CLOSURE(name) STATIC_CLOSURE(name)
 
 #define True_closure              IMPORT_CLOSURE(ghczmprim_GHCziTypes_True)
 #define False_closure             IMPORT_CLOSURE(ghczmprim_GHCziTypes_False)
