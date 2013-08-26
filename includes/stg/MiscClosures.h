@@ -25,14 +25,16 @@
 #  define RTS_FUN_INFO(i)   extern W_(i)[]
 #  define RTS_THUNK_INFO(i) extern W_(i)[]
 #  define RTS_INFO(i)       extern W_(i)[]
-#  define RTS_CLOSURE(i)    extern W_(i ## _static_closure)[]
+#  define RTS_CLOSURE(i)    extern W_(i ## _static_closure)[]; \
+                            extern W_*(i ## _static_closure_ind)[]
 #  define RTS_FUN_DECL(f)   extern DLL_IMPORT_RTS StgFunPtr f(void)
 #else
 #  define RTS_RET_INFO(i)   extern DLL_IMPORT_RTS const StgRetInfoTable i
 #  define RTS_FUN_INFO(i)   extern DLL_IMPORT_RTS const StgFunInfoTable i
 #  define RTS_THUNK_INFO(i) extern DLL_IMPORT_RTS const StgThunkInfoTable i
 #  define RTS_INFO(i)       extern DLL_IMPORT_RTS const StgInfoTable i
-#  define RTS_CLOSURE(i)    extern DLL_IMPORT_RTS StgClosure i ## _static_closure
+#  define RTS_CLOSURE(i)    extern DLL_IMPORT_RTS StgClosure i ## _static_closure; \
+                            extern DLL_IMPORT_RTS StgClosure *i ## _static_closure_ind
 #  define RTS_FUN_DECL(f)   extern DLL_IMPORT_RTS StgFunPtr f(void)
 #endif
 
@@ -494,6 +496,9 @@ RTS_FUN_DECL(pushCostCentre);
 
 // Capability.c
 extern unsigned int n_capabilities;
+
+// Stable.c
+extern StgWord      RTS_VAR(SP_LIST);
 
 #endif
 

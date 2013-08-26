@@ -76,7 +76,7 @@ cgTopRhsClosure :: DynFlags
 
 cgTopRhsClosure dflags rec id ccs _ upd_flag args body =
   let closure_label = mkLocalClosureLabel (idName id) (idCafInfo id)
-      cg_id_info    = litIdInfo dflags id lf_info (CmmLabel closure_label)
+      cg_id_info    = closureIdInfo dflags id lf_info closure_label
       lf_info       = mkClosureLFInfo dflags id TopLevel [] upd_flag args
   in (cg_id_info, gen_code dflags lf_info closure_label)
   where
@@ -97,7 +97,7 @@ cgTopRhsClosure dflags rec id ccs _ upd_flag args body =
          cg_info <- getCgIdInfo f
          let closure_rep   = mkStaticClosureFields dflags
                                     indStaticInfoTable ccs MayHaveCafRefs
-                                    [unLit (idInfoToAmode cg_info)]
+                                    [extractLit (idInfoToAmode cg_info)]
          emitStaticClosure closure_label closure_rep
          return ()
 
@@ -122,9 +122,6 @@ cgTopRhsClosure dflags rec id ccs _ upd_flag args body =
                                 (nonVoidIds args) (length args) body fv_details)
 
         ; return () }
-
-  unLit (CmmLit l) = l
-  unLit _ = panic "unLit"
 
 ------------------------------------------------------------------------
 --              Non-top-level bindings

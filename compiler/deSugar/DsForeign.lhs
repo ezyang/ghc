@@ -623,7 +623,8 @@ mkFExportCBits dflags c_nm maybe_target arg_htys res_hty is_IO_res_ty cc
   extern_decl
      = case maybe_target of
           Nothing -> empty
-          Just hs_fn -> text "extern StgClosure " <> ppr hs_fn <> text "_static_closure" <> semi
+          Just hs_fn -> text "extern StgClosure " <> ppr hs_fn <> text "_static_closure" <> semi $$
+                        text "extern StgClosure *" <> ppr hs_fn <> text "_static_closure_ind" <> semi
 
 
   -- finally, the whole darn thing
@@ -677,10 +678,11 @@ foreignExportInitialiser hs_fn =
    vcat
     [ text "static void stginit_export_" <> ppr hs_fn
          <> text "() __attribute__((constructor));"
+    , text "static PendingStablePtr stginit_record_" <> ppr hs_fn
+         <> text " = {&" <> ppr hs_fn <> text "_static_closure_ind, NULL};"
     , text "static void stginit_export_" <> ppr hs_fn <> text "()"
-    , braces (text "foreignExportStablePtr"
-       <> parens (text "(StgPtr) &" <> ppr hs_fn <> text "_static_closure")
-       <> semi)
+    , braces (text "REGISTER_STABLE_PTR"
+                <> parens (text "&stginit_record_" <> ppr hs_fn) <> semi)
     ]
 
 

@@ -96,6 +96,8 @@ static spEntry *stable_ptr_free = NULL;
 static unsigned int SPT_size = 0;
 #define INIT_SPT_SIZE 64
 
+PendingStablePtr *SP_LIST = NULL;
+
 #ifdef THREADED_RTS
 Mutex stable_mutex;
 #endif
@@ -180,6 +182,17 @@ initStableTables(void)
 #ifdef THREADED_RTS
     initMutex(&stable_mutex);
 #endif
+
+    processPendingStablePtrs();
+}
+
+void processPendingStablePtrs(void) {
+    PendingStablePtr *sp, *next_sp;
+    for (sp = SP_LIST; sp != NULL; sp = next_sp) {
+        next_sp = sp->link;
+        sp->link = NULL;
+        foreignExportStablePtr((StgPtr)*sp->payload);
+    }
 }
 
 /* -----------------------------------------------------------------------------

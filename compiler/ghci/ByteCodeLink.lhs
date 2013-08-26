@@ -42,6 +42,8 @@ import Data.Array.Base
 import Control.Monad
 import Control.Monad.ST ( stToIO )
 
+import Foreign.Storable ( peek )
+
 import GHC.Arr          ( Array(..), STArray(..) )
 import GHC.IO           ( IO(..) )
 import GHC.Exts
@@ -203,11 +205,13 @@ lookupStaticPtr addr_of_label_string
 
 lookupPrimOp :: PrimOp -> IO HValue
 lookupPrimOp primop
-   = do let sym_to_find = primopToCLabel primop "static_closure"
+   = do let sym_to_find = primopToCLabel primop "static_closure_ind"
         m <- lookupSymbol sym_to_find
         case m of
-           Just (Ptr addr) -> case addrToAny# addr of
-                                 (# a #) -> return (HValue a)
+           Just p -> do
+              Ptr addr <- peek p
+              case addrToAny# addr of
+                  (# a #) -> return (HValue a)
            Nothing -> linkFail "ByteCodeLink.lookupCE(primop)" sym_to_find
 
 lookupName :: ClosureEnv -> Name -> IO HValue
@@ -216,11 +220,13 @@ lookupName ce nm
         Just (_,aa) -> return aa
         Nothing
            -> ASSERT2(isExternalName nm, ppr nm)
-              do let sym_to_find = nameToCLabel nm "static_closure"
+              do let sym_to_find = nameToCLabel nm "static_closure_ind"
                  m <- lookupSymbol sym_to_find
                  case m of
-                    Just (Ptr addr) -> case addrToAny# addr of
-                                          (# a #) -> return (HValue a)
+                    Just p -> do
+                        Ptr addr <- peek p
+                        case addrToAny# addr of
+                             (# a #) -> return (HValue a)
                     Nothing         -> linkFail "ByteCodeLink.lookupCE" sym_to_find
 
 lookupIE :: DynFlags -> ItblEnv -> Name -> IO (Ptr a)

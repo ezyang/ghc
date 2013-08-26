@@ -51,6 +51,7 @@ import System.IO
 import Control.Monad
 import GHC.Exts
 
+import Foreign.Storable (peek)
 import System.Console.Haskeline (CompletionFunc, InputT)
 import qualified System.Console.Haskeline as Haskeline
 import Control.Monad.Trans.Class
@@ -374,9 +375,15 @@ initInterpBuffering = do -- make sure these are linked
         -- ToDo: we should really look up these names properly, but
         -- it's a fiddle and not all the bits are exposed via the GHC
         -- interface.
-      mb_stdin_ptr  <- ObjLink.lookupSymbol "base_GHCziIOziHandleziFD_stdin_static_closure"
-      mb_stdout_ptr <- ObjLink.lookupSymbol "base_GHCziIOziHandleziFD_stdout_static_closure"
-      mb_stderr_ptr <- ObjLink.lookupSymbol "base_GHCziIOziHandleziFD_stderr_static_closure"
+      mbi_stdin_ptr  <- ObjLink.lookupSymbol "base_GHCziIOziHandleziFD_stdin_static_closure_ind"
+      mbi_stdout_ptr <- ObjLink.lookupSymbol "base_GHCziIOziHandleziFD_stdout_static_closure_ind"
+      mbi_stderr_ptr <- ObjLink.lookupSymbol "base_GHCziIOziHandleziFD_stderr_static_closure_ind"
+
+      let g m = maybe (return Nothing) (\x -> fmap Just (peek x)) m
+
+      mb_stdin_ptr <- g mbi_stdin_ptr
+      mb_stdout_ptr <- g mbi_stdout_ptr
+      mb_stderr_ptr <- g mbi_stderr_ptr
 
       let f ref (Just ptr) = writeIORef ref ptr
           f _   Nothing    = panic "interactiveUI:setBuffering2"

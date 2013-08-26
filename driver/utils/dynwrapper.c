@@ -159,7 +159,7 @@ int main(int argc, char *argv[]) {
     HINSTANCE hRtsDll, hProgDll;
     LPTSTR oldPath;
 
-    StgClosure *main_p;
+    StgClosure **main_ind_p;
     RtsConfig rts_config;
     hs_main_t hs_main_p;
 
@@ -188,10 +188,10 @@ int main(int argc, char *argv[]) {
     hRtsDll = GetNonNullModuleHandle(rtsDll);
 
     hs_main_p    = GetNonNullProcAddress(hRtsDll,  "hs_main");
-    main_p       = GetNonNullProcAddress(hProgDll, "ZCMain_main_static_closure");
+    main_ind_p   = GetNonNullProcAddress(hProgDll, "ZCMain_main_static_closure_ind");
     rts_config.rts_opts_enabled = rtsOpts;
     rts_config.rts_opts = NULL;
 
-    return hs_main_p(argc, argv, main_p, rts_config);
+    return hs_main_p(argc, argv, main_ind_p, rts_config);
 }
 

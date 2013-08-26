@@ -13,7 +13,7 @@
 #include "Cmm.h"
 #include "RaiseAsync.h"
 
-import ghczmprim_GHCziTypes_True_static_closure;
+import ghczmprim_GHCziTypes_True_static_closure_ind;
 
 /* -----------------------------------------------------------------------------
    Exception Primitives

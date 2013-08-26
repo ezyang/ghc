@@ -9,6 +9,7 @@
 module Main(main, f) where
 
 import Foreign.C.String ( withCString, CString )
+import Foreign.Storable ( peek )
 import GHC.Exts         ( addrToAny# )
 import GHC.Ptr          ( Ptr(..), nullPtr )
 import System.Info      ( os )
@@ -29,12 +30,13 @@ loadFunction mpkg m valsym = do
     let symbol = prefixUnderscore
                    ++ maybe "" (\p -> zEncodeString p ++ "_") mpkg
                    ++ zEncodeString m ++ "_" ++ zEncodeString valsym
-                   ++ "_static_closure"
-    ptr@(Ptr addr) <- withCString symbol c_lookupSymbol
+                   ++ "_static_closure_ind"
+    ptr <- withCString symbol c_lookupSymbol
     if (ptr == nullPtr)
     then return Nothing
-    else case addrToAny# addr of
-           (# hval #) -> return ( Just hval )
+    else do (Ptr addr) <- peek ptr
+            case addrToAny# addr of
+              (# hval #) -> return ( Just hval )
   where
     prefixUnderscore = if elem os ["darwin","mingw32","cygwin"] then "_" else ""
 
