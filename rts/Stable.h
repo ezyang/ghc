@@ -25,6 +25,7 @@ void    freeStablePtr         ( StgStablePtr sp );
 void    freeStablePtrUnsafe   ( StgStablePtr sp );
 
 void    initStableTables      ( void );
+void    processPendingStablePtrs ( void );
 void    exitStableTables      ( void );
 StgWord lookupStableName      ( StgPtr p );
 

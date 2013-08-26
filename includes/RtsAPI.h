@@ -238,15 +238,19 @@ SchedulerStatus rts_getSchedStatus (Capability *cap);
 //	the base package itself.
 //
 #if defined(COMPILING_WINDOWS_DLL) && !defined(COMPILING_BASE_PACKAGE)
-__declspec(dllimport) extern StgWord base_GHCziTopHandler_runIO_closure[];
-__declspec(dllimport) extern StgWord base_GHCziTopHandler_runNonIO_closure[];
+__declspec(dllimport) extern StgWord base_GHCziTopHandler_runIO_static_closure;
+__declspec(dllimport) extern StgWord base_GHCziTopHandler_runNonIO_static_closure;
+__declspec(dllimport) extern StgWord *base_GHCziTopHandler_runIO_static_closure_ind;
+__declspec(dllimport) extern StgWord *base_GHCziTopHandler_runNonIO_static_closure_ind;
 #else
-extern StgWord base_GHCziTopHandler_runIO_closure[];
-extern StgWord base_GHCziTopHandler_runNonIO_closure[];
+extern StgWord base_GHCziTopHandler_runIO_static_closure;
+extern StgWord base_GHCziTopHandler_runNonIO_static_closure;
+extern StgWord *base_GHCziTopHandler_runIO_static_closure_ind;
+extern StgWord *base_GHCziTopHandler_runNonIO_static_closure_ind;
 #endif
 
-#define runIO_closure     base_GHCziTopHandler_runIO_closure
-#define runNonIO_closure  base_GHCziTopHandler_runNonIO_closure
+#define runIO_closure     STATIC_CLOSURE(base_GHCziTopHandler_runIO)
+#define runNonIO_closure  STATIC_CLOSURE(base_GHCziTopHandler_runNonIO)
 
 /* ------------------------------------------------------------------------ */
 
