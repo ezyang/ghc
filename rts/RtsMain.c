@@ -31,7 +31,7 @@
  * This is to get around problem with Windows SEH, see hs_main(). */
 static int progargc;
 static char **progargv;
-static StgClosure *progmain_closure;  /* This will be ZCMain_main_closure */
+static StgClosure **progmain_closure_ind;  /* This will be ZCMain_main_closure */
 static RtsConfig rtsconfig;
 
 /* Hack: we assume that we're building a batch-mode system unless
@@ -60,7 +60,8 @@ static void real_main(void)
     /* ToDo: want to start with a larger stack size */
     { 
 	Capability *cap = rts_lock();
-        rts_evalLazyIO(&cap,progmain_closure, NULL);
+        // XXX MANUAL DEREFERENCE!
+        rts_evalLazyIO(&cap,*progmain_closure_ind, NULL);
 	status = rts_getSchedStatus(cap);
         rts_unlock(cap);
     }
@@ -98,14 +99,14 @@ static void real_main(void)
  * we'll be using a Haskell main function.
  */
 int hs_main (int argc, char *argv[],     // program args
-             StgClosure *main_closure,   // closure for Main.main
+             StgClosure **main_closure_ind,   // closure indirection for Main.main
              RtsConfig rts_config)    // RTS configuration
 {
     /* We do this dance with argc and argv as otherwise the SEH exception
        stuff (the BEGIN/END CATCH below) on Windows gets confused */
     progargc = argc;
     progargv = argv;
-    progmain_closure = main_closure;
+    progmain_closure_ind = main_closure_ind;
     rtsconfig = rts_config;
 
 #if defined(mingw32_HOST_OS) && defined(i386_HOST_ARCH)
