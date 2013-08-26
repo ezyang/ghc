@@ -1071,7 +1071,7 @@ pprCLbl (CmmLabel _ fs CmmRet)
   = ftext fs <> ptext (sLit "_ret")
 
 pprCLbl (CmmLabel _ fs CmmClosure)
-  = ftext fs <> ptext (sLit "_closure")
+  = ftext fs <> ptext (sLit "_static_closure")
 
 pprCLbl (RtsLabel (RtsPrimOp primop))
   = ptext (sLit "stg_") <> ppr primop
@@ -1101,7 +1101,7 @@ pprCLbl (DeadStripPreventer {}) = panic "pprCLbl DeadStripPreventer"
 ppIdFlavor :: IdLabelInfo -> SDoc
 ppIdFlavor x = pp_cSEP <>
                (case x of
-                       Closure          -> ptext (sLit "closure")
+                       Closure          -> ptext (sLit "static_closure")
                        SRT              -> ptext (sLit "srt")
                        InfoTable        -> ptext (sLit "info")
                        LocalInfoTable   -> ptext (sLit "info")
