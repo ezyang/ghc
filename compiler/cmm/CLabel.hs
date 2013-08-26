@@ -1099,7 +1099,7 @@ pprCLbl (DeadStripPreventer {}) = panic "pprCLbl DeadStripPreventer"
 ppIdFlavor :: IdLabelInfo -> SDoc
 ppIdFlavor x = pp_cSEP <>
                (case x of
-                       Closure          -> ptext (sLit "closure")
+                       Closure          -> ptext (sLit "static_closure")
                        SRT              -> ptext (sLit "srt")
                        InfoTable        -> ptext (sLit "info")
                        LocalInfoTable   -> ptext (sLit "info")
