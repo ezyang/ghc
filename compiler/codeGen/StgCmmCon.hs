@@ -98,7 +98,7 @@ cgTopRhsCon dflags id con args =
                              payload
 
                 -- BUILD THE OBJECT
-        ; emitDataLits closure_label closure_rep
+        ; emitStaticClosure closure_label closure_rep
 
         ; return () }
 

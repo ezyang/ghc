@@ -10,6 +10,7 @@ module StgCmmUtils (
         cgLit, mkSimpleLit,
         emitDataLits, mkDataLits,
         emitRODataLits, mkRODataLits,
+        emitStaticClosure,
         emitRtsCall, emitRtsCallWithResult, emitRtsCallGen,
         assignTemp, newTemp,
 
@@ -316,6 +317,11 @@ emitDataLits lbl lits = emitDecl (mkDataLits Data lbl lits)
 emitRODataLits :: CLabel -> [CmmLit] -> FCode ()
 -- Emit a read-only data block
 emitRODataLits lbl lits = emitDecl (mkRODataLits lbl lits)
+
+emitStaticClosure :: CLabel -> [CmmLit] -> FCode ()
+-- Emit a static closure data block, which is only used at startup time.
+-- Eventually make this READ ONLY(?)
+emitStaticClosure lbl lits = emitDecl (mkDataLits StaticClosures lbl lits)
 
 newStringCLit :: String -> FCode CmmLit
 -- Make a global definition for the string,
