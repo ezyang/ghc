@@ -8,7 +8,7 @@
 module StgCmmEnv (
         CgIdInfo,
 
-        litIdInfo, lneIdInfo, rhsIdInfo, mkRhsInit,
+        litIdInfo, closureIdInfo, lneIdInfo, rhsIdInfo, mkRhsInit,
         idInfoToAmode,
 
         NonVoid(..), unsafe_stripNV, nonVoidIds,
@@ -79,6 +79,17 @@ litIdInfo dflags id lf lit
   where
     tag = lfDynTag dflags lf
 
+closureIdInfo :: DynFlags -> Id -> LambdaFormInfo -> CLabel -> CgIdInfo
+closureIdInfo dflags id lf label
+  = CgIdInfo { cg_id = id, cg_lf = lf
+             , cg_loc = CmmLoc (addDynTag dflags
+                                 (CmmLoad (CmmLit (CmmLabel (genClosureIndLabel label)))
+                                 (bWord dflags)) tag)
+             }
+  where
+    tag = lfDynTag dflags lf
+
+
 lneIdInfo :: DynFlags -> Id -> [NonVoid Id] -> CgIdInfo
 lneIdInfo dflags id regs
   = CgIdInfo { cg_id = id, cg_lf = lf
@@ -145,8 +156,8 @@ getCgIdInfo id
                 -- Should be imported; make up a CgIdInfo for it
           let name = idName id
         ; if isExternalName name then
-              let ext_lbl = CmmLabel (mkClosureLabel name $ idCafInfo id)
-              in return (litIdInfo dflags id (mkLFImported id) ext_lbl)
+              let ext_lbl = mkClosureLabel name $ idCafInfo id
+              in return (closureIdInfo dflags id (mkLFImported id) ext_lbl)
           else
               cgLookupPanic id -- Bug
         }}}
