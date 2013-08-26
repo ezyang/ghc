@@ -25,6 +25,7 @@ module SysTools (
         readElfSection,
 
         getLinkerInfo,
+        staticClosuresLinkerScript,
 
         linkDynLib,
 
@@ -714,8 +715,9 @@ runLink dflags args = do
   let (p,args0) = pgm_l dflags
       args1     = map Option (getOpts dflags opt_l)
       args2     = args0 ++ args1 ++ args ++ linkargs
+      linker_filter s = unlines (filter (not . isInfixOf "contains output sections; did you forget -T?") (lines s))
   mb_env <- getGccEnv args2
-  runSomethingFiltered dflags id "Linker" p args2 mb_env
+  runSomethingFiltered dflags linker_filter "Linker" p args2 mb_env
 
 runMkDLL :: DynFlags -> [Option] -> IO ()
 runMkDLL dflags args = do
@@ -799,6 +801,18 @@ readElfSection _dflags section exe = do
            _ <- string "0]"
            skipSpaces
            munch (const True)
+
+staticClosuresLinkerScript :: DynFlags -> IO FilePath
+staticClosuresLinkerScript dflags = do
+  linker_script <- newTempName dflags "x"
+  writeFile linker_script $
+    "SECTIONS {\n\
+    \tstaticclosures : ALIGN(4096) {\n\
+    \t\t*(staticclosures)\n\
+    \t\t. = ALIGN(4096);\n\
+    \t}\n\
+    }\n"
+  return linker_script
 \end{code}
 
 %************************************************************************
@@ -1225,6 +1239,8 @@ linkDynLib dflags0 o_files dep_packages
         -- probably _stub.o files
     let extra_ld_inputs = ldInputs dflags
 
+    linker_script <- staticClosuresLinkerScript dflags
+
     case os of
         OSMinGW32 -> do
             -------------------------------------------------------------
@@ -1238,6 +1254,7 @@ linkDynLib dflags0 o_files dep_packages
                     map Option verbFlags
                  ++ [ Option "-o"
                     , FileOption "" output_fn
+                    , FileOption "" linker_script
                     , Option "-shared"
                     ] ++
                     [ FileOption "-Wl,--out-implib=" (output_fn ++ ".a")
@@ -1301,6 +1318,7 @@ linkDynLib dflags0 o_files dep_packages
                  ++ [ Option "-dynamiclib"
                     , Option "-o"
                     , FileOption "" output_fn
+                    , FileOption "" linker_script
                     ]
                  ++ map Option o_files
                  ++ [ Option "-undefined",
@@ -1334,6 +1352,7 @@ linkDynLib dflags0 o_files dep_packages
                     map Option verbFlags
                  ++ [ Option "-o"
                     , FileOption "" output_fn
+                    , FileOption "" linker_script
                     ]
                  ++ map Option o_files
                  ++ [ Option "-shared" ]

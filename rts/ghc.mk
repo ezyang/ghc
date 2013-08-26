@@ -43,7 +43,8 @@ rts_CMM_SRCS := $(wildcard rts/*.cmm)
 # Don't compile .S files when bootstrapping a new arch
 ifneq "$(PORTING_HOST)" "YES"
 ifneq "$(findstring $(TargetArch_CPP), i386 powerpc powerpc64)" ""
-rts_S_SRCS += rts/AdjustorAsm.S
+rts_S_SRCS += $(wildcard rts/*.S)
+
 endif
 endif
 

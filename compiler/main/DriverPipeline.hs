@@ -1876,10 +1876,13 @@ linkBinary dflags o_files dep_packages = do
 
     rc_objs <- maybeCreateManifest dflags output_fn
 
+    linker_script <- staticClosuresLinkerScript dflags
+
     SysTools.runLink dflags (
                        map SysTools.Option verbFlags
                       ++ [ SysTools.Option "-o"
                          , SysTools.FileOption "" output_fn
+                         , SysTools.FileOption "" linker_script
                          ]
                       ++ map SysTools.Option (
                          []
