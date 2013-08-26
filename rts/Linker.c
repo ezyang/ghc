@@ -1041,8 +1041,8 @@ typedef struct _RtsSymbolVal {
 #define RTS_INTCHAR_SYMBOLS
 #else
 #define RTS_INTCHAR_SYMBOLS                             \
-      SymI_HasProto(stg_CHARLIKE_closure)               \
-      SymI_HasProto(stg_INTLIKE_closure)
+      SymI_HasProto(stg_CHARLIKE_static_closure)               \
+      SymI_HasProto(stg_INTLIKE_static_closure)
 #endif
 
 
