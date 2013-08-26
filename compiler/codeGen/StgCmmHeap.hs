@@ -15,7 +15,7 @@ module StgCmmHeap (
         entryHeapCheck',
 
         mkVirtHeapOffsets, mkVirtConstrOffsets,
-        mkStaticClosureFields, mkStaticClosure,
+        mkStaticClosureFields, mkStaticClosure, extractLit,
 
         allocDynClosure, allocDynClosureCmm,
         emitSetDynHdr
@@ -45,6 +45,7 @@ import Id ( Id )
 import Module
 import DynFlags
 import FastString( mkFastString, fsLit )
+import Outputable
 
 import Control.Monad (when)
 import Data.Maybe (isJust)
@@ -200,6 +201,15 @@ mkStaticClosureFields dflags info_tbl ccs caf_refs payload
         | mayHaveCafRefs caf_refs  = mkIntCLit dflags 0
         | otherwise                = mkIntCLit dflags 1  -- No CAF refs
 
+-- Converts an expression into a literal, so it can be stored
+-- in a static closure.  Supports identifying indirect accesses.
+extractLit :: CmmExpr -> CmmLit
+extractLit (CmmLit lit) = lit
+extractLit (CmmLoad (CmmLit (CmmLabel l)) _)
+    = CmmLabel (genClosureLabel l)
+extractLit (CmmMachOp (MO_Add _) [CmmLoad (CmmLit (CmmLabel l)) _, CmmLit (CmmInt offset _)])
+    = CmmLabelOff (genClosureLabel l) (fromInteger offset)
+extractLit e = pprPanic "extractLit" (ppr e)
 
 mkStaticClosure :: DynFlags -> CLabel -> CostCentreStack -> [CmmLit]
   -> [CmmLit] -> [CmmLit] -> [CmmLit] -> [CmmLit]

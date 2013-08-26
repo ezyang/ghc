@@ -40,4 +40,18 @@ StgPtr deRefStablePtr(StgStablePtr sp)
     return stable_ptr_table[(StgWord)sp].addr;
 }
 
+typedef struct PendingStablePtr_ {
+    StgClosure **payload;
+    struct PendingStablePtr_ *link;
+} PendingStablePtr;
+
+extern PendingStablePtr * RTS_VAR(SP_LIST);
+
+#define REGISTER_STABLE_PTR(sp)                         \
+        do {                                            \
+        if ((sp)->link == NULL) {                       \
+            (sp)->link = SP_LIST;                       \
+            SP_LIST = (sp);                             \
+        }} while(0)
+
 #endif /* RTS_STABLE_H */
