@@ -16,9 +16,9 @@
 #define RTS_STATIC_CLOSURES_H
 
 #if CMINUSMINUS
-#define STATIC_CLOSURE(clos) clos ## _static_closure
+#define STATIC_CLOSURE(clos) W_[clos ## _static_closure_ind]
 #else
-#define STATIC_CLOSURE(clos) (StgClosure*)(&(clos ## _static_closure))
+#define STATIC_CLOSURE(clos) (StgClosure*)(clos ## _static_closure_ind)
 #endif
 
 #define stg_END_TSO_QUEUE_closure STATIC_CLOSURE(stg_END_TSO_QUEUE)

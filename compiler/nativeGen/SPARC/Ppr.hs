@@ -333,6 +333,7 @@ pprSectionHeader seg
         UninitialisedData       -> ptext (sLit ".bss\n\t.align 8")
         ReadOnlyData16          -> ptext (sLit ".data\n\t.align 16")
         StaticClosures          -> ptext (sLit ".section staticclosures,\"aw\"\n\t.align 8")
+        StaticClosureInds       -> ptext (sLit ".section staticclosureinds,\"aw\"\n\t.align 8")
         OtherSection _          -> panic "PprMach.pprSectionHeader: unknown section"
 
 

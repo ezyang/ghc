@@ -56,7 +56,7 @@ cgTopRhsCon :: DynFlags
             -> [StgArg]         -- Args
             -> (CgIdInfo, FCode ())
 cgTopRhsCon dflags id con args =
-    let id_info = litIdInfo dflags id (mkConLFInfo con) (CmmLabel closure_label)
+    let id_info = closureIdInfo dflags id (mkConLFInfo con) closure_label
     in (id_info, gen_code)
   where
    name          = idName id
@@ -83,8 +83,8 @@ cgTopRhsCon dflags id con args =
              -- needs to poke around inside it.
             info_tbl = mkDataConInfoTable dflags con True ptr_wds nonptr_wds
 
-            get_lit (arg, _offset) = do { CmmLit lit <- getArgAmode arg
-                                        ; return lit }
+            get_lit (arg, _offset) = do { lit <- getArgAmode arg
+                                        ; return (extractLit lit) }
 
         ; payload <- mapM get_lit nv_args_w_offsets
                 -- NB1: nv_args_w_offsets is sorted into ptrs then non-ptrs
@@ -151,8 +151,8 @@ premature looking at the args will cause the compiler to black-hole!
 -- at all.
 
 buildDynCon' dflags _ binder _ _cc con []
-  = return (litIdInfo dflags binder (mkConLFInfo con)
-                (CmmLabel (mkClosureLabel (dataConName con) (idCafInfo binder))),
+  = return (closureIdInfo dflags binder (mkConLFInfo con)
+                (mkClosureLabel (dataConName con) (idCafInfo binder)),
             return mkNop)
 
 -------- buildDynCon': Charlike and Intlike constructors -----------
