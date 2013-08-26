@@ -1069,7 +1069,7 @@ pprCLbl (CmmLabel _ fs CmmRet)
   = ftext fs <> ptext (sLit "_ret")
 
 pprCLbl (CmmLabel _ fs CmmClosure)
-  = ftext fs <> ptext (sLit "_closure")
+  = ftext fs <> ptext (sLit "_static_closure")
 
 pprCLbl (RtsLabel (RtsPrimOp primop))
   = ptext (sLit "stg_") <> ppr primop
