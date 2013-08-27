@@ -206,9 +206,9 @@ mkStaticClosureFields dflags info_tbl ccs caf_refs payload
 extractLit :: CmmExpr -> CmmLit
 extractLit (CmmLit lit) = lit
 extractLit (CmmLoad (CmmLit (CmmLabel l)) _)
-    = CmmLabel (genClosureLabel l)
+    | isClosureIndLabel l = CmmLabel l
 extractLit (CmmMachOp (MO_Add _) [CmmLoad (CmmLit (CmmLabel l)) _, CmmLit (CmmInt offset _)])
-    = CmmLabelOff (genClosureLabel l) (fromInteger offset)
+    | isClosureIndLabel l = CmmLabelOff l (fromInteger offset)
 extractLit e = pprPanic "extractLit" (ppr e)
 
 mkStaticClosure :: DynFlags -> CLabel -> CostCentreStack -> [CmmLit]
