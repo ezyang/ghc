@@ -1357,8 +1357,17 @@ linkDynLib dflags0 o_files dep_packages
 initStaticClosures :: DynFlags -> IO (FilePath, FilePath)
 initStaticClosures dflags = do
     linker_script <- newTempName dflags "x"
+    -- Hack: sometimes we won't be
+    -- linking against the RTS, in which case SCI_LIST won't be
+    -- defined.  So have the linker script provide a default one
+    -- if none is available, and short-circuit the initialization
+    -- code in that case.
+    -- Nota bene: SCI_LIST needs to be stubbed out with a one and not
+    -- a zero, because otherwise the compiler will optimize away
+    -- the check.  It might be safer to do this check in assembly.
     writeFile linker_script
         "SECTIONS {\n\
+         \tPROVIDE(SCI_LIST = 1);\n\
          \tstaticclosureinds : {\n\
          \t\tHIDDEN(static_closures_ind_start = .);\n\
          \t\t*(staticclosureinds)\n\
@@ -1370,9 +1379,13 @@ initStaticClosures dflags = do
          static void static_closure_inds_init(void) __attribute__((constructor));\n\
          extern char static_closures_ind_start;\n\
          extern char static_closures_ind_end;\n\
-         static StaticClosureInds sic_table = {(StgPtr)&static_closures_ind_start, (StgPtr)&static_closures_ind_end, NULL};\n\
+         static StaticClosureInds sic_table = {(StgClosure**)&static_closures_ind_start, (StgClosure**)&static_closures_ind_end, NULL};\n\
          static void static_closure_inds_init(void) {\n\
-         \tREGISTER_STATIC_CLOSURE_INDS(&sic_table);\n\
+         \tif (&SCI_LIST != (StaticClosureInds**)1) {\n\
+         \t\tREGISTER_STATIC_CLOSURE_INDS(&sic_table);\n\
+         \t} else {\n\
+         \t\tASSERT(&static_closures_ind_start == &static_closures_ind_end);\n\
+         \t}\n\
          }\n"
     return (linker_script, constr_stub)
 
@@ -1382,11 +1395,13 @@ mkExtraObj dflags extn xs
       oFile <- newTempName dflags "o"
       writeFile cFile xs
       let rtsDetails = getPackageDetails (pkgState dflags) rtsPackageId
+      let pic_c_flags = picCCOpts dflags
       SysTools.runCc dflags
                      ([Option        "-c",
                        FileOption "" cFile,
                        Option        "-o",
                        FileOption "" oFile]
+                      ++ map Option pic_c_flags
                       ++ map (FileOption "-I") (includeDirs rtsDetails))
       return oFile
 

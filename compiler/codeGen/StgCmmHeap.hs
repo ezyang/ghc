@@ -205,17 +205,17 @@ mkStaticClosureFields dflags info_tbl ccs caf_refs payload
 -- in a static closure.  Supports identifying indirect accesses.
 extractLit :: CmmExpr -> CmmLit
 extractLit (CmmLit lit) = lit
-{-
 extractLit (CmmLoad (CmmLit (CmmLabel l)) _)
     = CmmLabel l
 extractLit (CmmMachOp (MO_Add _) [CmmLoad (CmmLit (CmmLabel l)) _, CmmLit (CmmInt offset _)])
     = CmmLabelOff l (fromInteger offset)
--}
+{-
 extractLit (CmmLoad (CmmLit (CmmLabel l)) _)
     = CmmLabel (genClosureLabel l)
 extractLit (CmmMachOp (MO_Add _) [CmmLoad (CmmLit (CmmLabel l)) _, CmmLit (CmmInt offset _)])
     = CmmLabelOff (genClosureLabel l) (fromInteger offset)
 extractLit e = pprPanic "extractLit" (ppr e)
+-}
 
 mkStaticClosure :: DynFlags -> CLabel -> CostCentreStack -> [CmmLit]
   -> [CmmLit] -> [CmmLit] -> [CmmLit] -> [CmmLit]

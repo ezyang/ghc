@@ -33,8 +33,8 @@
 
 #ifndef CMINUSMINUS
 typedef struct StaticClosureInds_ {
-    StgPtr start;
-    StgPtr end;
+    StgClosure **start;
+    StgClosure **end;
     struct StaticClosureInds_ *link;
 } StaticClosureInds;
 

@@ -33,6 +33,7 @@
 #include "Stable.h"
 #include "Hash.h"
 #include "Profiling.h"
+#include "StaticClosures.h"
 #include "Timer.h"
 #include "Globals.h"
 #include "FileLock.h"
@@ -179,6 +180,9 @@ hs_init_ghc(int *argc, char **argv[], RtsConfig rts_config)
 
     /* initialize the storage manager */
     initStorage();
+
+    /* initialize static closures */
+    initStaticClosures();
 
     /* initialise the stable pointer table */
     initStableTables();

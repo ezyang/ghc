@@ -325,7 +325,7 @@ emitStaticClosure lbl lits = do
     emitDecl (mkDataLits StaticClosures lbl lits)
     -- tagged to indicate that it does not point to the true location
     emitDecl (mkDataLits StaticClosureInds (genClosureIndLabel lbl)
-        [CmmLabelOff lbl {- 1 -} 0])
+        [CmmLabelOff lbl 1])
 
 newStringCLit :: String -> FCode CmmLit
 -- Make a global definition for the string,

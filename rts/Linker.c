@@ -1214,6 +1214,7 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(rts_unsafeGetMyCapability)                          \
       SymI_HasProto(rtsSupportsBoundThreads)                            \
       SymI_HasProto(rts_isProfiled)                                     \
+      SymI_HasProto(SCI_LIST)                                           \
       SymI_HasProto(setProgArgv)                                        \
       SymI_HasProto(startupHaskell)                                     \
       SymI_HasProto(shutdownHaskell)                                    \
