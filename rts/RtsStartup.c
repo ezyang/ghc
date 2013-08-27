@@ -33,6 +33,7 @@
 #include "Stable.h"
 #include "Hash.h"
 #include "Profiling.h"
+#include "StaticClosures.h"
 #include "Timer.h"
 #include "Globals.h"
 #include "FileLock.h"
@@ -176,6 +177,15 @@ hs_init_ghc(int *argc, char **argv[], RtsConfig rts_config)
     /* Trace the startup event
      */
     traceEventStartup();
+
+    /* initialise low-level block management
+     */
+    initMBlocks();
+    initBlockAllocator();
+
+    /* initialize static closures (needs to be done before
+     * initScheduler) */
+    initStaticClosures();
 
     /* initialise scheduler data structures (needs to be done before
      * initStorage()).
