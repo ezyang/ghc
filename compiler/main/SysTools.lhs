@@ -27,6 +27,8 @@ module SysTools (
         getLinkerInfo,
 
         linkDynLib,
+        mkExtraObj,
+        initStaticClosures,
 
         askCc,
 
@@ -714,8 +716,9 @@ runLink dflags args = do
   let (p,args0) = pgm_l dflags
       args1     = map Option (getOpts dflags opt_l)
       args2     = args0 ++ args1 ++ args ++ linkargs
+      linker_filter s = unlines (filter (not . isInfixOf "contains output sections; did you forget -T?") (lines s))
   mb_env <- getGccEnv args2
-  runSomethingFiltered dflags id "Linker" p args2 mb_env
+  runSomethingFiltered dflags linker_filter "Linker" p args2 mb_env
 
 runMkDLL :: DynFlags -> [Option] -> IO ()
 runMkDLL dflags args = do
@@ -1222,8 +1225,12 @@ linkDynLib dflags0 o_files dep_packages
                           filter ((/= rtsPackageId) . packageConfigId) pkgs
     let pkg_link_opts = collectLinkOpts dflags pkgs_no_rts
 
+    (linker_script, constr_stub) <- initStaticClosures dflags
+
         -- probably _stub.o files
     let extra_ld_inputs = ldInputs dflags
+                               ++ [ FileOption "" linker_script
+                                  , FileOption "" constr_stub ]
 
     case os of
         OSMinGW32 -> do
@@ -1346,4 +1353,41 @@ linkDynLib dflags0 o_files dep_packages
                  ++ map Option pkg_lib_path_opts
                  ++ map Option pkg_link_opts
               )
+
+initStaticClosures :: DynFlags -> IO (FilePath, FilePath)
+initStaticClosures dflags = do
+    linker_script <- newTempName dflags "x"
+    writeFile linker_script
+        "SECTIONS {\n\
+         \tstaticclosureinds : {\n\
+         \t\tHIDDEN(static_closures_ind_start = .);\n\
+         \t\t*(staticclosureinds)\n\
+         \t\tHIDDEN(static_closures_ind_end = .);\n\
+         \t}\n\
+         }\n"
+    constr_stub <- mkExtraObj dflags "c" $
+        "#include \"Rts.h\"\n\
+         static void static_closure_inds_init(void) __attribute__((constructor));\n\
+         extern char static_closures_ind_start;\n\
+         extern char static_closures_ind_end;\n\
+         static StaticClosureInds sic_table = {(StgPtr)&static_closures_ind_start, (StgPtr)&static_closures_ind_end, NULL};\n\
+         static void static_closure_inds_init(void) {\n\
+         \tREGISTER_STATIC_CLOSURE_INDS(&sic_table);\n\
+         }\n"
+    return (linker_script, constr_stub)
+
+mkExtraObj :: DynFlags -> Suffix -> String -> IO FilePath
+mkExtraObj dflags extn xs
+ = do cFile <- newTempName dflags extn
+      oFile <- newTempName dflags "o"
+      writeFile cFile xs
+      let rtsDetails = getPackageDetails (pkgState dflags) rtsPackageId
+      SysTools.runCc dflags
+                     ([Option        "-c",
+                       FileOption "" cFile,
+                       Option        "-o",
+                       FileOption "" oFile]
+                      ++ map (FileOption "-I") (includeDirs rtsDetails))
+      return oFile
+
 \end{code}

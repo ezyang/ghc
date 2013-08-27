@@ -1574,20 +1574,6 @@ runPhase_MoveBinary dflags input_fn
         return True
     | otherwise = return True
 
-mkExtraObj :: DynFlags -> Suffix -> String -> IO FilePath
-mkExtraObj dflags extn xs
- = do cFile <- newTempName dflags extn
-      oFile <- newTempName dflags "o"
-      writeFile cFile xs
-      let rtsDetails = getPackageDetails (pkgState dflags) rtsPackageId
-      SysTools.runCc dflags
-                     ([Option        "-c",
-                       FileOption "" cFile,
-                       Option        "-o",
-                       FileOption "" oFile]
-                      ++ map (FileOption "-I") (includeDirs rtsDetails))
-      return oFile
-
 -- When linking a binary, we need to create a C main() function that
 -- starts everything off.  This used to be compiled statically as part
 -- of the RTS, but that made it hard to change the -rtsopts setting,
@@ -1876,10 +1862,14 @@ linkBinary dflags o_files dep_packages = do
 
     rc_objs <- maybeCreateManifest dflags output_fn
 
+    (linker_script, constr_stub) <- initStaticClosures dflags
+
     SysTools.runLink dflags (
                        map SysTools.Option verbFlags
                       ++ [ SysTools.Option "-o"
                          , SysTools.FileOption "" output_fn
+                         , SysTools.FileOption "" constr_stub
+                         , SysTools.FileOption "" linker_script
                          ]
                       ++ map SysTools.Option (
                          []
