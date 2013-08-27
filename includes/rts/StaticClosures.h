@@ -31,4 +31,22 @@
 #define stg_END_STM_CHUNK_LIST_closure STATIC_CLOSURE(stg_END_STM_CHUNK_LIST)
 #define stg_NO_TREC_closure STATIC_CLOSURE(stg_NO_TREC)
 
+#ifndef CMINUSMINUS
+typedef struct StaticClosureInds_ {
+    StgClosure **start;
+    StgClosure **end;
+    struct StaticClosureInds_ *link;
+} StaticClosureInds;
+
+extern StaticClosureInds * RTS_VAR(SCI_LIST);
+
+#define REGISTER_STATIC_CLOSURE_INDS(sci)               \
+        do {                                            \
+        if ((sci)->link == NULL) {                      \
+            (sci)->link = SCI_LIST;                     \
+            SCI_LIST = (sci);                           \
+        }} while(0)
+
+#endif
+
 #endif /* RTS_STATIC_CLOSURES_H */
