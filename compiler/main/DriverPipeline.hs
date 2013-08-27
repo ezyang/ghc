@@ -1011,7 +1011,14 @@ runPhase (RealPhase Cmm) input_fn dflags
 
         PipeState{hsc_env} <- getPipeState
 
-        liftIO $ hscCompileCmmFile hsc_env input_fn output_fn
+        mStub <- liftIO $ hscCompileCmmFile hsc_env input_fn output_fn
+
+        PipeState{hsc_env=hsc_env'} <- getPipeState
+        case mStub of
+            Nothing -> return ()
+            Just stub_c -> do
+                stub_o <- liftIO $ compileStub hsc_env' stub_c
+                setStubO stub_o
 
         return (RealPhase next_phase, output_fn)
 
