@@ -30,6 +30,7 @@
 #include "Stable.h"
 #include "Proftimer.h"
 #include "GetEnv.h"
+#include "StaticClosures.h"
 
 #if !defined(mingw32_HOST_OS)
 #include "posix/Signals.h"
@@ -1034,6 +1035,8 @@ typedef struct _RtsSymbolVal {
 #define RTS_SYMBOLS                                                     \
       Maybe_Stable_Names                                                \
       RTS_TICKY_SYMBOLS                                                 \
+      SymI_HasProto(SCI_LIST)                                           \
+      SymI_HasProto(SP_LIST)                                           \
       SymI_HasProto(StgReturn)                                          \
       SymI_HasProto(stg_gc_noregs)                                      \
       SymI_HasProto(stg_ret_v_info)                                     \
@@ -1702,10 +1705,11 @@ internal_dlopen(const char *dll_name)
    o_so->next   = openedSOs;
    openedSOs    = o_so;
 
-   processPendingStablePtrs();
-
    RELEASE_LOCK(&dl_mutex);
    //--------------- End critical section -------------------
+
+   processStaticClosures();
+   processPendingStablePtrs();
 
    return errmsg;
 }
@@ -2839,6 +2843,10 @@ resolveObjs( void )
             oc->status = OBJECT_RESOLVED;
         }
     }
+
+    processStaticClosures();
+    processPendingStablePtrs();
+
     IF_DEBUG(linker, debugBelch("resolveObjs: done\n"));
     return 1;
 }
