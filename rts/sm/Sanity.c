@@ -28,6 +28,7 @@
 #include "Printer.h"
 #include "Arena.h"
 #include "RetainerProfile.h"
+#include "StaticClosures.h"
 
 /* -----------------------------------------------------------------------------
    Forward decls.
@@ -837,7 +838,7 @@ memInventory (rtsBool show)
 {
   nat g, i;
   W_ gen_blocks[RtsFlags.GcFlags.generations];
-  W_ nursery_blocks, retainer_blocks,
+  W_ nursery_blocks, retainer_blocks, static_blocks,
        arena_blocks, exec_blocks;
   W_ live_blocks = 0, free_blocks = 0;
   rtsBool leak;
@@ -878,6 +879,9 @@ memInventory (rtsBool show)
   // count the blocks containing executable memory
   exec_blocks = countAllocdBlocks(exec_block);
 
+  // count the blocks allocated to hold static closures
+  static_blocks = countStaticBlocks();
+
   /* count the blocks on the free list */
   free_blocks = countFreeList();
 
@@ -886,7 +890,7 @@ memInventory (rtsBool show)
       live_blocks += gen_blocks[g];
   }
   live_blocks += nursery_blocks + 
-               + retainer_blocks + arena_blocks + exec_blocks;
+               + retainer_blocks + arena_blocks + exec_blocks + static_blocks;
 
 #define MB(n) (((double)(n) * BLOCK_SIZE_W) / ((1024*1024)/sizeof(W_)))
 
@@ -911,6 +915,8 @@ memInventory (rtsBool show)
                  arena_blocks, MB(arena_blocks));
       debugBelch("  exec         : %5" FMT_Word " blocks (%6.1lf MB)\n",
                  exec_blocks, MB(exec_blocks));
+      debugBelch("  static       : %5" FMT_Word " blocks (%6.1lf MB)\n",
+                 static_blocks, MB(static_blocks));
       debugBelch("  free         : %5" FMT_Word " blocks (%6.1lf MB)\n",
                  free_blocks, MB(free_blocks));
       debugBelch("  total        : %5" FMT_Word " blocks (%6.1lf MB)\n",
