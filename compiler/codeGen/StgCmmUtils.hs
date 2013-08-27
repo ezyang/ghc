@@ -321,7 +321,11 @@ emitRODataLits lbl lits = emitDecl (mkRODataLits lbl lits)
 emitStaticClosure :: CLabel -> [CmmLit] -> FCode ()
 -- Emit a static closure data block, which is only used at startup time.
 -- Eventually make this READ ONLY(?)
-emitStaticClosure lbl lits = emitDecl (mkDataLits StaticClosures lbl lits)
+emitStaticClosure lbl lits = do
+    emitDecl (mkDataLits StaticClosures lbl lits)
+    -- tagged to indicate that it does not point to the true location
+    emitDecl (mkDataLits StaticClosureInds (genClosureIndLabel lbl)
+        [CmmLabelOff lbl {- 1 -} 0])
 
 newStringCLit :: String -> FCode CmmLit
 -- Make a global definition for the string,

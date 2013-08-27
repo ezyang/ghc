@@ -8,7 +8,7 @@
 module StgCmmEnv (
         CgIdInfo,
 
-        litIdInfo, lneIdInfo, rhsIdInfo, mkRhsInit,
+        litIdInfo, closureIdInfo, lneIdInfo, rhsIdInfo, mkRhsInit,
         idInfoToAmode,
 
         NonVoid(..), unsafe_stripNV, isVoidId, nonVoidIds,
@@ -81,6 +81,17 @@ litIdInfo dflags id lf lit
              , cg_loc = CmmLoc (addDynTag dflags (CmmLit lit) tag) }
   where
     tag = lfDynTag dflags lf
+
+closureIdInfo :: DynFlags -> Id -> LambdaFormInfo -> CLabel -> CgIdInfo
+closureIdInfo dflags id lf label
+  = CgIdInfo { cg_id = id, cg_lf = lf
+             , cg_loc = CmmLoc (addDynTag dflags
+                                 (CmmLoad (CmmLit (CmmLabel (genClosureIndLabel label)))
+                                 (bWord dflags)) tag)
+             }
+  where
+    tag = lfDynTag dflags lf
+
 
 lneIdInfo :: DynFlags -> Id -> [NonVoid Id] -> CgIdInfo
 lneIdInfo dflags id regs

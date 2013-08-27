@@ -585,7 +585,7 @@ mkFExportCBits dflags c_nm maybe_target arg_htys res_hty is_IO_res_ty cc
   the_cfun
      = case maybe_target of
           Nothing    -> text "(StgClosure*)deRefStablePtr(the_stableptr)"
-          Just hs_fn -> char '&' <> ppr hs_fn <> text "_closure"
+          Just hs_fn -> text "STATIC_CLOSURE(" <> ppr hs_fn <> text ")"
 
   cap = text "cap" <> comma
 
@@ -610,7 +610,8 @@ mkFExportCBits dflags c_nm maybe_target arg_htys res_hty is_IO_res_ty cc
   extern_decl
      = case maybe_target of
           Nothing -> empty
-          Just hs_fn -> text "extern StgClosure " <> ppr hs_fn <> text "_closure" <> semi
+          Just hs_fn -> text "extern StgClosure " <> ppr hs_fn <> text "_static_closure" <> semi $$
+                        text "extern StgClosure *" <> ppr hs_fn <> text "_static_closure_ind" <> semi
 
 
   -- finally, the whole darn thing
@@ -666,7 +667,7 @@ foreignExportInitialiser hs_fn =
          <> text "() __attribute__((constructor));"
     , text "static void stginit_export_" <> ppr hs_fn <> text "()"
     , braces (text "getStablePtr"
-       <> parens (text "(StgPtr) &" <> ppr hs_fn <> text "_closure")
+       <> parens (text "(StgPtr)STATIC_CLOSURE(" <> ppr hs_fn <> text ")")
        <> semi)
     ]
 
