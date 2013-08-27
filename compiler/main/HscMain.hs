@@ -132,6 +132,8 @@ import CmmParse         ( parseCmmFile )
 import CmmBuildInfoTables
 import CmmPipeline
 import CmmInfo
+import CmmUtils
+import CLabel
 import CodeOutput
 import NameEnv          ( emptyNameEnv )
 import NameSet          ( emptyNameSet )
@@ -1154,14 +1156,16 @@ hscGenHardCode hsc_env cgguts mod_summary output_filename = do
                myCoreToStg dflags this_mod prepd_binds
 
         let prof_init = profilingInitCode this_mod cost_centre_info
-            foreign_stubs = foreign_stubs0 `appendStubC` prof_init
+            foreign_stubs1 = foreign_stubs0 `appendStubC` prof_init
 
         ------------------  Code generation ------------------
 
-        cmms <- {-# SCC "NewCodeGen" #-}
+        cmms0 <- {-# SCC "NewCodeGen" #-}
                          tryNewCodeGen hsc_env this_mod data_tycons
                              cost_centre_info
                              stg_binds hpc_info
+
+        let (cmms, foreign_stubs) = prepareStaticClosures (Right this_mod) cmms0 foreign_stubs1
 
         ------------------  Code output -----------------------
         rawcmms0 <- {-# SCC "cmmToRawCmm" #-}
@@ -1216,7 +1220,7 @@ hscInteractive _ _ = panic "GHC not compiled with interpreter"
 
 ------------------------------
 
-hscCompileCmmFile :: HscEnv -> FilePath -> FilePath -> IO ()
+hscCompileCmmFile :: HscEnv -> FilePath -> FilePath -> IO (Maybe String)
 hscCompileCmmFile hsc_env filename output_filename = runHsc hsc_env $ do
     let dflags = hsc_dflags hsc_env
     cmm <- ioMsgMaybe $ parseCmmFile dflags filename
@@ -1225,9 +1229,22 @@ hscCompileCmmFile hsc_env filename output_filename = runHsc hsc_env $ do
         let initTopSRT = initUs_ us emptySRT
         dumpIfSet_dyn dflags Opt_D_dump_cmm "Parsed Cmm" (ppr cmm)
         (_, cmmgroup) <- cmmPipeline hsc_env initTopSRT cmm
-        rawCmms <- cmmToRawCmm dflags (Stream.yield cmmgroup)
-        _ <- codeOutput dflags no_mod output_filename no_loc NoStubs [] rawCmms
-        return ()
+        -- Ordinarily, we'd like to create a single constructor function
+        -- which initializes this entire C-- file.  But what's a good
+        -- unique identifier to name this function?  The C-- file does
+        -- not have a module name, making the ordinary mechanism
+        -- unsuitable.  In some sense, the only identifying feature of
+        -- the C-- file is the symbols it exports.  So let's pick out
+        -- the first one and use that.
+        let f (CmmData StaticClosureInds (Statics l _)) = Just l
+            f _ = Nothing
+            g = case catMaybes (map f cmmgroup) of
+                        [] -> (,)
+                        (lbl:_) -> prepareStaticClosures (Left lbl)
+            (cmms, foreign_stubs) = g (Stream.yield cmmgroup) NoStubs
+        rawCmms <- cmmToRawCmm dflags cmms
+        (_, (_, stub_c_exists)) <- codeOutput dflags no_mod output_filename no_loc foreign_stubs [] rawCmms
+        return stub_c_exists
   where
     no_mod = panic "hscCmmFile: no_mod"
     no_loc = ModLocation{ ml_hs_file  = Just filename,
@@ -1659,3 +1676,27 @@ showModuleIndex (i,n) = "[" ++ padded ++ " of " ++ n_str ++ "] "
     n_str = show n
     i_str = show i
     padded = replicate (length n_str - length i_str) ' ' ++ i_str
+
+prepareStaticClosures :: Monad m => Either CLabel Module
+     -> Stream m [GenCmmDecl CmmStatics info stmt] b -> ForeignStubs
+     -> (Stream m [GenCmmDecl CmmStatics info stmt] b, ForeignStubs)
+prepareStaticClosures lbl_or_mod cmms0 foreign_stubs0 =
+    let cmms = addLabel True >> cmms0 >>= (\r -> addLabel False >> return r)
+        addLabel starts =
+            Stream.yield [mkDataLits StaticClosureInds (mkStaticClosureIndsLabel lbl_or_mod starts) []]
+        foreign_stubs = foreign_stubs0 `appendStubC` static_closure_inds_init
+        tag = case lbl_or_mod of
+                Left lbl -> text "cmm_" <> ppr lbl
+                Right this_mod -> ppr this_mod
+        static_closure_inds_init = vcat
+            [ text "static void static_closure_inds_init_" <> tag <> text "(void) __attribute__((constructor));"
+            , text "extern StgClosure *" <> ppr (mkStaticClosureIndsLabel lbl_or_mod True) <> text ";"
+            , text "extern StgClosure *" <> ppr (mkStaticClosureIndsLabel lbl_or_mod False) <> text ";"
+            , text "static StaticClosureInds sic_table_" <> tag <>
+                text " = { &" <> ppr (mkStaticClosureIndsLabel lbl_or_mod True) <>
+                text ", &" <> ppr (mkStaticClosureIndsLabel lbl_or_mod False) <>
+                text ", NULL};"
+            , text "static void static_closure_inds_init_" <> tag <> text "(void)"
+            , braces (text "REGISTER_STATIC_CLOSURE_INDS(&sic_table_" <> tag <> text ");")
+            ]
+    in (cmms, foreign_stubs)

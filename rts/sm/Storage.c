@@ -108,8 +108,6 @@ initStorage (void)
       return;
   }
 
-  initMBlocks();
-
   /* Sanity check to make sure the LOOKS_LIKE_ macros appear to be
    * doing something reasonable.
    */
@@ -130,8 +128,6 @@ initStorage (void)
       errorBelch("maximum heap size (-M) is smaller than minimum alloc area size (-A)");
       RtsFlags.GcFlags.minAllocAreaSize = RtsFlags.GcFlags.maxHeapSize;
   }
-
-  initBlockAllocator();
   
 #if defined(THREADED_RTS)
   initMutex(&sm_mutex);
