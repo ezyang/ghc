@@ -29,6 +29,7 @@
 #include "StgPrimFloat.h" // for __int_encodeFloat etc.
 #include "Stable.h"
 #include "Proftimer.h"
+#include "StaticClosures.h"
 
 #if !defined(mingw32_HOST_OS)
 #include "posix/Signals.h"
@@ -1027,6 +1028,7 @@ typedef struct _RtsSymbolVal {
 #define RTS_SYMBOLS                                                     \
       Maybe_Stable_Names                                                \
       RTS_TICKY_SYMBOLS                                                 \
+      SymI_HasProto(SCI_LIST)                                           \
       SymI_HasProto(StgReturn)                                          \
       SymI_HasProto(stg_gc_noregs)                                      \
       SymI_HasProto(stg_ret_v_info)                                     \
@@ -1683,6 +1685,7 @@ internal_dlopen(const char *dll_name)
    o_so->next   = openedSOs;
    openedSOs    = o_so;
 
+   processStaticClosures();
    processPendingStablePtrs();
 
    RELEASE_LOCK(&dl_mutex);
