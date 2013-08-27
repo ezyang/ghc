@@ -26,9 +26,12 @@ module CLabel (
         mkApEntryLabel,
         mkApInfoTableLabel,
         mkClosureTableLabel,
+        mkStaticClosureIndsLabel,
 
         genClosureIndLabel,
         genClosureLabel,
+        isClosureIndLabel,
+        isClosureLabel,
 
         mkLocalClosureLabel,
         mkLocalInfoTableLabel,
@@ -193,6 +196,10 @@ data CLabel
 
   | PlainModuleInitLabel        -- without the version & way info
         Module
+
+  | StaticClosureIndsLabel
+        (Either CLabel Module)
+        Bool   -- starting the section??
 
   | CC_Label  CostCentre
   | CCS_Label CostCentreStack
@@ -407,6 +414,16 @@ genClosureLabel (IdLabel name c ClosureInd) = IdLabel name c Closure
 genClosureLabel (CmmLabel pkg str CmmClosureInd) = CmmLabel pkg str CmmClosure
 genClosureLabel l = pprPanic "genClosureLabel" (ppr l)
 
+isClosureLabel :: CLabel -> Bool
+isClosureLabel (IdLabel _ _ Closure) = True
+isClosureLabel (CmmLabel _ _ CmmClosure) = True
+isClosureLabel _ = False
+
+isClosureIndLabel :: CLabel -> Bool
+isClosureIndLabel (IdLabel _ _ ClosureInd) = True
+isClosureIndLabel (CmmLabel _ _ CmmClosureInd) = True
+isClosureIndLabel _ = False
+
 mkConEntryLabel       :: Name -> CafInfo -> CLabel
 mkStaticConEntryLabel :: Name -> CafInfo -> CLabel
 mkConEntryLabel name        c     = IdLabel name c ConEntry
@@ -553,6 +570,9 @@ mkAsmTempLabel a                = AsmTempLabel (getUnique a)
 mkPlainModuleInitLabel :: Module -> CLabel
 mkPlainModuleInitLabel mod      = PlainModuleInitLabel mod
 
+mkStaticClosureIndsLabel :: Either CLabel Module -> Bool -> CLabel
+mkStaticClosureIndsLabel mod starts = StaticClosureIndsLabel mod starts
+
 -- -----------------------------------------------------------------------------
 -- Convert between different kinds of label
 
@@ -634,6 +654,7 @@ needsCDecl (LargeBitmapLabel _)         = False
 needsCDecl (IdLabel _ _ _)              = True
 needsCDecl (CaseLabel _ _)              = True
 needsCDecl (PlainModuleInitLabel _)     = True
+needsCDecl (StaticClosureIndsLabel _ _) = True
 
 needsCDecl (StringLitLabel _)           = False
 needsCDecl (AsmTempLabel _)             = False
@@ -767,6 +788,7 @@ externallyVisibleCLabel (CaseLabel _ _)         = False
 externallyVisibleCLabel (StringLitLabel _)      = False
 externallyVisibleCLabel (AsmTempLabel _)        = False
 externallyVisibleCLabel (PlainModuleInitLabel _)= True
+externallyVisibleCLabel (StaticClosureIndsLabel _ _)= True
 externallyVisibleCLabel (RtsLabel _)            = True
 externallyVisibleCLabel (CmmLabel _ _ _)        = True
 externallyVisibleCLabel (ForeignLabel{})        = True
@@ -825,6 +847,7 @@ labelType (RtsLabel (RtsApFast _))              = CodeLabel
 labelType (CaseLabel _ CaseReturnInfo)          = DataLabel
 labelType (CaseLabel _ _)                       = CodeLabel
 labelType (PlainModuleInitLabel _)              = CodeLabel
+labelType (StaticClosureIndsLabel _ _)          = DataLabel
 labelType (SRTLabel _)                          = DataLabel
 labelType (LargeSRTLabel _)                     = DataLabel
 labelType (LargeBitmapLabel _)                  = DataLabel
@@ -1107,6 +1130,18 @@ pprCLbl (CCS_Label ccs)         = ppr ccs
 
 pprCLbl (PlainModuleInitLabel mod)
    = ptext (sLit "__stginit_") <> ppr mod
+
+pprCLbl (StaticClosureIndsLabel (Right mod) True)
+   = ptext (sLit "__static_closure_inds_start_") <> ppr mod
+
+pprCLbl (StaticClosureIndsLabel (Right mod) False)
+   = ptext (sLit "__static_closure_inds_end_") <> ppr mod
+
+pprCLbl (StaticClosureIndsLabel (Left lbl) True)
+   = ptext (sLit "__static_closure_inds_start_cmm_") <> pprCLbl lbl
+
+pprCLbl (StaticClosureIndsLabel (Left lbl) False)
+   = ptext (sLit "__static_closure_inds_end_cmm_") <> pprCLbl lbl
 
 pprCLbl (HpcTicksLabel mod)
   = ptext (sLit "_hpc_tickboxes_")  <> ppr mod <> ptext (sLit "_hpc")
