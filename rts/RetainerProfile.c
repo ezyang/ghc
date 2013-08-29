@@ -128,7 +128,7 @@ typedef union {
 
     // SRT
     struct {
-	StgClosure **srt;
+	StgClosure ***srt;
 	StgWord    srt_bitmap;
     } srt;
 
@@ -333,7 +333,7 @@ init_srt_fun( stackPos *info, StgFunInfoTable *infoTable )
 	info->next.large_srt.offset = 0;
     } else {
 	info->type = posTypeSRT;
-	info->next.srt.srt = (StgClosure **)GET_FUN_SRT(infoTable);
+	info->next.srt.srt = (StgClosure ***)GET_FUN_SRT(infoTable);
 	info->next.srt.srt_bitmap = infoTable->i.srt_bitmap;
     }
 }
@@ -347,7 +347,7 @@ init_srt_thunk( stackPos *info, StgThunkInfoTable *infoTable )
 	info->next.large_srt.offset = 0;
     } else {
 	info->type = posTypeSRT;
-	info->next.srt.srt = (StgClosure **)GET_SRT(infoTable);
+	info->next.srt.srt = (StgClosure ***)GET_SRT(infoTable);
 	info->next.srt.srt_bitmap = infoTable->i.srt_bitmap;
     }
 }
@@ -366,14 +366,7 @@ find_srt( stackPos *info )
 	bitmap = info->next.srt.srt_bitmap;
 	while (bitmap != 0) {
 	    if ((bitmap & 1) != 0) {
-#if defined(COMPILING_WINDOWS_DLL)
-		if ((unsigned long)(*(info->next.srt.srt)) & 0x1)
-		    c = (* (StgClosure **)((unsigned long)*(info->next.srt.srt)) & ~0x1);
-		else
-		    c = *(info->next.srt.srt);
-#else
-		c = *(info->next.srt.srt);
-#endif
+		c = **(info->next.srt.srt); // windows DLL hack removed
 		bitmap = bitmap >> 1;
 		info->next.srt.srt++;
 		info->next.srt.srt_bitmap = bitmap;
@@ -395,7 +388,7 @@ find_srt( stackPos *info )
 	bitmap = bitmap >> (i % BITS_IN(StgWord));
 	while (i < info->next.large_srt.srt->l.size) {
 	    if ((bitmap & 1) != 0) {
-		c = ((StgClosure **)info->next.large_srt.srt->srt)[i];
+		c = *((StgClosure ***)info->next.large_srt.srt->srt)[i];
 		i++;
 		info->next.large_srt.offset = i;
 		return c;
@@ -1199,15 +1192,15 @@ retain_large_srt_bitmap (StgLargeSRT *srt, StgClosure *c, retainer c_child_r)
 {
     nat i, b, size;
     StgWord bitmap;
-    StgClosure **p;
+    StgClosure ***p;
     
     b = 0;
-    p = (StgClosure **)srt->srt;
+    p = (StgClosure ***)srt->srt;
     size   = srt->l.size;
     bitmap = srt->l.bitmap[b];
     for (i = 0; i < size; ) {
 	if ((bitmap & 1) != 0) {
-	    retainClosure((StgClosure *)*p, c, c_child_r);
+	    retainClosure(**p, c, c_child_r);
 	}
 	i++;
 	p++;
@@ -1221,10 +1214,10 @@ retain_large_srt_bitmap (StgLargeSRT *srt, StgClosure *c, retainer c_child_r)
 }
 
 static INLINE void
-retainSRT (StgClosure **srt, nat srt_bitmap, StgClosure *c, retainer c_child_r)
+retainSRT (StgClosure ***srt, nat srt_bitmap, StgClosure *c, retainer c_child_r)
 {
   nat bitmap;
-  StgClosure **p;
+  StgClosure ***p;
 
   bitmap = srt_bitmap;
   p = srt;
@@ -1236,16 +1229,7 @@ retainSRT (StgClosure **srt, nat srt_bitmap, StgClosure *c, retainer c_child_r)
 
   while (bitmap != 0) {
       if ((bitmap & 1) != 0) {
-#if defined(COMPILING_WINDOWS_DLL)
-	  if ( (unsigned long)(*srt) & 0x1 ) {
-	      retainClosure(* (StgClosure**) ((unsigned long) (*srt) & ~0x1), 
-			    c, c_child_r);
-	  } else {
-	      retainClosure(*srt,c,c_child_r);
-	  }
-#else
-	  retainClosure(*srt,c,c_child_r);
-#endif
+	  retainClosure(**srt,c,c_child_r); // removed windows dll hack
       }
       p++;
       bitmap = bitmap >> 1;
@@ -1324,7 +1308,7 @@ retainStack( StgClosure *c, retainer c_child_r,
 	    p = retain_small_bitmap(p, size, bitmap, c, c_child_r);
 
 	follow_srt:
-	    retainSRT((StgClosure **)GET_SRT(info), info->i.srt_bitmap, c, c_child_r);
+	    retainSRT((StgClosure ***)GET_SRT(info), info->i.srt_bitmap, c, c_child_r);
 	    continue;
 
 	case RET_BCO: {
