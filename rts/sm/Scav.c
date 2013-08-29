@@ -278,10 +278,10 @@ scavenge_large_srt_bitmap( StgLargeSRT *large_srt )
     b = 0;
     bitmap = large_srt->l.bitmap[b];
     size   = (nat)large_srt->l.size;
-    p      = (StgClosure **)large_srt->srt;
+    p      = (StgClosure ***)large_srt->srt;
     for (i = 0; i < size; ) {
 	if ((bitmap & 1) != 0) {
-	    evacuate(p);
+	    evacuate(*p);
 	}
 	i++;
 	p++;
@@ -299,10 +299,10 @@ scavenge_large_srt_bitmap( StgLargeSRT *large_srt )
  * never dereference it.
  */
 STATIC_INLINE GNUC_ATTR_HOT void
-scavenge_srt (StgClosure **srt, nat srt_bitmap)
+scavenge_srt (StgClosure ***srt, nat srt_bitmap)
 {
   nat bitmap;
-  StgClosure **p;
+  StgClosure ***p;
 
   bitmap = srt_bitmap;
   p = srt;
@@ -314,7 +314,9 @@ scavenge_srt (StgClosure **srt, nat srt_bitmap)
 
   while (bitmap != 0) {
       if ((bitmap & 1) != 0) {
+          /*
 #if defined(COMPILING_WINDOWS_DLL)
+        // Handle this when filling it out
 	  // Special-case to handle references to closures hiding out in DLLs, since
 	  // double indirections required to get at those. The code generator knows
 	  // which is which when generating the SRT, so it stores the (indirect)
@@ -326,11 +328,11 @@ scavenge_srt (StgClosure **srt, nat srt_bitmap)
 	  if ( (W_)(*srt) & 0x1 ) {
 	      evacuate( (StgClosure**) ((W_) (*srt) & ~0x1));
 	  } else {
-	      evacuate(p);
+	      evacuate(*p);
 	  }
 #else
-	  evacuate(p);
-#endif
+*/
+	  evacuate(*p);
       }
       p++;
       bitmap = bitmap >> 1;
@@ -346,7 +348,7 @@ scavenge_thunk_srt(const StgInfoTable *info)
     if (!major_gc) return;
 
     thunk_info = itbl_to_thunk_itbl(info);
-    scavenge_srt((StgClosure **)GET_SRT(thunk_info), thunk_info->i.srt_bitmap);
+    scavenge_srt((StgClosure ***)GET_SRT(thunk_info), thunk_info->i.srt_bitmap);
 }
 
 STATIC_INLINE GNUC_ATTR_HOT void
@@ -357,7 +359,7 @@ scavenge_fun_srt(const StgInfoTable *info)
     if (!major_gc) return;
   
     fun_info = itbl_to_fun_itbl(info);
-    scavenge_srt((StgClosure **)GET_FUN_SRT(fun_info), fun_info->i.srt_bitmap);
+    scavenge_srt((StgClosure ***)GET_FUN_SRT(fun_info), fun_info->i.srt_bitmap);
 }
 
 /* -----------------------------------------------------------------------------
@@ -1721,7 +1723,7 @@ scavenge_stack(StgPtr p, StgPtr stack_end)
 
     follow_srt:
 	if (major_gc) 
-	    scavenge_srt((StgClosure **)GET_SRT(info), info->i.srt_bitmap);
+	    scavenge_srt((StgClosure ***)GET_SRT(info), info->i.srt_bitmap);
 	continue;
 
     case RET_BCO: {
