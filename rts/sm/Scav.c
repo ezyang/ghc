@@ -273,7 +273,7 @@ scavenge_large_srt_bitmap( StgLargeSRT *large_srt )
 {
     nat i, b, size;
     StgWord bitmap;
-    StgClosure **p;
+    StgClosure ***p;
     
     b = 0;
     bitmap = large_srt->l.bitmap[b];
@@ -281,6 +281,7 @@ scavenge_large_srt_bitmap( StgLargeSRT *large_srt )
     p      = (StgClosure ***)large_srt->srt;
     for (i = 0; i < size; ) {
 	if ((bitmap & 1) != 0) {
+            ASSERT(!HEAP_ALLOCED((StgPtr)**p));
 	    evacuate(*p);
 	}
 	i++;
@@ -332,6 +333,7 @@ scavenge_srt (StgClosure ***srt, nat srt_bitmap)
 	  }
 #else
 */
+          ASSERT(!HEAP_ALLOCED((StgPtr)**p));
 	  evacuate(*p);
       }
       p++;
