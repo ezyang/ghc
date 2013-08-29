@@ -11,6 +11,7 @@ module StgCmmEnv (
         CgIdInfo,
 
         litIdInfo, closureIdInfo, lneIdInfo, rhsIdInfo, mkRhsInit,
+        intCharlikeIdInfo,
         idInfoToAmode,
 
         NonVoid(..), unsafe_stripNV, nonVoidIds,
@@ -45,6 +46,7 @@ import Control.Monad
 import Name
 import StgSyn
 import Outputable
+import SMRep
 
 -------------------------------------
 --        Non-void types
@@ -90,6 +92,25 @@ closureIdInfo dflags id lf label
                      (CmmLoad (CmmLit (CmmLabel (genClosureIndLabel label)))
                               (bWord dflags))
                      tag)
+             }
+  where
+    tag = lfDynTag dflags lf
+
+intCharlikeIdInfo :: DynFlags
+                  -> Id
+                  -> LambdaFormInfo
+                  -> CLabel
+                  -> WordOff
+                  -> CgIdInfo
+intCharlikeIdInfo dflags id lf label offsetW
+  = CgIdInfo { cg_id = id, cg_lf = lf
+             , cg_loc =
+                CmmLoc (addDynTag dflags
+                   (cmmOffsetW dflags
+                     (CmmLoad (CmmLit (CmmLabel (genClosureIndLabel label)))
+                              (bWord dflags))
+                     offsetW)
+                   tag)
              }
   where
     tag = lfDynTag dflags lf
