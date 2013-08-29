@@ -966,4 +966,11 @@ section "data" {
     INTLIKE_HDR(16)  /* MAX_INTLIKE == 16 */
 }
 
+section "data" {
+ stg_CHARLIKE_static_closure_ind: W_[1];
+}
+section "data" {
+ stg_INTLIKE_static_closure_ind: W_[1];
+}
+
 #endif
