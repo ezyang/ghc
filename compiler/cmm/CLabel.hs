@@ -79,6 +79,7 @@ module CLabel (
         mkCmmCodeLabel,
         mkCmmDataLabel,
         mkCmmClosureLabel,
+        mkCmmClosureIndLabel,
 
         mkRtsApFastLabel,
 
@@ -450,7 +451,7 @@ mkCAFBlackHoleEntryLabel        = CmmLabel rtsPackageId (fsLit "stg_CAF_BLACKHOL
 
 -----
 mkCmmInfoLabel,   mkCmmEntryLabel, mkCmmRetInfoLabel, mkCmmRetLabel,
-  mkCmmCodeLabel, mkCmmDataLabel,  mkCmmClosureLabel
+  mkCmmCodeLabel, mkCmmDataLabel,  mkCmmClosureLabel, mkCmmClosureIndLabel
         :: PackageId -> FastString -> CLabel
 
 mkCmmInfoLabel      pkg str     = CmmLabel pkg str CmmInfo
@@ -460,6 +461,7 @@ mkCmmRetLabel       pkg str     = CmmLabel pkg str CmmRet
 mkCmmCodeLabel      pkg str     = CmmLabel pkg str CmmCode
 mkCmmDataLabel      pkg str     = CmmLabel pkg str CmmData
 mkCmmClosureLabel   pkg str     = CmmLabel pkg str CmmClosure
+mkCmmClosureIndLabel pkg str    = CmmLabel pkg str CmmClosureInd
 
 
 -- Constructing RtsLabels

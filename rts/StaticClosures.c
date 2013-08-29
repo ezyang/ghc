@@ -81,8 +81,25 @@ addBlock(void)
 void
 initStaticClosures(void)
 {
+    int size_w;
+
+    // ToDo: do a proper block size check
     addBlock();
-    // should take out dl_mutex...
+    size_w = (MAX_CHARLIKE - MIN_CHARLIKE + 1) * sizeofW(StgIntCharlikeClosure);
+    memcpy(current_block->free, stg_CHARLIKE_static_closure, size_w*sizeof(W_));
+    memset(stg_CHARLIKE_static_closure, 0xDD, size_w*sizeof(W_));
+    stg_CHARLIKE_static_closure_ind = current_block->free;
+    current_block->free += size_w;
+    ASSERT(current_block->free <= current_block->start + BLOCK_SIZE_W);
+
+    addBlock();
+    size_w = (MAX_INTLIKE - MIN_INTLIKE + 1) * sizeofW(StgIntCharlikeClosure);
+    memcpy(current_block->free, stg_INTLIKE_static_closure, size_w*sizeof(W_));
+    memset(stg_INTLIKE_static_closure, 0xDD, size_w*sizeof(W_));
+    stg_INTLIKE_static_closure_ind = current_block->free;
+    current_block->free += size_w;
+    ASSERT(current_block->free <= current_block->start + BLOCK_SIZE_W);
+
     processStaticClosures();
 }
 
