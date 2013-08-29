@@ -191,8 +191,7 @@ buildDynCon' dflags platform binder _ _cc con [arg]
               val_int = fromIntegral val :: Int
               offsetW = (val_int - mIN_INTLIKE dflags) * (fixedHdrSize dflags + 1)
                 -- INTLIKE closures consist of a header and one word payload
-              intlike_amode = cmmLabelOffW dflags intlike_lbl offsetW
-        ; return ( litIdInfo dflags binder (mkConLFInfo con) intlike_amode
+        ; return ( intCharlikeIdInfo dflags binder (mkConLFInfo con) intlike_lbl offsetW
                  , return mkNop) }
 
 buildDynCon' dflags platform binder _ _cc con [arg]
@@ -204,9 +203,8 @@ buildDynCon' dflags platform binder _ _cc con [arg]
   , val_int >= mIN_CHARLIKE dflags
   = do  { let charlike_lbl   = mkCmmClosureLabel rtsPackageId (fsLit "stg_CHARLIKE")
               offsetW = (val_int - mIN_CHARLIKE dflags) * (fixedHdrSize dflags + 1)
-                -- CHARLIKE closures consist of a header and one word payload
-              charlike_amode = cmmLabelOffW dflags charlike_lbl offsetW
-        ; return ( litIdInfo dflags binder (mkConLFInfo con) charlike_amode
+              -- CHARLIKE closures consist of a header and one word payload
+        ; return ( intCharlikeIdInfo dflags binder (mkConLFInfo con) charlike_lbl offsetW
                  , return mkNop) }
 
 -------- buildDynCon': the general case -----------
