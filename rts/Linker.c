@@ -1686,6 +1686,7 @@ internal_dlopen(const char *dll_name)
    openedSOs    = o_so;
 
    processStaticClosures();
+   processPendingStablePtrs();
 
    RELEASE_LOCK(&dl_mutex);
    //--------------- End critical section -------------------

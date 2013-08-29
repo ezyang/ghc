@@ -493,6 +493,9 @@ extern unsigned int RTS_VAR(CCS_ID);
 // Capability.c
 extern unsigned int n_capabilities;
 
+// Stable.c
+extern StgWord      RTS_VAR(SP_LIST);
+
 // StaticClosures.c
 extern StgWord      RTS_VAR(SCI_LIST);
 
