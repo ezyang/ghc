@@ -29,7 +29,6 @@ module CLabel (
         mkStaticClosureIndsLabel,
 
         genClosureIndLabel,
-        genClosureLabel,
         isClosureIndLabel,
         isClosureLabel,
 
@@ -409,11 +408,6 @@ genClosureIndLabel :: CLabel -> CLabel
 genClosureIndLabel (IdLabel name c Closure) = IdLabel name c ClosureInd
 genClosureIndLabel (CmmLabel pkg str CmmClosure) = CmmLabel pkg str CmmClosureInd
 genClosureIndLabel l = pprPanic "genIndClosureLabel" (ppr l)
-
-genClosureLabel :: CLabel -> CLabel
-genClosureLabel (IdLabel name c ClosureInd) = IdLabel name c Closure
-genClosureLabel (CmmLabel pkg str CmmClosureInd) = CmmLabel pkg str CmmClosure
-genClosureLabel l = pprPanic "genClosureLabel" (ppr l)
 
 isClosureLabel :: CLabel -> Bool
 isClosureLabel (IdLabel _ _ Closure) = True

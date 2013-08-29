@@ -14,12 +14,10 @@
  */
 #if IN_STG_CODE
 #define PRELUDE_INFO(i)       extern W_(i)[]
-#define PRELUDE_CLOSURE(i)    extern W_(i ## _static_closure)[]; \
-                              extern W_*(i ## _static_closure_ind)[]
+#define PRELUDE_CLOSURE(i)    extern W_*(i ## _static_closure_ind)[]
 #else
 #define PRELUDE_INFO(i)       extern const StgInfoTable DLL_IMPORT_DATA_VARNAME(i)
-#define PRELUDE_CLOSURE(i)    extern StgClosure DLL_IMPORT_DATA_VARNAME(i ## _static_closure); \
-                              extern StgClosure *DLL_IMPORT_DATA_VARNAME(i ## _static_closure_ind)
+#define PRELUDE_CLOSURE(i)    extern StgClosure *DLL_IMPORT_DATA_VARNAME(i ## _static_closure_ind)
 #endif
 
 /* Define canonical names so we can abstract away from the actual
@@ -33,9 +31,9 @@ PRELUDE_CLOSURE(base_GHCziWeak_runFinalizzerBatch);
 
 // XXX why is this special-cased?
 #ifdef IN_STG_CODE
-extern W_ ZCMain_main_static_closure[];
+extern W_ **ZCMain_main_static_closure_ind;
 #else
-extern StgClosure ZCMain_main_static_closure;
+extern StgClosure *ZCMain_main_static_closure_ind;
 #endif
 
 PRELUDE_CLOSURE(base_GHCziIOziException_stackOverflow);

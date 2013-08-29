@@ -210,13 +210,6 @@ extractLit (CmmLoad (CmmLit (CmmLabel l)) _)
 extractLit (CmmMachOp (MO_Add _) [CmmLoad (CmmLit (CmmLabel l)) _, CmmLit (CmmInt offset _)])
     | isClosureIndLabel l = CmmLabelOff l (fromInteger offset)
 extractLit e = pprPanic "extractLit" (ppr e)
-{-
-extractLit (CmmLoad (CmmLit (CmmLabel l)) _)
-    = CmmLabel (genClosureLabel l)
-extractLit (CmmMachOp (MO_Add _) [CmmLoad (CmmLit (CmmLabel l)) _, CmmLit (CmmInt offset _)])
-    = CmmLabelOff (genClosureLabel l) (fromInteger offset)
-extractLit e = pprPanic "extractLit" (ppr e)
--}
 
 mkStaticClosure :: DynFlags -> CLabel -> CostCentreStack -> [CmmLit]
   -> [CmmLit] -> [CmmLit] -> [CmmLit] -> [CmmLit]
