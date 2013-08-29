@@ -73,6 +73,7 @@ addBlock(void)
 {
     bdescr *old_block = current_block;
     current_block = allocBlock_lock();
+    current_block->flags |= BF_STATIC;
     current_block->link = old_block;
     static_blocks++;
 }
@@ -157,6 +158,8 @@ processStaticClosures()
                 addBlock();
             }
             memcpy(current_block->free, p, size_w*sizeof(W_));
+            memset(p, 0xDD, size_w*sizeof(W_));
+            *pp = current_block->free;
             current_block->free += size_w;
         }
     }
@@ -171,8 +174,7 @@ processStaticClosures()
         for (pp = sci->start; pp < sci->end; pp++) {
             StgClosure *p = *pp;
             ASSERT(LOOKS_LIKE_CLOSURE_PTR(p));
-            ASSERT(GET_CLOSURE_TAG(p) == 1);
-            p = UNTAG_CLOSURE(p);
+            ASSERT(GET_CLOSURE_TAG(p) == 0);
             *pp = p;
             const StgInfoTable *info = get_itbl(p);
             switch (info->type) {

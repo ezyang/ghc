@@ -845,6 +845,8 @@ markBlocks (bdescr *bd)
 void
 reportUnmarkedBlocks (void)
 {
+    // ToDo: reimplement me
+    /*
     void *mblock;
     bdescr *bd;
 
@@ -864,6 +866,7 @@ reportUnmarkedBlocks (void)
             }
         }
     }
+    */
 }
 
 #endif

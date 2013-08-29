@@ -217,6 +217,8 @@ void osReleaseFreeMemory(void) {
 
 void osFreeAllMBlocks(void)
 {
+    // ToDo: reimplement me
+    /*
     void *mblock;
 
     for (mblock = getFirstMBlock();
@@ -224,6 +226,7 @@ void osFreeAllMBlocks(void)
          mblock = getNextMBlock(mblock)) {
         munmap(mblock, MBLOCK_SIZE);
     }
+    */
 }
 
 W_ getPageSize (void)
