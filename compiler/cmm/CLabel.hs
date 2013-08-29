@@ -583,8 +583,8 @@ mkStaticClosureIndsLabel mod starts = StaticClosureIndsLabel mod starts
 -- Convert between different kinds of label
 
 toClosureLbl :: CLabel -> CLabel
-toClosureLbl (IdLabel n c _) = IdLabel n c Closure
-toClosureLbl (CmmLabel m str _) = CmmLabel m str CmmClosure
+toClosureLbl (IdLabel n c _) = IdLabel n c ClosureInd
+toClosureLbl (CmmLabel m str _) = CmmLabel m str CmmClosureInd
 toClosureLbl l = pprPanic "toClosureLbl" (ppr l)
 
 toSlowEntryLbl :: CLabel -> CLabel
