@@ -32,7 +32,6 @@ StgWord64 whitehole_spin = 0;
 
 #if defined(THREADED_RTS) && !defined(PARALLEL_GC)
 #define evacuate(p) evacuate1(p)
-#define HEAP_ALLOCED_GC(p) HEAP_ALLOCED(p)
 #endif
 
 #if !defined(PARALLEL_GC) || defined(PROFILING)
