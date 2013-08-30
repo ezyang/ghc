@@ -163,7 +163,7 @@ mkTaggedObjectLoad dflags reg base offset tag
 
 tagToClosure :: DynFlags -> TyCon -> CmmExpr -> CmmExpr
 tagToClosure dflags tycon tag
-  = CmmLoad (cmmOffsetExprW dflags closure_tbl tag) (bWord dflags)
+  = CmmLoad (CmmLoad (cmmOffsetExprW dflags closure_tbl tag) (bWord dflags)) (bWord dflags)
   where closure_tbl = CmmLit (CmmLabel lbl)
         lbl = mkClosureTableLabel (tyConName tycon) NoCafRefs
 
