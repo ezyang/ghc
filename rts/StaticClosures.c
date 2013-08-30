@@ -78,6 +78,7 @@ addBlock(void)
 {
     bdescr *old_block = current_block;
     current_block = allocBlock_lock();
+    current_block->flags |= BF_STATIC;
     current_block->link = old_block;
     static_blocks++;
 }
@@ -98,14 +99,16 @@ initStaticClosures(void)
         addBlock();
         size_w = (MAX_CHARLIKE - MIN_CHARLIKE + 1) * sizeofW(StgIntCharlikeClosure);
         memcpy(current_block->free, stg_CHARLIKE_static_closure, size_w*sizeof(W_));
-        stg_CHARLIKE_static_closure_ind = stg_CHARLIKE_static_closure;
+        IF_DEBUG(sanity, memset(stg_CHARLIKE_static_closure, 0xDD, size_w*sizeof(W_)));
+        stg_CHARLIKE_static_closure_ind = (StgIntCharlikeClosure*)current_block->free;
         current_block->free += size_w;
         ASSERT(current_block->free <= current_block->start + BLOCK_SIZE_W);
 
         addBlock();
         size_w = (MAX_INTLIKE - MIN_INTLIKE + 1) * sizeofW(StgIntCharlikeClosure);
         memcpy(current_block->free, stg_INTLIKE_static_closure, size_w*sizeof(W_));
-        stg_INTLIKE_static_closure_ind = stg_INTLIKE_static_closure;
+        IF_DEBUG(sanity, memset(stg_INTLIKE_static_closure, 0xDD, size_w*sizeof(W_)));
+        stg_INTLIKE_static_closure_ind = (StgIntCharlikeClosure*)current_block->free;
         current_block->free += size_w;
         ASSERT(current_block->free <= current_block->start + BLOCK_SIZE_W);
     }
@@ -190,6 +193,8 @@ processStaticClosures()
                 addBlock();
             }
             memcpy(current_block->free, p, size_w*sizeof(W_));
+            IF_DEBUG(sanity, memset(p, 0xDD, size_w*sizeof(W_)));
+            *pp = (StgClosure*)current_block->free;
             current_block->free += size_w;
         }
     }
@@ -206,8 +211,7 @@ processStaticClosures()
         for (pp = sci->start; pp < sci->end; pp++) {
             StgClosure *p = *pp;
             ASSERT(LOOKS_LIKE_CLOSURE_PTR(p));
-            ASSERT(GET_CLOSURE_TAG(p) == 1);
-            p = UNTAG_CLOSURE(p);
+            ASSERT(GET_CLOSURE_TAG(p) == 0);
             *pp = p;
             const StgInfoTable *info = get_itbl(p);
             switch (info->type) {
