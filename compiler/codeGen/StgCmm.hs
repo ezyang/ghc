@@ -207,7 +207,8 @@ cgEnumerationTyCon :: TyCon -> FCode ()
 cgEnumerationTyCon tycon
   = do dflags <- getDynFlags
        emitRODataLits (mkLocalClosureTableLabel (tyConName tycon) NoCafRefs)
-             [ CmmLabelOff (mkLocalClosureLabel (dataConName con) NoCafRefs)
+             [ CmmLabelOff (genClosureIndLabel
+                              (mkLocalClosureLabel (dataConName con) NoCafRefs))
                            (tagForCon dflags con)
              | con <- tyConDataCons tycon]
 

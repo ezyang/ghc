@@ -164,9 +164,13 @@ mkTaggedObjectLoad dflags reg base offset tag
 --
 -------------------------------------------------------------------------
 
-tagToClosure :: DynFlags -> TyCon -> CmmExpr -> CmmExpr
+tagToClosure :: DynFlags -> TyCon -> CmmExpr -> FCode CmmExpr
 tagToClosure dflags tycon tag
-  = CmmLoad (cmmOffsetExprW dflags closure_tbl tag) (bWord dflags)
+  = do tmp <- fmap (CmmReg . CmmLocal)
+                   (assignTemp (CmmLoad (cmmOffsetExprW dflags closure_tbl tag)
+                                        (bWord dflags)))
+       return (cmmOrWord dflags (CmmLoad (cmmUntag dflags tmp) (bWord dflags))
+                                (cmmConstrTag1 dflags tmp))
   where closure_tbl = CmmLit (CmmLabel lbl)
         lbl = mkClosureTableLabel (tyConName tycon) NoCafRefs
 

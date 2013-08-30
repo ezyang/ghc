@@ -84,7 +84,8 @@ cgOpApp (StgPrimOp TagToEnumOp) [arg] res_ty
         ; args' <- getNonVoidArgAmodes [arg]
         ; let amode = case args' of [amode] -> amode
                                     _ -> panic "TagToEnumOp had void arg"
-        ; emitReturn [tagToClosure dflags tycon amode] }
+        ; tag <- tagToClosure dflags tycon amode
+        ; emitReturn [tag] }
    where
           -- If you're reading this code in the attempt to figure
           -- out why the compiler panic'ed here, it is probably because
