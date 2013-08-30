@@ -41,8 +41,6 @@ MBlockMap **mblock_maps = NULL;
 
 nat mblock_map_count = 0;
 
-MbcCacheLine mblock_cache[MBC_ENTRIES];
-
 static MBlockMap *
 findMBlockMap(void *p)
 {
@@ -56,29 +54,6 @@ findMBlockMap(void *p)
         }
     }
     return NULL;
-}
-
-StgBool HEAP_ALLOCED_miss(StgWord mblock, void *p)
-{
-    MBlockMap *map;
-    MBlockMapLine value;
-    nat entry_no;
-
-    entry_no = mblock & (MBC_ENTRIES-1);
-
-    map = findMBlockMap(p);
-    if (map)
-    {
-        mpc_misses++;
-        value = map->lines[MBLOCK_MAP_LINE(p)];
-        mblock_cache[entry_no] = (mblock<<1) | value;
-        return value;
-    }
-    else
-    {
-        mblock_cache[entry_no] = (mblock<<1);
-        return 0;
-    }
 }
 
 static void
@@ -98,15 +73,6 @@ setHeapAlloced(void *p, StgWord8 i)
     }
 
     map->lines[MBLOCK_MAP_LINE(p)] = i;
-
-    {
-        StgWord mblock;
-        nat entry_no;
-
-        mblock   = (StgWord)p >> MBLOCK_SHIFT;
-        entry_no = mblock & (MBC_ENTRIES-1);
-        mblock_cache[entry_no] = (mblock << 1) + i;
-    }
 }
 #endif
 
@@ -193,7 +159,7 @@ void * getFirstMBlock(void)
 {
     MBlockMap *map = mblock_maps[0];
     nat line_no, off;
-    MbcCacheLine line;
+    MBlockMapLine line;
 
     for (line_no = 0; line_no < MBLOCK_MAP_ENTRIES; line_no++) {
         line = map->lines[line_no];
@@ -282,7 +248,4 @@ void
 initMBlocks(void)
 {
     osMemInit();
-#if SIZEOF_VOID_P == 8
-    memset(mblock_cache,0xff,sizeof(mblock_cache));
-#endif
 }
