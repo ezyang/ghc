@@ -143,6 +143,8 @@ typedef struct bdescr_ {
 #define BF_KNOWN     128
 /* Block was swept in the last generation */
 #define BF_SWEPT     256
+/* Block contains static data */
+#define BF_STATIC    512
 
 /* Finding the block descriptor for a given block -------------------------- */
 
