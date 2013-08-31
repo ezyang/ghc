@@ -104,29 +104,37 @@
 
 #if defined(linux_HOST_OS) || defined(solaris2_HOST_OS) || defined(freebsd_HOST_OS) || defined(kfreebsdgnu_HOST_OS) || defined(dragonfly_HOST_OS) || defined(netbsd_HOST_OS) || defined(openbsd_HOST_OS) || defined(gnu_HOST_OS)
 #  define OBJFORMAT_ELF
-#  include <regex.h>    // regex is already used by dlopen() so this is OK
-                        // to use here without requiring an additional lib
 #elif defined(cygwin32_HOST_OS) || defined (mingw32_HOST_OS)
 #  define OBJFORMAT_PEi386
-#  include <windows.h>
-#  include <math.h>
 #elif defined(darwin_HOST_OS)
 #  define OBJFORMAT_MACHO
-#  include <regex.h>
-#  include <mach/machine.h>
-#  include <mach-o/fat.h>
-#  include <mach-o/loader.h>
-#  include <mach-o/nlist.h>
-#  include <mach-o/reloc.h>
-#if !defined(HAVE_DLFCN_H)
-#  include <mach-o/dyld.h>
-#endif
-#if defined(powerpc_HOST_ARCH)
-#  include <mach-o/ppc/reloc.h>
-#endif
-#if defined(x86_64_HOST_ARCH)
-#  include <mach-o/x86_64/reloc.h>
-#endif
+#else
+
+void initLinkerHelper(void) {}
+void exitLinkerHelper(void) {}
+void *lookupSymbolHelper(char *lbl)
+{
+    barf("lookupSymbol: not implemented on this platform");
+    return 0;
+}
+int ocVerifyImage(ObjectCode *oc)
+{
+    barf("loadObj: no verify method");
+    return 0;
+}
+int ocAllocateSymbolExtras(ObjectCode *oc)
+{
+    return 1;
+}
+int ocGetNames(ObjectCode *oc) {
+    barf("loadObj: no getNames method");
+    return 0;
+}
+int ocGetNames(ObjectCode *oc) {
+    barf("resolveObjs: not implemented on this platform");
+    return 0;
+}
+
 #endif
 
 #if defined(x86_64_HOST_ARCH) && defined(darwin_HOST_OS)
@@ -192,36 +200,6 @@ static pathchar* pathdup(pathchar *path)
 #endif
     return ret;
 }
-
-
-#if defined(OBJFORMAT_ELF)
-static int ocVerifyImage_ELF    ( ObjectCode* oc );
-static int ocGetNames_ELF       ( ObjectCode* oc );
-static int ocResolve_ELF        ( ObjectCode* oc );
-#if defined(powerpc_HOST_ARCH) || defined(x86_64_HOST_ARCH) || defined(arm_HOST_ARCH)
-static int ocAllocateSymbolExtras_ELF ( ObjectCode* oc );
-#endif
-#elif defined(OBJFORMAT_PEi386)
-static int ocVerifyImage_PEi386 ( ObjectCode* oc );
-static int ocGetNames_PEi386    ( ObjectCode* oc );
-static int ocResolve_PEi386     ( ObjectCode* oc );
-static void *lookupSymbolInDLLs ( unsigned char *lbl );
-static void zapTrailingAtSign   ( unsigned char *sym );
-#elif defined(OBJFORMAT_MACHO)
-static int ocVerifyImage_MachO    ( ObjectCode* oc );
-static int ocGetNames_MachO       ( ObjectCode* oc );
-static int ocResolve_MachO        ( ObjectCode* oc );
-
-#ifndef USE_MMAP
-static int machoGetMisalignment( FILE * );
-#endif
-#if defined(powerpc_HOST_ARCH) || defined(x86_64_HOST_ARCH)
-static int ocAllocateSymbolExtras_MachO ( ObjectCode* oc );
-#endif
-#ifdef powerpc_HOST_ARCH
-static void machoInitSymbolsWithoutUnderscore( void );
-#endif
-#endif
 
 static void freeProddableBlocks (ObjectCode *oc);
 
@@ -1482,25 +1460,12 @@ static void ghciInsertStrHashTable ( pathchar* obj_name,
  * initialize the object linker
  */
 
-
 static int linker_init_done = 0 ;
-
-#if defined(OBJFORMAT_ELF) || defined(OBJFORMAT_MACHO)
-static void *dl_prog_handle;
-static regex_t re_invalid;
-static regex_t re_realso;
-#ifdef THREADED_RTS
-static Mutex dl_mutex; // mutex to protect dlopen/dlerror critical section
-#endif
-#endif
 
 void
 initLinker( void )
 {
     RtsSymbolVal *sym;
-#if defined(OBJFORMAT_ELF) || defined(OBJFORMAT_MACHO)
-    int compileResult;
-#endif
 
     IF_DEBUG(linker, debugBelch("initLinker: start\n"));
 
@@ -1517,9 +1482,6 @@ initLinker( void )
     objects = NULL;
     unloaded_objects = NULL;
 
-#if defined(THREADED_RTS) && (defined(OBJFORMAT_ELF) || defined(OBJFORMAT_MACHO))
-    initMutex(&dl_mutex);
-#endif
     stablehash = allocStrHashTable();
     symhash = allocStrHashTable();
 
@@ -1529,30 +1491,8 @@ initLinker( void )
                                symhash, sym->lbl, sym->addr);
         IF_DEBUG(linker, debugBelch("initLinker: inserting rts symbol %s, %p\n", sym->lbl, sym->addr));
     }
-#   if defined(OBJFORMAT_MACHO) && defined(powerpc_HOST_ARCH)
-    machoInitSymbolsWithoutUnderscore();
-#   endif
 
-#   if defined(OBJFORMAT_ELF) || defined(OBJFORMAT_MACHO)
-#   if defined(RTLD_DEFAULT)
-    dl_prog_handle = RTLD_DEFAULT;
-#   else
-    dl_prog_handle = dlopen(NULL, RTLD_LAZY);
-#   endif /* RTLD_DEFAULT */
-
-    compileResult = regcomp(&re_invalid,
-           "(([^ \t()])+\\.so([^ \t:()])*):([ \t])*(invalid ELF header|file too short)",
-           REG_EXTENDED);
-    if (compileResult != 0) {
-        barf("Compiling re_invalid failed");
-    }
-    compileResult = regcomp(&re_realso,
-           "(GROUP|INPUT) *\\( *([^ )]+)",
-           REG_EXTENDED);
-    if (compileResult != 0) {
-        barf("Compiling re_realso failed");
-    }
-#   endif
+    initLinkerHelper();
 
 #if !defined(ALWAYS_PIC) && defined(x86_64_HOST_ARCH)
     if (RtsFlags.MiscFlags.linkerMemBase != 0) {
@@ -1577,275 +1517,9 @@ initLinker( void )
 
 void
 exitLinker( void ) {
-#if defined(OBJFORMAT_ELF) || defined(OBJFORMAT_MACHO)
    if (linker_init_done == 1) {
-      regfree(&re_invalid);
-      regfree(&re_realso);
-#ifdef THREADED_RTS
-      closeMutex(&dl_mutex);
-#endif
+       exitLinkerHelper();
    }
-#endif
-}
-
-/* -----------------------------------------------------------------------------
- *                  Loading DLL or .so dynamic libraries
- * -----------------------------------------------------------------------------
- *
- * Add a DLL from which symbols may be found.  In the ELF case, just
- * do RTLD_GLOBAL-style add, so no further messing around needs to
- * happen in order that symbols in the loaded .so are findable --
- * lookupSymbol() will subsequently see them by dlsym on the program's
- * dl-handle.  Returns NULL if success, otherwise ptr to an err msg.
- *
- * In the PEi386 case, open the DLLs and put handles to them in a
- * linked list.  When looking for a symbol, try all handles in the
- * list.  This means that we need to load even DLLs that are guaranteed
- * to be in the ghc.exe image already, just so we can get a handle
- * to give to loadSymbol, so that we can find the symbols.  For such
- * libraries, the LoadLibrary call should be a no-op except for returning
- * the handle.
- *
- */
-
-#if defined(OBJFORMAT_PEi386)
-/* A record for storing handles into DLLs. */
-
-typedef
-   struct _OpenedDLL {
-      pathchar*          name;
-      struct _OpenedDLL* next;
-      HINSTANCE instance;
-   }
-   OpenedDLL;
-
-/* A list thereof. */
-static OpenedDLL* opened_dlls = NULL;
-#endif
-
-#  if defined(OBJFORMAT_ELF) || defined(OBJFORMAT_MACHO)
-
-/* Suppose in ghci we load a temporary SO for a module containing
-       f = 1
-   and then modify the module, recompile, and load another temporary
-   SO with
-       f = 2
-   Then as we don't unload the first SO, dlsym will find the
-       f = 1
-   symbol whereas we want the
-       f = 2
-   symbol. We therefore need to keep our own SO handle list, and
-   try SOs in the right order. */
-
-typedef
-   struct _OpenedSO {
-      struct _OpenedSO* next;
-      void *handle;
-   }
-   OpenedSO;
-
-/* A list thereof. */
-static OpenedSO* openedSOs = NULL;
-
-static const char *
-internal_dlopen(const char *dll_name)
-{
-   OpenedSO* o_so;
-   void *hdl;
-   const char *errmsg;
-   char *errmsg_copy;
-
-   // omitted: RTLD_NOW
-   // see http://www.haskell.org/pipermail/cvs-ghc/2007-September/038570.html
-   IF_DEBUG(linker,
-      debugBelch("internal_dlopen: dll_name = '%s'\n", dll_name));
-
-   //-------------- Begin critical section ------------------
-   // This critical section is necessary because dlerror() is not
-   // required to be reentrant (see POSIX -- IEEE Std 1003.1-2008)
-   // Also, the error message returned must be copied to preserve it
-   // (see POSIX also)
-
-   ACQUIRE_LOCK(&dl_mutex);
-   hdl = dlopen(dll_name, RTLD_LAZY | RTLD_GLOBAL);
-
-   errmsg = NULL;
-   if (hdl == NULL) {
-      /* dlopen failed; return a ptr to the error msg. */
-      errmsg = dlerror();
-      if (errmsg == NULL) errmsg = "addDLL: unknown error";
-      errmsg_copy = stgMallocBytes(strlen(errmsg)+1, "addDLL");
-      strcpy(errmsg_copy, errmsg);
-      errmsg = errmsg_copy;
-   }
-   o_so = stgMallocBytes(sizeof(OpenedSO), "addDLL");
-   o_so->handle = hdl;
-   o_so->next   = openedSOs;
-   openedSOs    = o_so;
-
-   RELEASE_LOCK(&dl_mutex);
-   //--------------- End critical section -------------------
-
-   return errmsg;
-}
-
-static void *
-internal_dlsym(void *hdl, const char *symbol) {
-    OpenedSO* o_so;
-    void *v;
-
-    // We acquire dl_mutex as concurrent dl* calls may alter dlerror
-    ACQUIRE_LOCK(&dl_mutex);
-    dlerror();
-    for (o_so = openedSOs; o_so != NULL; o_so = o_so->next) {
-        v = dlsym(o_so->handle, symbol);
-        if (dlerror() == NULL) {
-            RELEASE_LOCK(&dl_mutex);
-            return v;
-        }
-    }
-    v = dlsym(hdl, symbol)
-    RELEASE_LOCK(&dl_mutex);
-    return v;
-}
-#  endif
-
-const char *
-addDLL( pathchar *dll_name )
-{
-#  if defined(OBJFORMAT_ELF) || defined(OBJFORMAT_MACHO)
-   /* ------------------- ELF DLL loader ------------------- */
-
-#define NMATCH 5
-   regmatch_t match[NMATCH];
-   const char *errmsg;
-   FILE* fp;
-   size_t match_length;
-#define MAXLINE 1000
-   char line[MAXLINE];
-   int result;
-
-   initLinker();
-
-   IF_DEBUG(linker, debugBelch("addDLL: dll_name = '%s'\n", dll_name));
-   errmsg = internal_dlopen(dll_name);
-
-   if (errmsg == NULL) {
-      return NULL;
-   }
-
-   // GHC Trac ticket #2615
-   // On some systems (e.g., Gentoo Linux) dynamic files (e.g. libc.so)
-   // contain linker scripts rather than ELF-format object code. This
-   // code handles the situation by recognizing the real object code
-   // file name given in the linker script.
-   //
-   // If an "invalid ELF header" error occurs, it is assumed that the
-   // .so file contains a linker script instead of ELF object code.
-   // In this case, the code looks for the GROUP ( ... ) linker
-   // directive. If one is found, the first file name inside the
-   // parentheses is treated as the name of a dynamic library and the
-   // code attempts to dlopen that file. If this is also unsuccessful,
-   // an error message is returned.
-
-   // see if the error message is due to an invalid ELF header
-   IF_DEBUG(linker, debugBelch("errmsg = '%s'\n", errmsg));
-   result = regexec(&re_invalid, errmsg, (size_t) NMATCH, match, 0);
-   IF_DEBUG(linker, debugBelch("result = %i\n", result));
-   if (result == 0) {
-      // success -- try to read the named file as a linker script
-      match_length = (size_t) stg_min((match[1].rm_eo - match[1].rm_so),
-                                 MAXLINE-1);
-      strncpy(line, (errmsg+(match[1].rm_so)),match_length);
-      line[match_length] = '\0'; // make sure string is null-terminated
-      IF_DEBUG(linker, debugBelch ("file name = '%s'\n", line));
-      if ((fp = fopen(line, "r")) == NULL) {
-         return errmsg; // return original error if open fails
-      }
-      // try to find a GROUP or INPUT ( ... ) command
-      while (fgets(line, MAXLINE, fp) != NULL) {
-         IF_DEBUG(linker, debugBelch("input line = %s", line));
-         if (regexec(&re_realso, line, (size_t) NMATCH, match, 0) == 0) {
-            // success -- try to dlopen the first named file
-            IF_DEBUG(linker, debugBelch("match%s\n",""));
-            line[match[2].rm_eo] = '\0';
-            errmsg = internal_dlopen(line+match[2].rm_so);
-            break;
-         }
-         // if control reaches here, no GROUP or INPUT ( ... ) directive
-         // was found and the original error message is returned to the
-         // caller
-      }
-      fclose(fp);
-   }
-   return errmsg;
-
-#  elif defined(OBJFORMAT_PEi386)
-   /* ------------------- Win32 DLL loader ------------------- */
-
-   pathchar*      buf;
-   OpenedDLL* o_dll;
-   HINSTANCE  instance;
-
-   initLinker();
-
-   /* debugBelch("\naddDLL; dll_name = `%s'\n", dll_name); */
-
-   /* See if we've already got it, and ignore if so. */
-   for (o_dll = opened_dlls; o_dll != NULL; o_dll = o_dll->next) {
-      if (0 == pathcmp(o_dll->name, dll_name))
-         return NULL;
-   }
-
-   /* The file name has no suffix (yet) so that we can try
-      both foo.dll and foo.drv
-
-      The documentation for LoadLibrary says:
-        If no file name extension is specified in the lpFileName
-        parameter, the default library extension .dll is
-        appended. However, the file name string can include a trailing
-        point character (.) to indicate that the module name has no
-        extension. */
-
-   buf = stgMallocBytes((pathlen(dll_name) + 10) * sizeof(wchar_t), "addDLL");
-   swprintf(buf, L"%s.DLL", dll_name);
-   instance = LoadLibraryW(buf);
-   if (instance == NULL) {
-       if (GetLastError() != ERROR_MOD_NOT_FOUND) goto error;
-       // KAA: allow loading of drivers (like winspool.drv)
-       swprintf(buf, L"%s.DRV", dll_name);
-       instance = LoadLibraryW(buf);
-       if (instance == NULL) {
-           if (GetLastError() != ERROR_MOD_NOT_FOUND) goto error;
-           // #1883: allow loading of unix-style libfoo.dll DLLs
-           swprintf(buf, L"lib%s.DLL", dll_name);
-           instance = LoadLibraryW(buf);
-           if (instance == NULL) {
-               goto error;
-           }
-       }
-   }
-   stgFree(buf);
-
-   /* Add this DLL to the list of DLLs in which to search for symbols. */
-   o_dll = stgMallocBytes( sizeof(OpenedDLL), "addDLL" );
-   o_dll->name     = pathdup(dll_name);
-   o_dll->instance = instance;
-   o_dll->next     = opened_dlls;
-   opened_dlls     = o_dll;
-
-   return NULL;
-
-error:
-   stgFree(buf);
-   sysErrorBelch("%" PATH_FMT, dll_name);
-
-   /* LoadLibrary failed; return a ptr to the error msg. */
-   return "addDLL: could not load DLL";
-
-#  else
-   barf("addDLL: not implemented on this platform");
-#  endif
 }
 
 /* -----------------------------------------------------------------------------
@@ -1882,47 +1556,7 @@ lookupSymbol( char *lbl )
 
     if (val == NULL) {
         IF_DEBUG(linker, debugBelch("lookupSymbol: symbol not found\n"));
-#       if defined(OBJFORMAT_ELF)
-        return internal_dlsym(dl_prog_handle, lbl);
-#       elif defined(OBJFORMAT_MACHO)
-#       if HAVE_DLFCN_H
-        /* On OS X 10.3 and later, we use dlsym instead of the old legacy
-           interface.
-
-           HACK: On OS X, all symbols are prefixed with an underscore.
-                 However, dlsym wants us to omit the leading underscore from the
-                 symbol name -- the dlsym routine puts it back on before searching
-		 for the symbol. For now, we simply strip it off here (and ONLY
-                 here).
-        */
-        IF_DEBUG(linker, debugBelch("lookupSymbol: looking up %s with dlsym\n", lbl));
-	ASSERT(lbl[0] == '_');
-	return internal_dlsym(dl_prog_handle, lbl + 1);
-#       else
-        if (NSIsSymbolNameDefined(lbl)) {
-            NSSymbol symbol = NSLookupAndBindSymbol(lbl);
-            return NSAddressOfSymbol(symbol);
-        } else {
-            return NULL;
-        }
-#       endif /* HAVE_DLFCN_H */
-#       elif defined(OBJFORMAT_PEi386)
-        void* sym;
-
-        sym = lookupSymbolInDLLs((unsigned char*)lbl);
-        if (sym != NULL) { return sym; };
-
-        // Also try looking up the symbol without the @N suffix.  Some
-        // DLLs have the suffixes on their symbols, some don't.
-        zapTrailingAtSign ( (unsigned char*)lbl );
-        sym = lookupSymbolInDLLs((unsigned char*)lbl);
-        if (sym != NULL) { return sym; };
-        return NULL;
-
-#       else
-        ASSERT(2+2 == 5);
-        return NULL;
-#       endif
+        return lookupSymbolHelper(lbl);
     } else {
         IF_DEBUG(linker, debugBelch("lookupSymbol: value of %s is %p\n", lbl, val));
         return val;
@@ -2689,45 +2323,21 @@ loadOc( ObjectCode* oc ) {
 
    IF_DEBUG(linker, debugBelch("loadOc: start\n"));
 
-#  if defined(OBJFORMAT_MACHO) && (defined(powerpc_HOST_ARCH) || defined(x86_64_HOST_ARCH))
-   r = ocAllocateSymbolExtras_MachO ( oc );
+   r = ocAllocateSymbolExtras( oc );
    if (!r) {
-       IF_DEBUG(linker, debugBelch("loadOc: ocAllocateSymbolExtras_MachO failed\n"));
+       IF_DEBUG(linker, debugBelch("loadOc: ocAllocateSymbolExtras failed\n"));
        return r;
    }
-#  elif defined(OBJFORMAT_ELF) && (defined(powerpc_HOST_ARCH) || defined(x86_64_HOST_ARCH) || defined(arm_HOST_ARCH))
-   r = ocAllocateSymbolExtras_ELF ( oc );
-   if (!r) {
-       IF_DEBUG(linker, debugBelch("loadOc: ocAllocateSymbolExtras_ELF failed\n"));
-       return r;
-   }
-#endif
 
    /* verify the in-memory image */
-#  if defined(OBJFORMAT_ELF)
-   r = ocVerifyImage_ELF ( oc );
-#  elif defined(OBJFORMAT_PEi386)
-   r = ocVerifyImage_PEi386 ( oc );
-#  elif defined(OBJFORMAT_MACHO)
-   r = ocVerifyImage_MachO ( oc );
-#  else
-   barf("loadObj: no verify method");
-#  endif
+   r = ocVerifyImage(oc);
    if (!r) {
        IF_DEBUG(linker, debugBelch("loadOc: ocVerifyImage_* failed\n"));
        return r;
    }
 
    /* build the symbol list for this image */
-#  if defined(OBJFORMAT_ELF)
-   r = ocGetNames_ELF ( oc );
-#  elif defined(OBJFORMAT_PEi386)
-   r = ocGetNames_PEi386 ( oc );
-#  elif defined(OBJFORMAT_MACHO)
-   r = ocGetNames_MachO ( oc );
-#  else
-   barf("loadObj: no getNames method");
-#  endif
+   r = ocGetNames ( oc );
    if (!r) {
        IF_DEBUG(linker, debugBelch("loadOc: ocGetNames_* failed\n"));
        return r;
@@ -2756,15 +2366,7 @@ resolveObjs( void )
 
     for (oc = objects; oc; oc = oc->next) {
         if (oc->status != OBJECT_RESOLVED) {
-#           if defined(OBJFORMAT_ELF)
-            r = ocResolve_ELF ( oc );
-#           elif defined(OBJFORMAT_PEi386)
-            r = ocResolve_PEi386 ( oc );
-#           elif defined(OBJFORMAT_MACHO)
-            r = ocResolve_MachO ( oc );
-#           else
-            barf("resolveObjs: not implemented on this platform");
-#           endif
+            r = ocResolve ( oc );
             if (!r) { return r; }
             oc->status = OBJECT_RESOLVED;
         }
@@ -2910,117 +2512,6 @@ addSection ( ObjectCode* oc, SectionKind kind,
    IF_DEBUG(linker, debugBelch("addSection: %p-%p (size %lld), kind %d\n",
                                start, ((char*)end)-1, ((long long)(size_t)end) - ((long long)(size_t)start) + 1, kind ));
 }
-
-
-/* --------------------------------------------------------------------------
- * Symbol Extras.
- * This is about allocating a small chunk of memory for every symbol in the
- * object file. We make sure that the SymboLExtras are always "in range" of
- * limited-range PC-relative instructions on various platforms by allocating
- * them right next to the object code itself.
- */
-
-#if defined(powerpc_HOST_ARCH) || defined(x86_64_HOST_ARCH) || defined(arm_HOST_ARCH)
-#if !defined(x86_64_HOST_ARCH) || !defined(mingw32_HOST_OS)
-
-/*
-  ocAllocateSymbolExtras
-
-  Allocate additional space at the end of the object file image to make room
-  for jump islands (powerpc, x86_64, arm) and GOT entries (x86_64).
-
-  PowerPC relative branch instructions have a 24 bit displacement field.
-  As PPC code is always 4-byte-aligned, this yields a +-32MB range.
-  If a particular imported symbol is outside this range, we have to redirect
-  the jump to a short piece of new code that just loads the 32bit absolute
-  address and jumps there.
-  On x86_64, PC-relative jumps and PC-relative accesses to the GOT are limited
-  to 32 bits (+-2GB).
-
-  This function just allocates space for one SymbolExtra for every
-  undefined symbol in the object file. The code for the jump islands is
-  filled in by makeSymbolExtra below.
-*/
-
-static int ocAllocateSymbolExtras( ObjectCode* oc, int count, int first )
-{
-#ifdef USE_MMAP
-  int pagesize, n, m;
-#endif
-  int aligned;
-#ifndef USE_MMAP
-  int misalignment = 0;
-#ifdef darwin_HOST_OS
-  misalignment = oc->misalignment;
-#endif
-#endif
-
-  if( count > 0 )
-  {
-    // round up to the nearest 4
-    aligned = (oc->fileSize + 3) & ~3;
-
-#ifdef USE_MMAP
-    pagesize = getpagesize();
-    n = ROUND_UP( oc->fileSize, pagesize );
-    m = ROUND_UP( aligned + sizeof (SymbolExtra) * count, pagesize );
-
-    /* we try to use spare space at the end of the last page of the
-     * image for the jump islands, but if there isn't enough space
-     * then we have to map some (anonymously, remembering MAP_32BIT).
-     */
-    if( m > n ) // we need to allocate more pages
-    {
-        if (USE_CONTIGUOUS_MMAP)
-        {
-            /* Keep image and symbol_extras contiguous */
-            void *new = mmapForLinker(n + (sizeof(SymbolExtra) * count),
-                                  MAP_ANONYMOUS, -1);
-            if (new)
-            {
-                memcpy(new, oc->image, oc->fileSize);
-                munmap(oc->image, n);
-                oc->image = new;
-                oc->fileSize = n + (sizeof(SymbolExtra) * count);
-                oc->symbol_extras = (SymbolExtra *) (oc->image + n);
-            }
-            else
-                oc->symbol_extras = NULL;
-        }
-        else
-        {
-            oc->symbol_extras = mmapForLinker(sizeof(SymbolExtra) * count,
-                                          MAP_ANONYMOUS, -1);
-        }
-    }
-    else
-    {
-        oc->symbol_extras = (SymbolExtra *) (oc->image + aligned);
-    }
-#else
-    oc->image -= misalignment;
-    oc->image = stgReallocBytes( oc->image,
-                                 misalignment +
-                                 aligned + sizeof (SymbolExtra) * count,
-                                 "ocAllocateSymbolExtras" );
-    oc->image += misalignment;
-
-    oc->symbol_extras = (SymbolExtra *) (oc->image + aligned);
-#endif /* USE_MMAP */
-
-    memset( oc->symbol_extras, 0, sizeof (SymbolExtra) * count );
-  }
-  else
-    oc->symbol_extras = NULL;
-
-  oc->first_symbol_extra = first;
-  oc->n_symbol_extras = count;
-
-  return 1;
-}
-
-#endif
-#endif // defined(powerpc_HOST_ARCH) || defined(x86_64_HOST_ARCH) || defined(arm_HOST_ARCH)
 
 #if defined(arm_HOST_ARCH)
 

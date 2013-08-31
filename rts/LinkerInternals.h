@@ -134,4 +134,12 @@ void exitLinker( void );
 
 void freeObjectCode (ObjectCode *oc);
 
+void initLinkerHelper(void);
+void exitLinkerHelper(void);
+void *lookupSymbolHelper(char *lbl);
+int ocAllocateSymbolExtras(ObjectCode *oc);
+int ocVerifyImage(ObjectCode* oc);
+int ocGetNames(ObjectCode* oc);
+int ocResolve(ObjectCode* oc);
+
 #endif /* LINKERINTERNALS_H */
