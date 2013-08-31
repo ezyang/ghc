@@ -161,10 +161,9 @@ mkTaggedObjectLoad dflags reg base offset tag
 --
 -------------------------------------------------------------------------
 
-tagToClosure :: DynFlags -> TyCon -> CmmExpr -> FCode CmmExpr
+tagToClosure :: DynFlags -> TyCon -> CmmExpr -> CmmExpr
 tagToClosure dflags tycon tag
-  = do tmp <- fmap (CmmReg . CmmLocal) (assignTemp (CmmLoad (cmmOffsetExprW dflags closure_tbl tag) (bWord dflags)))
-       return (cmmOrWord dflags (CmmLoad (cmmUntag dflags tmp) (bWord dflags)) (cmmConstrTag1 dflags tmp))
+  = CmmLoad (CmmLoad (cmmOffsetExprW dflags closure_tbl tag) (bWord dflags)) (bWord dflags)
   where closure_tbl = CmmLit (CmmLabel lbl)
         lbl = mkClosureTableLabel (tyConName tycon) NoCafRefs
 
@@ -319,10 +318,10 @@ emitRODataLits :: CLabel -> [CmmLit] -> FCode ()
 -- Emit a read-only data block
 emitRODataLits lbl lits = emitDecl (mkRODataLits lbl lits)
 
-emitStaticClosure :: CLabel -> [CmmLit] -> FCode ()
+emitStaticClosure :: CLabel -> DynTag -> [CmmLit] -> FCode ()
 -- Emit a static closure data block, which is only used at startup time.
 -- Eventually make this READ ONLY(?)
-emitStaticClosure lbl lits =
+emitStaticClosure lbl tag lits =
     let p (CmmLabel l) | isClosureLabel l = False
         p (CmmLabelOff l _) | isClosureLabel l = False
         p _ = True
@@ -331,7 +330,7 @@ emitStaticClosure lbl lits =
         emitDecl (mkDataLits StaticClosures lbl lits)
         -- tagged to indicate that it does not point to the true location
         emitDecl (mkDataLits StaticClosureInds (genClosureIndLabel lbl)
-            [CmmLabelOff lbl 1])
+            [CmmLabelOff lbl tag])
 
 newStringCLit :: String -> FCode CmmLit
 -- Make a global definition for the string,

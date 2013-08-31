@@ -32,23 +32,23 @@ W_ countStaticBlocks() {
 void
 initialize_field(StgClosure **p)
 {
-    // The field of a static closure starts off as a tagged pointer to
-    // the *indirection*.  After we rewrite it, it is now just a tagged
-    // pointer to the destination of the indirection (thus the untag/tag
-    // pattern.)
+    // The field of a static closure starts off as an *untagged* pointer
+    // to the *indirection*.  So we short-circuit through the
+    // indirection... and pick up the appropriate tag from the
+    // destination of the indirection.
     StgClosure *q = *p;
-    StgWord tag = GET_CLOSURE_TAG(q);
-    StgClosure *r = UNTAG_CLOSURE(*(StgClosure**)UNTAG_CLOSURE(q));
+    ASSERT(GET_CLOSURE_TAG(q) == 0);
+    StgClosure *r = *(StgClosure**)q;
     ASSERT(LOOKS_LIKE_CLOSURE_PTR(r));
-    *p = TAG_CLOSURE(tag, r);
+    *p = r;
 }
 
 void
 checkStaticClosures(StgClosure **section_start, StgClosure **section_end) {
     StgClosure **pp;
     for (pp = section_start; pp < section_end; pp++) {
-        StgClosure *p = *pp;
-        ASSERT(GET_CLOSURE_TAG(p) == 0);
+        StgClosure *p = UNTAG_CLOSURE(*pp);
+        // TODO: sanity check tagging
         const StgInfoTable *info = get_itbl(p);
         switch (info->type) {
         case FUN_STATIC:
@@ -96,6 +96,7 @@ initStaticClosures(void)
 #endif
 
         // ToDo: do a proper block size check
+        // ToDo: does this need to get tagged?
         addBlock();
         size_w = (MAX_CHARLIKE - MIN_CHARLIKE + 1) * sizeofW(StgIntCharlikeClosure);
         memcpy(current_block->free, stg_CHARLIKE_static_closure, size_w*sizeof(W_));
@@ -128,6 +129,15 @@ processStaticClosures()
     SCI_LIST = NULL;
 
     // copy stuff (not updating fields)
+
+    // Before:
+    //      foo_static_closure_ind => foo_static_closure + tag
+    //          foo_static_closure => ... | foo_static_closure_ind | ...
+    // After:
+    //      foo_static_closure_ind => dyn_addr + tag
+    //          foo_static_closure => 0xDDDDDDDD DDDDDDDD (with -DS)
+    //                    dyn_addr => ... | foo_static_closure_ind | ...
+
     // (Keep the lock due to access to the block)
 
     for (sci = base_sci; sci != NULL; sci = sci->link) {
@@ -136,7 +146,7 @@ processStaticClosures()
             StgClosure *p = *pp;
             W_ size_w;
             ASSERT(LOOKS_LIKE_CLOSURE_PTR(p));
-            ASSERT(GET_CLOSURE_TAG(p) == 1);
+            StgWord tag = GET_CLOSURE_TAG(p);
             p = UNTAG_CLOSURE(p);
             const StgInfoTable *info = get_itbl(p);
             // Dicey business! Check mkStaticClosureFields for
@@ -194,7 +204,7 @@ processStaticClosures()
             }
             memcpy(current_block->free, p, size_w*sizeof(W_));
             IF_DEBUG(sanity, memset(p, 0xDD, size_w*sizeof(W_)));
-            *pp = (StgClosure*)current_block->free;
+            *pp = TAG_CLOSURE(tag, (StgClosure*)current_block->free);
             current_block->free += size_w;
         }
     }
@@ -202,17 +212,21 @@ processStaticClosures()
     RELEASE_LOCK(&static_closures_mutex);
 
     // update fields
-    // ToDo: Could make this faster by just walking over the static blocks
+
+    // Before:
+    //      foo_static_closure_ind => dyn_addr + tag
+    //                    dyn_addr => ... | foo_static_closure_ind | ...
+    // After:
+    //      foo_static_closure_ind => dyn_addr + tag
+    //                    dyn_addr => ... | dyn_addr + tag | ...
 
     for (sci = base_sci; sci != NULL; sci = next_sci) {
         next_sci = sci->link;
         sci->link = NULL;
         StgClosure **pp;
         for (pp = sci->start; pp < sci->end; pp++) {
-            StgClosure *p = *pp;
+            StgClosure *p = UNTAG_CLOSURE(*pp);
             ASSERT(LOOKS_LIKE_CLOSURE_PTR(p));
-            ASSERT(GET_CLOSURE_TAG(p) == 0);
-            *pp = p;
             const StgInfoTable *info = get_itbl(p);
             switch (info->type) {
             case FUN_STATIC:
@@ -233,6 +247,7 @@ processStaticClosures()
                 break;
               }
             case IND_STATIC:
+                // ToDo: just short-circuit it
                 initialize_field(&((StgInd *)p)->indirectee);
                 break;
             default:
