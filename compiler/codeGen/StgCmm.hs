@@ -205,12 +205,10 @@ mkModuleInit cost_centre_info this_mod hpc_info
 
 cgEnumerationTyCon :: TyCon -> FCode ()
 cgEnumerationTyCon tycon
-  = do dflags <- getDynFlags
-       emitRODataLits (mkLocalClosureTableLabel (tyConName tycon) NoCafRefs)
-             [ CmmLabelOff (genClosureIndLabel
-                              (mkLocalClosureLabel (dataConName con) NoCafRefs))
-                           (tagForCon dflags con)
-             | con <- tyConDataCons tycon]
+  = emitRODataLits (mkLocalClosureTableLabel (tyConName tycon) NoCafRefs)
+        [ CmmLabel (genClosureIndLabel
+                        (mkLocalClosureLabel (dataConName con) NoCafRefs))
+        | con <- tyConDataCons tycon]
 
 
 cgDataCon :: DataCon -> FCode ()

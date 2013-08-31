@@ -299,8 +299,8 @@ cgCase (StgOpApp (StgPrimOp op) args _) bndr (AlgAlt tycon) alts
        ; when (not (isDeadBinder bndr)) $ do
             { dflags <- getDynFlags
             ; tmp_reg <- bindArgToReg (NonVoid bndr)
-            ; tag <- tagToClosure dflags tycon tag_expr
-            ; emitAssign (CmmLocal tmp_reg) tag }
+            ; emitAssign (CmmLocal tmp_reg)
+                         (tagToClosure dflags tycon tag_expr) }
 
        ; (mb_deflt, branches) <- cgAlgAltRhss (NoGcInAlts,AssignedDirectly)
                                               (NonVoid bndr) alts

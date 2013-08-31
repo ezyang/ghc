@@ -91,14 +91,14 @@ cgTopRhsClosure dflags rec id ccs _ upd_flag args body =
   -- hole detection from working in that case.  Test
   -- concurrent/should_run/4030 fails, for instance.
   --
-  gen_code dflags _ closure_label
+  gen_code dflags lf_info closure_label
     | StgApp f [] <- body, null args, isNonRec rec
     = do
          cg_info <- getCgIdInfo f
          let closure_rep   = mkStaticClosureFields dflags
                                     indStaticInfoTable ccs MayHaveCafRefs
                                     [extractLit (idInfoToAmode cg_info)]
-         emitStaticClosure closure_label closure_rep
+         emitStaticClosure closure_label (lfDynTag dflags lf_info) closure_rep
          return ()
 
   gen_code dflags lf_info closure_label
@@ -113,7 +113,7 @@ cgTopRhsClosure dflags rec id ccs _ upd_flag args body =
               closure_rep   = mkStaticClosureFields dflags info_tbl ccs caffy []
 
                  -- BUILD THE OBJECT, AND GENERATE INFO TABLE (IF NECESSARY)
-        ; emitStaticClosure closure_label closure_rep
+        ; emitStaticClosure closure_label (lfDynTag dflags lf_info) closure_rep
         ; let fv_details :: [(NonVoid Id, VirtualHpOffset)]
               (_, _, fv_details) = mkVirtHeapOffsets dflags (isLFThunk lf_info)
                                                (addIdReps [])
