@@ -366,7 +366,7 @@ find_srt( stackPos *info )
 	bitmap = info->next.srt.srt_bitmap;
 	while (bitmap != 0) {
 	    if ((bitmap & 1) != 0) {
-		c = **(info->next.srt.srt); // windows DLL hack removed
+		c = UNTAG_CLOSURE(**(info->next.srt.srt)); // windows DLL hack removed
 		bitmap = bitmap >> 1;
 		info->next.srt.srt++;
 		info->next.srt.srt_bitmap = bitmap;
@@ -388,7 +388,7 @@ find_srt( stackPos *info )
 	bitmap = bitmap >> (i % BITS_IN(StgWord));
 	while (i < info->next.large_srt.srt->l.size) {
 	    if ((bitmap & 1) != 0) {
-		c = *((StgClosure ***)info->next.large_srt.srt->srt)[i];
+		c = UNTAG_CLOSURE(*((StgClosure ***)info->next.large_srt.srt->srt)[i]);
 		i++;
 		info->next.large_srt.offset = i;
 		return c;
@@ -1200,7 +1200,7 @@ retain_large_srt_bitmap (StgLargeSRT *srt, StgClosure *c, retainer c_child_r)
     bitmap = srt->l.bitmap[b];
     for (i = 0; i < size; ) {
 	if ((bitmap & 1) != 0) {
-	    retainClosure(**p, c, c_child_r);
+	    retainClosure(UNTAG_CLOSURE(**p), c, c_child_r);
 	}
 	i++;
 	p++;
@@ -1229,7 +1229,7 @@ retainSRT (StgClosure ***srt, nat srt_bitmap, StgClosure *c, retainer c_child_r)
 
   while (bitmap != 0) {
       if ((bitmap & 1) != 0) {
-	  retainClosure(**srt,c,c_child_r); // removed windows dll hack
+	  retainClosure(UNTAG_CLOSURE(**srt),c,c_child_r); // removed windows dll hack
       }
       p++;
       bitmap = bitmap >> 1;
