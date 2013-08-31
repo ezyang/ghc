@@ -86,12 +86,9 @@ litIdInfo dflags id lf lit
 closureIdInfo :: DynFlags -> Id -> LambdaFormInfo -> CLabel -> CgIdInfo
 closureIdInfo dflags id lf label
   = CgIdInfo { cg_id = id, cg_lf = lf
-             , cg_loc = CmmLoc (addDynTag dflags
-                                 (CmmLoad (CmmLit (CmmLabel (genClosureIndLabel label)))
-                                 (bWord dflags)) tag)
+             , cg_loc = CmmLoc (CmmLoad (CmmLit (CmmLabel (genClosureIndLabel label)))
+                                        (bWord dflags))
              }
-  where
-    tag = lfDynTag dflags lf
 
 intCharlikeIdInfo :: DynFlags -> Id -> LambdaFormInfo -> CLabel -> WordOff -> CgIdInfo
 intCharlikeIdInfo dflags id lf label offsetW
