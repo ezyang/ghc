@@ -56,12 +56,13 @@ cgTopRhsCon :: DynFlags
             -> [StgArg]         -- Args
             -> (CgIdInfo, FCode ())
 cgTopRhsCon dflags id con args =
-    let id_info = closureIdInfo dflags id (mkConLFInfo con) closure_label
+    let id_info = closureIdInfo dflags id lf closure_label
     in (id_info, gen_code)
   where
    name          = idName id
    caffy         = idCafInfo id -- any stgArgHasCafRefs args
    closure_label = mkClosureLabel name caffy
+   lf            = mkConLFInfo con
 
    gen_code =
      do { this_mod <- getModuleName
@@ -98,7 +99,7 @@ cgTopRhsCon dflags id con args =
                              payload
 
                 -- BUILD THE OBJECT
-        ; emitStaticClosure closure_label closure_rep
+        ; emitStaticClosure closure_label (lfDynTag dflags lf) closure_rep
 
         ; return () }
 
