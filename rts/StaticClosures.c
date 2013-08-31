@@ -16,6 +16,10 @@ StaticClosureInds *SCI_LIST = NULL;
 
 // very similar to the scavenge code
 
+#ifdef THREADED_RTS
+Mutex static_closures_mutex;
+#endif
+
 static void initialize_field(StgClosure **p);
 static void addBlock(void);
 static W_ static_blocks = 0;
@@ -78,25 +82,33 @@ addBlock(void)
     static_blocks++;
 }
 
+// Invariant: concurrent calls to processStaticClosures should
+// not occur until after initStaticClosures finishes.
 void
 initStaticClosures(void)
 {
-    int size_w;
+    if (current_block == NULL) {
+        int size_w;
 
-    // ToDo: do a proper block size check
-    addBlock();
-    size_w = (MAX_CHARLIKE - MIN_CHARLIKE + 1) * sizeofW(StgIntCharlikeClosure);
-    memcpy(current_block->free, stg_CHARLIKE_static_closure, size_w*sizeof(W_));
-    stg_CHARLIKE_static_closure_ind = stg_CHARLIKE_static_closure;
-    current_block->free += size_w;
-    ASSERT(current_block->free <= current_block->start + BLOCK_SIZE_W);
+#ifdef THREADED_RTS
+        initMutex(&static_closures_mutex);
+#endif
 
-    addBlock();
-    size_w = (MAX_INTLIKE - MIN_INTLIKE + 1) * sizeofW(StgIntCharlikeClosure);
-    memcpy(current_block->free, stg_INTLIKE_static_closure, size_w*sizeof(W_));
-    stg_INTLIKE_static_closure_ind = stg_INTLIKE_static_closure;
-    current_block->free += size_w;
-    ASSERT(current_block->free <= current_block->start + BLOCK_SIZE_W);
+        // ToDo: do a proper block size check
+        addBlock();
+        size_w = (MAX_CHARLIKE - MIN_CHARLIKE + 1) * sizeofW(StgIntCharlikeClosure);
+        memcpy(current_block->free, stg_CHARLIKE_static_closure, size_w*sizeof(W_));
+        stg_CHARLIKE_static_closure_ind = stg_CHARLIKE_static_closure;
+        current_block->free += size_w;
+        ASSERT(current_block->free <= current_block->start + BLOCK_SIZE_W);
+
+        addBlock();
+        size_w = (MAX_INTLIKE - MIN_INTLIKE + 1) * sizeofW(StgIntCharlikeClosure);
+        memcpy(current_block->free, stg_INTLIKE_static_closure, size_w*sizeof(W_));
+        stg_INTLIKE_static_closure_ind = stg_INTLIKE_static_closure;
+        current_block->free += size_w;
+        ASSERT(current_block->free <= current_block->start + BLOCK_SIZE_W);
+    }
 
     processStaticClosures();
 }
@@ -106,10 +118,14 @@ processStaticClosures()
 {
     StaticClosureInds *sci, *next_sci, *base_sci;
 
+    // XXX Initialization code should take the lock too...
+    ACQUIRE_LOCK(&static_closures_mutex);
+
     base_sci = SCI_LIST;
     SCI_LIST = NULL;
 
     // copy stuff (not updating fields)
+    // (Keep the lock due to access to the block)
 
     for (sci = base_sci; sci != NULL; sci = sci->link) {
         StgClosure **pp;
@@ -177,6 +193,8 @@ processStaticClosures()
             current_block->free += size_w;
         }
     }
+
+    RELEASE_LOCK(&static_closures_mutex);
 
     // update fields
     // ToDo: Could make this faster by just walking over the static blocks
