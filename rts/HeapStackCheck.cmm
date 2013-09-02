@@ -98,6 +98,8 @@ stg_gc_noregs
             HpAlloc = 0;
             CLOSE_NURSERY();
             CurrentNursery = bdescr_link(CurrentNursery);
+            ResourceContainer_nursery(RC) = CurrentNursery;
+            ASSERT(RC == bdescr_rc(CurrentNursery));
             OPEN_NURSERY();
             if (Capability_context_switch(MyCapability()) != 0 :: CInt ||
                 Capability_interrupt(MyCapability())      != 0 :: CInt) {

@@ -303,6 +303,8 @@ evacuate_large(StgPtr p)
 
   bd->flags |= BF_EVACUATED;
   initBdescr(bd, new_gen, new_gen->to);
+  // XXX
+  bd->rc = RC_MAIN;
 
   // If this is a block of pinned objects, we don't have to scan
   // these objects, because they aren't allowed to contain any

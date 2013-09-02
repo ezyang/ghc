@@ -24,6 +24,7 @@ module StgCmmLayout (
 #include "HsVersions.h"
 
 import StgCmmClosure
+import {-# SOURCE #-} StgCmmContainer
 import StgCmmEnv
 import StgCmmArgRep -- notably: ( slowCallPattern )
 import StgCmmTicky
@@ -279,8 +280,8 @@ slowArgs :: DynFlags -> [(ArgRep, Maybe CmmExpr)] -> [(ArgRep, Maybe CmmExpr)]
 slowArgs _ [] = []
 slowArgs dflags args -- careful: reps contains voids (V), but args does not
   | gopt Opt_SccProfilingOn dflags
-              = save_cccs ++ this_pat ++ slowArgs dflags rest_args
-  | otherwise =              this_pat ++ slowArgs dflags rest_args
+              = save_cccs ++ save_container ++ this_pat ++ slowArgs dflags rest_args
+  | otherwise =              save_container ++ this_pat ++ slowArgs dflags rest_args
   where
     (arg_pat, n)            = slowCallPattern (map fst args)
     (call_args, rest_args)  = splitAt n args
@@ -289,6 +290,8 @@ slowArgs dflags args -- careful: reps contains voids (V), but args does not
     this_pat   = (N, Just (mkLblExpr stg_ap_pat)) : call_args
     save_cccs  = [(N, Just (mkLblExpr save_cccs_lbl)), (N, Just curCCS)]
     save_cccs_lbl = mkCmmRetInfoLabel rtsPackageId (fsLit "stg_restore_cccs")
+    save_container = [(N, Just (mkLblExpr save_container_lbl)), (N, Just (rcCurrent dflags))]
+    save_container_lbl = mkCmmRetInfoLabel rtsPackageId (fsLit "stg_restore_container")
 
 -------------------------------------------------------------------------
 ----        Laying out objects on the heap and stack

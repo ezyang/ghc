@@ -15,6 +15,7 @@ module StgCmmBind (
 
 #include "HsVersions.h"
 
+import StgCmmContainer
 import StgCmmExpr
 import StgCmmMonad
 import StgCmmEnv
@@ -549,6 +550,11 @@ thunkCode cl_info fv_details _cc node arity body
              node'       = if node_points then Just node else Nothing
         ; ldvEnterClosure cl_info -- NB: Node always points when profiling
 
+        -- XXX omitted local_rc for now
+        -- could mean that we charge CAF/DICT to wrong people
+        -- ; local_rc <- rcSave
+
+        ; rcEnterThunk (CmmReg nodeReg)
         -- Heap overflow check
         ; entryHeapCheck cl_info node' arity [] $ do
         { -- Overwrite with black hole if necessary

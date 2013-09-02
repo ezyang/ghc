@@ -74,15 +74,21 @@
      Sp_adj(n+1);						\
      jump %ENTRY_CODE(Sp(0)) [R1];
 
-// Jump to target, saving CCCS and restoring it on return
+// Jump to target, saving centers and restoring them on return
 #if defined(PROFILING)
-#define jump_SAVE_CCCS(target)                  \
+#define jump_SAVE_CENTER(target)                \
     Sp(-1) = CCCS;                              \
     Sp(-2) = stg_restore_cccs_info;             \
-    Sp_adj(-2);                                 \
+    Sp(-3) = RC;                                \
+    Sp(-4) = stg_restore_container_info;        \
+    Sp_adj(-4);                                 \
     jump (target) [R1]
 #else
-#define jump_SAVE_CCCS(target) jump (target) [R1]
+#define jump_SAVE_CENTER(target)                \
+    Sp(-1) = RC;                                \
+    Sp(-2) = stg_restore_container_info;        \
+    Sp_adj(-2);                                 \
+    jump (target) [R1]
 #endif
 
 #endif /* APPLY_H */

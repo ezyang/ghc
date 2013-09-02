@@ -85,6 +85,7 @@ addBlock(void)
     current_block = allocBlock_lock();
     current_block->flags |= BF_STATIC;
     current_block->link = old_block;
+    current_block->rc = RC_MAIN;
     static_blocks++;
 }
 

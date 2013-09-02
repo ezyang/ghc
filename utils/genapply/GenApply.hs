@@ -260,7 +260,7 @@ genMkPAP regstatus macro jump live ticker disamb
                 else empty, 
             if is_fun_case then mb_tag_node arity else empty,
             if overflow_regs
-                then text "jump_SAVE_CCCS" <> parens (text jump) <> semi
+                then text "jump_SAVE_CENTER" <> parens (text jump) <> semi
                 else mkJump regstatus (text jump) live (if no_load_regs then [] else args) <> semi
             ]) $$
            text "}"
@@ -320,18 +320,22 @@ genMkPAP regstatus macro jump live ticker disamb
                where
                 -- Sadly here we have to insert an stg_restore_cccs frame
                 -- just underneath the stg_ap_*_info frame if we're
-                -- profiling; see Note [jump_SAVE_CCCS]
+                -- profiling; see Note [jump_SAVE_CENTER]
                 shuffle prof =
-                  let offset = if prof then 2 else 0 in
+                  let offset = if prof then 4 else 2 in
                   vcat (map (shuffle_down (offset+1))
                          [sp_stk_args .. sp_stk_args+stack_args_size-1]) $$
                   (if prof
                     then
-                      loadSpWordOff "W_" (sp_stk_args+stack_args_size-3)
+                      loadSpWordOff "W_" (sp_stk_args+stack_args_size-5)
                         <> text " = stg_restore_cccs_info;" $$
-                      loadSpWordOff "W_" (sp_stk_args+stack_args_size-2)
+                      loadSpWordOff "W_" (sp_stk_args+stack_args_size-4)
                         <> text " = CCCS;"
                     else empty) $$
+                  loadSpWordOff "W_" (sp_stk_args+stack_args_size-3)
+                    <> text " = stg_restore_container_info;" $$
+                  loadSpWordOff "W_" (sp_stk_args+stack_args_size-2)
+                    <> text " = RC;" $$
                   loadSpWordOff "W_" (sp_stk_args+stack_args_size-1)
                         <> text " = "
                         <> mkApplyInfoName rest_args <> semi $$
@@ -407,12 +411,12 @@ genMkPAP regstatus macro jump live ticker disamb
                 = assignRegs regstatus stk_args_slow_offset args
                 -- BUILD_PAP assumes args start at offset 1
 
--- Note [jump_SAVE_CCCS]
+-- Note [jump_SAVE_CENTER]
 
 -- when profiling, if we have some extra arguments to apply that we
 -- save to the stack, we must also save the current cost centre stack
 -- and restore it when applying the extra arguments.  This is all
--- handled by the macro jump_SAVE_CCCS(target), defined in
+-- handled by the macro jump_SAVE_CENTER(target), defined in
 -- rts/AutoApply.h.
 --
 -- At the jump, the stack will look like this:
@@ -651,8 +655,8 @@ genApply regstatus args =
           -- overwritten by an indirection, so we must enter the original
           -- info pointer we read, don't read it again, because it might
           -- not be enterable any more.
-          text "jump_SAVE_CCCS(%ENTRY_CODE(info));",
-            -- see Note [jump_SAVE_CCCS]
+          text "jump_SAVE_CENTER(%ENTRY_CODE(info));",
+            -- see Note [jump_SAVE_CENTER]
           text ""
          ]),
         text "}",

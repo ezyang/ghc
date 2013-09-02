@@ -29,7 +29,7 @@ module CmmUtils(
         cmmIndex, cmmIndexExpr, cmmLoadIndex, cmmLoadIndexW,
         cmmNegate,
         cmmULtWord, cmmUGeWord, cmmUGtWord, cmmSubWord,
-        cmmNeWord, cmmEqWord, cmmOrWord, cmmAndWord,
+        cmmNeWord, cmmEqWord, cmmOrWord, cmmAndWord, cmmNotWord,
         cmmUShrWord, cmmAddWord, cmmMulWord, cmmQuotWord,
 
         isTrivialCmmExpr, hasNoGlobalRegs,
@@ -324,9 +324,10 @@ cmmSubWord dflags e1 e2 = CmmMachOp (mo_wordSub dflags) [e1, e2]
 cmmMulWord dflags e1 e2 = CmmMachOp (mo_wordMul dflags) [e1, e2]
 cmmQuotWord dflags e1 e2 = CmmMachOp (mo_wordUQuot dflags) [e1, e2]
 
-cmmNegate :: DynFlags -> CmmExpr -> CmmExpr
+cmmNegate, cmmNotWord :: DynFlags -> CmmExpr -> CmmExpr
 cmmNegate _      (CmmLit (CmmInt n rep)) = CmmLit (CmmInt (-n) rep)
 cmmNegate dflags e                       = CmmMachOp (MO_S_Neg (cmmExprWidth dflags e)) [e]
+cmmNotWord dflags e                      = CmmMachOp (mo_wordNot dflags) [e]
 
 blankWord :: DynFlags -> CmmStatic
 blankWord dflags = CmmUninitialised (wORD_SIZE dflags)

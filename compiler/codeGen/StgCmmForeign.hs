@@ -24,6 +24,7 @@ import StgCmmMonad
 import StgCmmUtils
 import StgCmmClosure
 import StgCmmLayout
+import {-# SOURCE #-} StgCmmContainer (rcType)
 
 import Cmm
 import CmmUtils
@@ -269,6 +270,7 @@ saveThreadState dflags =
   -- CurrentTSO->stackobj->sp = Sp;
   mkStore (cmmOffset dflags (CmmLoad (cmmOffset dflags stgCurrentTSO (tso_stackobj dflags)) (bWord dflags)) (stack_SP dflags)) stgSp
   <*> closeNursery dflags
+  -- N.B. do not have to save RC; we can rederive it from CurrentNursery
   -- and save the current cost centre stack in the TSO when profiling:
   <*> if gopt Opt_SccProfilingOn dflags then
         mkStore (cmmOffset dflags stgCurrentTSO (tso_CCCS dflags)) curCCS
@@ -306,6 +308,8 @@ loadThreadState dflags tso stack = do
         mkAssign hpAlloc (zeroExpr dflags),
 
         openNursery dflags,
+        -- load the copy of RC *from the nursery*
+        mkAssign rc (CmmLoad (nursery_bdescr_rc dflags) (rcType dflags)),
         -- and load the current cost centre stack from the TSO when profiling:
         if gopt Opt_SccProfilingOn dflags then
           storeCurCCS
@@ -345,10 +349,11 @@ openNursery dflags = catAGraphs [
             )
    ]
 
-nursery_bdescr_free, nursery_bdescr_start, nursery_bdescr_blocks :: DynFlags -> CmmExpr
+nursery_bdescr_free, nursery_bdescr_start, nursery_bdescr_blocks, nursery_bdescr_rc :: DynFlags -> CmmExpr
 nursery_bdescr_free   dflags = cmmOffset dflags stgCurrentNursery (oFFSET_bdescr_free dflags)
 nursery_bdescr_start  dflags = cmmOffset dflags stgCurrentNursery (oFFSET_bdescr_start dflags)
 nursery_bdescr_blocks dflags = cmmOffset dflags stgCurrentNursery (oFFSET_bdescr_blocks dflags)
+nursery_bdescr_rc     dflags = cmmOffset dflags stgCurrentNursery (oFFSET_bdescr_rc dflags)
 
 tso_stackobj, tso_CCCS, stack_STACK, stack_SP :: DynFlags -> ByteOff
 tso_stackobj dflags = closureField dflags (oFFSET_StgTSO_stackobj dflags)
@@ -366,7 +371,7 @@ stgHp             = CmmReg hp
 stgCurrentTSO     = CmmReg currentTSO
 stgCurrentNursery = CmmReg currentNursery
 
-sp, spLim, hp, hpLim, currentTSO, currentNursery, hpAlloc :: CmmReg
+sp, spLim, hp, hpLim, currentTSO, currentNursery, hpAlloc, rc :: CmmReg
 sp                = CmmGlobal Sp
 spLim             = CmmGlobal SpLim
 hp                = CmmGlobal Hp
@@ -374,6 +379,7 @@ hpLim             = CmmGlobal HpLim
 currentTSO        = CmmGlobal CurrentTSO
 currentNursery    = CmmGlobal CurrentNursery
 hpAlloc           = CmmGlobal HpAlloc
+rc                = CmmGlobal RC
 
 -- -----------------------------------------------------------------------------
 -- For certain types passed to foreign calls, we adjust the actual
