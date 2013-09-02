@@ -14,6 +14,11 @@
 
 StaticClosureInds *SCI_LIST = NULL;
 
+// these are not publically exported
+
+extern StgIntCharlikeClosure stg_CHARLIKE_static_closure[];
+extern StgIntCharlikeClosure stg_INTLIKE_static_closure[];
+
 // very similar to the scavenge code
 
 #ifdef THREADED_RTS
