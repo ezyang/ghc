@@ -25,16 +25,14 @@
 #  define RTS_FUN_INFO(i)   extern W_(i)[]
 #  define RTS_THUNK_INFO(i) extern W_(i)[]
 #  define RTS_INFO(i)       extern W_(i)[]
-#  define RTS_CLOSURE(i)    extern W_(i ## _static_closure)[]; \
-                            extern W_*(i ## _static_closure_ind)[]
+#  define RTS_CLOSURE(i)    extern W_*(i ## _static_closure_ind)[]
 #  define RTS_FUN_DECL(f)   extern DLL_IMPORT_RTS StgFunPtr f(void)
 #else
 #  define RTS_RET_INFO(i)   extern DLL_IMPORT_RTS const StgRetInfoTable i
 #  define RTS_FUN_INFO(i)   extern DLL_IMPORT_RTS const StgFunInfoTable i
 #  define RTS_THUNK_INFO(i) extern DLL_IMPORT_RTS const StgThunkInfoTable i
 #  define RTS_INFO(i)       extern DLL_IMPORT_RTS const StgInfoTable i
-#  define RTS_CLOSURE(i)    extern DLL_IMPORT_RTS StgClosure i ## _static_closure; \
-                            extern DLL_IMPORT_RTS StgClosure *i ## _static_closure_ind
+#  define RTS_CLOSURE(i)    extern DLL_IMPORT_RTS StgClosure *i ## _static_closure_ind
 #  define RTS_FUN_DECL(f)   extern DLL_IMPORT_RTS StgFunPtr f(void)
 #endif
 
@@ -160,13 +158,9 @@ RTS_CLOSURE(stg_NO_TREC);
 RTS_ENTRY(stg_NO_FINALIZER_entry);
 
 #if IN_STG_CODE
-extern DLL_IMPORT_RTS StgWordArray stg_CHARLIKE_static_closure;
-extern DLL_IMPORT_RTS StgWordArray stg_INTLIKE_static_closure;
 extern DLL_IMPORT_RTS StgWordArray stg_CHARLIKE_static_closure_ind;
 extern DLL_IMPORT_RTS StgWordArray stg_INTLIKE_static_closure_ind;
 #else
-extern DLL_IMPORT_RTS StgIntCharlikeClosure stg_CHARLIKE_static_closure[];
-extern DLL_IMPORT_RTS StgIntCharlikeClosure stg_INTLIKE_static_closure[];
 extern DLL_IMPORT_RTS StgIntCharlikeClosure *stg_CHARLIKE_static_closure_ind;
 extern DLL_IMPORT_RTS StgIntCharlikeClosure *stg_INTLIKE_static_closure_ind;
 #endif
