@@ -113,6 +113,15 @@ stg_gc_noregs
             goto sched;
         }
     } else {
+        // XXX alternate strategy, check if RC is tagged
+        if (RC != bdescr_rc(CurrentNursery)) {
+            CLOSE_NURSERY();
+            CurrentNursery = ResourceContainer_nursery(RC);
+            ASSERT(RC == bdescr_rc(CurrentNursery));
+            OPEN_NURSERY();
+            // XXX not sure if we have to check the capability again
+            jump %ENTRY_CODE(Sp(0)) [];
+        }
         if (CHECK_GC()) {
             ret = HeapOverflow;
         } else {

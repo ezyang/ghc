@@ -27,20 +27,15 @@
    matching.
    -------------------------------------------------------------------------- */
 
-#define SAVE_RC         W_ saved_rc; saved_rc = RC;
-// XXX duplicate with stg_restore_container
-#define RESTORE_RC      CLOSE_NURSERY(); \
-                        CurrentNursery = ResourceContainer_nursery(saved_rc); \
-                        RC = saved_rc; \
-                        ASSERT(bdescr_rc(CurrentNursery) == saved_rc); \
-                        OPEN_NURSERY();
-
+// NB: it's not necessary to save/restore RC here, because
+// if it changes (due to a thunk), the thunk code will also
+// push an appropriate frame on the stack to fix it.
 #ifdef PROFILING
-#define SAVE_CENTER     W_ saved_ccs; saved_ccs = CCCS; SAVE_RC;
-#define RESTORE_CENTER  RESTORE_RC; CCCS = saved_ccs;
+#define SAVE_CCCS       W_ saved_ccs; saved_ccs = CCCS;
+#define RESTORE_CCCS    CCCS = saved_ccs;
 #else
-#define SAVE_CENTER     SAVE_RC;
-#define RESTORE_CENTER  RESTORE_RC;
+#define SAVE_CCCS
+#define RESTORE_CCCS
 #endif
 
 /*
@@ -78,9 +73,9 @@
       push (UPDATE_FRAME_FIELDS(,,stg_upd_frame_info,CCCS,0,node)) {    \
         ENTER_CCS_THUNK(node);                                          \
         if (NEED_EVAL(selectee)) {                                      \
-          SAVE_CENTER;                                                     \
+          SAVE_CCCS;                                                     \
           (P_ constr) = call %GET_ENTRY(UNTAG_IF_PROF(selectee)) (selectee); \
-          RESTORE_CENTER;                                                  \
+          RESTORE_CCCS;                                                  \
           selectee = constr;                                            \
         }                                                               \
         field = StgClosure_payload(UNTAG(selectee),offset);             \
@@ -121,9 +116,9 @@ SELECTOR_CODE_UPD(15)
       selectee = StgThunk_payload(node,0);                              \
       ENTER_CCS_THUNK(node);                                            \
       if (NEED_EVAL(selectee)) {                                        \
-          SAVE_CENTER;                                                     \
+          SAVE_CCCS;                                                     \
           (P_ constr) = call %GET_ENTRY(UNTAG_IF_PROF(selectee)) (selectee);           \
-          RESTORE_CENTER;                                                  \
+          RESTORE_CCCS;                                                  \
           selectee = constr;                                            \
       }                                                                 \
       field = StgClosure_payload(UNTAG(selectee),offset);               \

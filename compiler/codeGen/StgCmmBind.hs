@@ -487,7 +487,7 @@ closureCodeBody top_lvl bndr cl_info cc args arity body fv_details
                 ; withSelfLoop (bndr, loop_header_id, arg_regs) $ do
                 {
                 -- Main payload
-                ; entryHeapCheck cl_info node' arity arg_regs $ do
+                ; entryHeapCheck Nothing cl_info node' arity arg_regs $ do
                 { -- ticky after heap check to avoid double counting
                   tickyEnterFun cl_info
                 ; enterCostCentreFun cc
@@ -554,9 +554,9 @@ thunkCode cl_info fv_details _cc node arity body
         -- could mean that we charge CAF/DICT to wrong people
         -- ; local_rc <- rcSave
 
-        ; rcEnterThunk (CmmReg nodeReg)
+        ; rc <- assignTemp (rcFrom dflags (CmmReg nodeReg))
         -- Heap overflow check
-        ; entryHeapCheck cl_info node' arity [] $ do
+        ; entryHeapCheck (Just rc) cl_info node' arity [] $ do
         { -- Overwrite with black hole if necessary
           -- but *after* the heap-overflow check
         ; tickyEnterThunk cl_info

@@ -14,7 +14,6 @@ module StgCmmExpr ( cgExpr ) where
 import {-# SOURCE #-} StgCmmBind ( cgBind )
 
 import StgCmmMonad
-import StgCmmContainer
 import StgCmmHeap
 import StgCmmEnv
 import StgCmmCon
@@ -104,16 +103,14 @@ execute *next*, just like the scrutinee of a case. -}
 cgLneBinds :: BlockId -> StgBinding -> FCode ()
 cgLneBinds join_id (StgNonRec bndr rhs)
   = do  { local_cc <- saveCurrentCostCentre
-        ; local_rc <- rcSave
                 -- See Note [Saving the current cost centre]
-        ; (info, fcode) <- cgLetNoEscapeRhs join_id local_cc local_rc bndr rhs
+        ; (info, fcode) <- cgLetNoEscapeRhs join_id local_cc bndr rhs
         ; fcode
         ; addBindC info }
 
 cgLneBinds join_id (StgRec pairs)
   = do  { local_cc <- saveCurrentCostCentre
-        ; local_rc <- rcSave
-        ; r <- sequence $ unzipWith (cgLetNoEscapeRhs join_id local_cc local_rc) pairs
+        ; r <- sequence $ unzipWith (cgLetNoEscapeRhs join_id local_cc) pairs
         ; let (infos, fcodes) = unzip r
         ; addBindsC infos
         ; sequence_ fcodes
@@ -123,13 +120,12 @@ cgLneBinds join_id (StgRec pairs)
 cgLetNoEscapeRhs
     :: BlockId          -- join point for successor of let-no-escape
     -> Maybe LocalReg   -- Saved cost centre
-    -> Maybe LocalReg   -- Saved resource container
     -> Id
     -> StgRhs
     -> FCode (CgIdInfo, FCode ())
 
-cgLetNoEscapeRhs join_id local_cc local_rc bndr rhs =
-  do { (info, rhs_code) <- cgLetNoEscapeRhsBody local_cc local_rc bndr rhs
+cgLetNoEscapeRhs join_id local_cc bndr rhs =
+  do { (info, rhs_code) <- cgLetNoEscapeRhsBody local_cc bndr rhs
      ; let (bid, _) = expectJust "cgLetNoEscapeRhs" $ maybeLetNoEscape info
      ; let code = do { body <- getCode rhs_code
                      ; emitOutOfLine bid (body <*> mkBranch join_id) }
@@ -138,14 +134,13 @@ cgLetNoEscapeRhs join_id local_cc local_rc bndr rhs =
 
 cgLetNoEscapeRhsBody
     :: Maybe LocalReg   -- Saved cost centre
-    -> Maybe LocalReg   -- Saved resource container
     -> Id
     -> StgRhs
     -> FCode (CgIdInfo, FCode ())
-cgLetNoEscapeRhsBody local_cc local_rc bndr (StgRhsClosure cc _bi _ _upd _ args body)
-  = cgLetNoEscapeClosure bndr local_cc cc local_rc (nonVoidIds args) body
-cgLetNoEscapeRhsBody local_cc local_rc bndr (StgRhsCon cc con args)
-  = cgLetNoEscapeClosure bndr local_cc cc local_rc [] (StgConApp con args)
+cgLetNoEscapeRhsBody local_cc bndr (StgRhsClosure cc _bi _ _upd _ args body)
+  = cgLetNoEscapeClosure bndr local_cc cc (nonVoidIds args) body
+cgLetNoEscapeRhsBody local_cc bndr (StgRhsCon cc con args)
+  = cgLetNoEscapeClosure bndr local_cc cc [] (StgConApp con args)
         -- For a constructor RHS we want to generate a single chunk of
         -- code which can be jumped to from many places, which will
         -- return the constructor. It's easy; just behave as if it
@@ -156,12 +151,11 @@ cgLetNoEscapeClosure
         :: Id                   -- binder
         -> Maybe LocalReg       -- Slot for saved current cost centre
         -> CostCentreStack      -- XXX: *** NOT USED *** why not?
-        -> Maybe LocalReg       -- Slot for saved resource container
         -> [NonVoid Id]         -- Args (as in \ args -> body)
         -> StgExpr              -- Body (as in above)
         -> FCode (CgIdInfo, FCode ())
 
-cgLetNoEscapeClosure bndr cc_slot _unused_cc rc_slot args body
+cgLetNoEscapeClosure bndr cc_slot _unused_cc args body
   = do dflags <- getDynFlags
        return ( lneIdInfo dflags bndr args
               , code )
@@ -169,7 +163,6 @@ cgLetNoEscapeClosure bndr cc_slot _unused_cc rc_slot args body
    code = forkLneBody $ do {
             ; withNewTickyCounterLNE (idName bndr) args $ do
             ; restoreCurrentCostCentre cc_slot
-            ; rcRestore rc_slot
             ; arg_regs <- bindArgsToRegs args
             ; void $ noEscapeHeapCheck arg_regs (tickyEnterLNE >> cgExpr body) }
 
@@ -440,7 +433,6 @@ cgCase scrut bndr alt_type alts
              gc_plan = if do_gc then GcInAlts alt_regs else NoGcInAlts
 
        ; mb_cc <- maybeSaveCostCentre simple_scrut
-       ; mb_rc <- rcMaybeSave simple_scrut
 
        -- if do_gc then our sequel will be ReturnTo
        --   - generate code for the sequel now
@@ -449,7 +441,6 @@ cgCase scrut bndr alt_type alts
 
        ; ret_kind <- withSequel (AssignTo alt_regs False) (cgExpr scrut)
        ; restoreCurrentCostCentre mb_cc
-       ; rcRestore mb_rc
        ; _ <- bindArgsToRegs ret_bndrs
        ; cgAlts (gc_plan,ret_kind) (NonVoid bndr) alt_type alts
        }
@@ -613,6 +604,7 @@ cgAltRhss gc_plan bndr alts = do
 
 maybeAltHeapCheck :: (GcPlan,ReturnKind) -> FCode a -> FCode a
 maybeAltHeapCheck (NoGcInAlts,_)  code = code
+-- NB: just because we're doing a GC check doesn't mean there's a saved RC
 maybeAltHeapCheck (GcInAlts regs, AssignedDirectly) code =
   altHeapCheck regs code
 maybeAltHeapCheck (GcInAlts regs, ReturnedTo lret off) code =

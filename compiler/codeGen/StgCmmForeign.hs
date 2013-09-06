@@ -270,8 +270,8 @@ saveThreadState dflags =
   -- CurrentTSO->stackobj->sp = Sp;
   mkStore (cmmOffset dflags (CmmLoad (cmmOffset dflags stgCurrentTSO (tso_stackobj dflags)) (bWord dflags)) (stack_SP dflags)) stgSp
   <*> closeNursery dflags
-  -- N.B. do not have to save RC; we can rederive it from CurrentNursery
-  -- and save the current cost centre stack in the TSO when profiling:
+  -- Fix up CurrentNursery based on RC (it could have changed in stg_gc_noregs)
+  <*> mkAssign currentNursery (CmmLoad (rc_nursery dflags) (bWord dflags))
   <*> if gopt Opt_SccProfilingOn dflags then
         mkStore (cmmOffset dflags stgCurrentTSO (tso_CCCS dflags)) curCCS
       else mkNop
@@ -349,11 +349,12 @@ openNursery dflags = catAGraphs [
             )
    ]
 
-nursery_bdescr_free, nursery_bdescr_start, nursery_bdescr_blocks, nursery_bdescr_rc :: DynFlags -> CmmExpr
+nursery_bdescr_free, nursery_bdescr_start, nursery_bdescr_blocks, nursery_bdescr_rc, rc_nursery :: DynFlags -> CmmExpr
 nursery_bdescr_free   dflags = cmmOffset dflags stgCurrentNursery (oFFSET_bdescr_free dflags)
 nursery_bdescr_start  dflags = cmmOffset dflags stgCurrentNursery (oFFSET_bdescr_start dflags)
 nursery_bdescr_blocks dflags = cmmOffset dflags stgCurrentNursery (oFFSET_bdescr_blocks dflags)
 nursery_bdescr_rc     dflags = cmmOffset dflags stgCurrentNursery (oFFSET_bdescr_rc dflags)
+rc_nursery            dflags = cmmOffset dflags stgRC (oFFSET_ResourceContainer_nursery dflags)
 
 tso_stackobj, tso_CCCS, stack_STACK, stack_SP :: DynFlags -> ByteOff
 tso_stackobj dflags = closureField dflags (oFFSET_StgTSO_stackobj dflags)
@@ -365,11 +366,12 @@ stack_SP     dflags = closureField dflags (oFFSET_StgStack_sp dflags)
 closureField :: DynFlags -> ByteOff -> ByteOff
 closureField dflags off = off + fixedHdrSize dflags * wORD_SIZE dflags
 
-stgSp, stgHp, stgCurrentTSO, stgCurrentNursery :: CmmExpr
+stgSp, stgHp, stgCurrentTSO, stgCurrentNursery, stgRC :: CmmExpr
 stgSp             = CmmReg sp
 stgHp             = CmmReg hp
 stgCurrentTSO     = CmmReg currentTSO
 stgCurrentNursery = CmmReg currentNursery
+stgRC             = CmmReg rc
 
 sp, spLim, hp, hpLim, currentTSO, currentNursery, hpAlloc, rc :: CmmReg
 sp                = CmmGlobal Sp
