@@ -93,6 +93,7 @@ typedef struct {
   StgPtr 	  rHp;
   StgPtr 	  rHpLim;
   struct CostCentreStack_ * rCCCS;  /* current cost-centre-stack */
+  struct ResourceContainer_ * rRC; /* current resource container */
   struct StgTSO_ *     rCurrentTSO;
   struct nursery_ *    rNursery;
   struct bdescr_ *     rCurrentNursery; /* Hp/HpLim point into this block */
@@ -390,6 +391,12 @@ GLOBAL_REG_DECL(P_,Hp,REG_Hp)
 GLOBAL_REG_DECL(struct CostCentreStack_ *,CCCS,REG_CCCS)
 #else
 #define CCCS (BaseReg->rCCCS)
+#endif
+
+#if defined(REG_RC) && !defined(NO_GLOBAL_REG_DECLS)
+GLOBAL_REG_DECL(struct CostCentreStack_ *,RC,REG_RC)
+#else
+#define RC (BaseReg->rRC)
 #endif
 
 #if defined(REG_CurrentTSO) && !defined(NO_GLOBAL_REG_DECLS)

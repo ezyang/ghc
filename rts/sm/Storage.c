@@ -200,6 +200,8 @@ void storageAddCapabilities (nat from, nat to)
 {
     nat n, g, i;
 
+    ASSERT(from == 0 && to == 1);
+
     if (from > 0) {
         nurseries = stgReallocBytes(nurseries, to * sizeof(struct nursery_),
                                     "storageAddCapabilities");
@@ -456,6 +458,9 @@ allocNursery (bdescr *tail, W_ blocks)
         for (i = 0; i < n; i++) {
             initBdescr(&bd[i], g0, g0);
 
+            // XXX
+            bd[i].rc = RC_MAIN;
+
             bd[i].blocks = 1;
             bd[i].flags = 0;
 
@@ -487,10 +492,12 @@ static void
 assignNurseriesToCapabilities (nat from, nat to)
 {
     nat i;
+    ASSERT(from == 0 && to == 1); // XXX
 
     for (i = from; i < to; i++) {
         capabilities[i].r.rCurrentNursery = nurseries[i].blocks;
         capabilities[i].r.rCurrentAlloc   = NULL;
+        RC_MAIN->nursery = nurseries[i].blocks;
     }
 }
 
@@ -498,6 +505,8 @@ static void
 allocNurseries (nat from, nat to)
 { 
     nat i;
+
+    ASSERT(from == 0 && to == 1);
 
     for (i = from; i < to; i++) {
         nurseries[i].blocks =
@@ -668,6 +677,9 @@ allocate (Capability *cap, W_ n)
         g0->n_new_large_words += n;
         RELEASE_SM_LOCK;
         initBdescr(bd, g0, g0);
+        // XXX
+        // NB: linked onto large_objects so it'll get special handling
+        bd->rc = RC_MAIN;
         bd->flags = BF_LARGE;
         bd->free = bd->start + n;
         cap->total_allocated += n;
@@ -692,6 +704,8 @@ allocate (Capability *cap, W_ n)
             cap->r.rNursery->n_blocks++;
             RELEASE_SM_LOCK;
             initBdescr(bd, g0, g0);
+            // XXX
+            bd->rc = RC_MAIN;
             bd->flags = 0;
             // If we had to allocate a new block, then we'll GC
             // pretty quickly now, because MAYBE_GC() will
@@ -797,6 +811,8 @@ allocatePinned (Capability *cap, W_ n)
             bd = allocBlock();
             RELEASE_SM_LOCK;
             initBdescr(bd, g0, g0);
+            // XXX
+            bd->rc = RC_MAIN;
         } else {
             // we have a block in the nursery: steal it
             cap->r.rCurrentNursery->link = bd->link;

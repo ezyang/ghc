@@ -283,6 +283,10 @@ wanteds = concat
            -- blocks that fit in an MBlock, leaving space for the block
            -- descriptors
           ,constantWord Both "BLOCKS_PER_MBLOCK" "BLOCKS_PER_MBLOCK"
+          ,constantWord Haskell "BLOCK_SHIFT" "BLOCK_SHIFT"
+          ,constantWord Haskell "BDESCR_SHIFT" "BDESCR_SHIFT"
+          ,constantWord Haskell "MBLOCK_MASK" "MBLOCK_MASK"
+          ,constantWord Haskell "BLOCK_MASK" "BLOCK_MASK"
            -- could be derived, but better to save doing the calculation twice
 
           ,fieldOffset Both "StgRegTable" "rR1"
@@ -319,6 +323,7 @@ wanteds = concat
           ,fieldOffset Both "StgRegTable" "rHp"
           ,fieldOffset Both "StgRegTable" "rHpLim"
           ,fieldOffset Both "StgRegTable" "rCCCS"
+          ,fieldOffset Both "StgRegTable" "rRC"
           ,fieldOffset Both "StgRegTable" "rCurrentTSO"
           ,fieldOffset Both "StgRegTable" "rCurrentNursery"
           ,fieldOffset Both "StgRegTable" "rHpAlloc"
@@ -338,11 +343,14 @@ wanteds = concat
           ,structField C    "Capability" "interrupt"
           ,structField C    "Capability" "sparks"
 
+          ,structField Both "ResourceContainer" "nursery"
+
           ,structField Both "bdescr" "start"
           ,structField Both "bdescr" "free"
           ,structField Both "bdescr" "blocks"
           ,structField C    "bdescr" "gen_no"
           ,structField C    "bdescr" "link"
+          ,structField Both "bdescr" "rc"
 
           ,structSize C  "generation"
           ,structField C "generation" "n_new_large_words"
@@ -398,6 +406,7 @@ wanteds = concat
           ,closureField  C    "StgTSO"      "bq"
           ,closureField_ Both "StgTSO_cccs" "StgTSO" "prof.cccs"
           ,closureField  Both "StgTSO"      "stackobj"
+          ,closureField  Both "StgTSO"      "rc"
 
           ,closureField       Both "StgStack" "sp"
           ,closureFieldOffset Both "StgStack" "stack"

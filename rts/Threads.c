@@ -115,6 +115,9 @@ createThread(Capability *cap, W_ size)
 #ifdef PROFILING
     tso->prof.cccs = CCS_MAIN;
 #endif
+
+    // XXX
+    tso->rc = RC_MAIN;
     
     // put a stop frame on the stack
     stack->sp -= sizeofW(StgStopFrame);
