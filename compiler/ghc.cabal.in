@@ -206,6 +206,7 @@ Library
         StgCmmBind
         StgCmmClosure
         StgCmmCon
+        StgCmmContainer
         StgCmmEnv
         StgCmmExpr
         StgCmmForeign

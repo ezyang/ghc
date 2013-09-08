@@ -831,6 +831,8 @@ new_gc_thread (nat n, gc_thread *t)
         {
             bdescr *bd = allocBlock(); // no lock, locks aren't initialised yet
             initBdescr(bd, ws->gen, ws->gen->to);
+            // XXX
+            bd->rc = RC_MAIN;
             bd->flags = BF_EVACUATED;
             bd->u.scan = bd->free = bd->start;
 

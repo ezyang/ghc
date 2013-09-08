@@ -306,6 +306,8 @@ alloc_todo_block (gen_workspace *ws, nat size)
             bd = allocBlock_sync();
         }
         initBdescr(bd, ws->gen, ws->gen->to);
+        // XXX
+        bd->rc = RC_MAIN;
         bd->flags = BF_EVACUATED;
         bd->u.scan = bd->free = bd->start;
     }

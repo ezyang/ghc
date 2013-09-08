@@ -173,10 +173,12 @@ initGroup(bdescr *head)
   n = head->blocks;
   head->free   = head->start;
   head->link   = NULL;
+  head->rc     = 0xCAFECAFE;
   for (i=1, bd = head+1; i < n; i++, bd++) {
       bd->free = 0;
       bd->blocks = 0;
       bd->link = head;
+      bd->rc = 0xCAFECAFE;
   }
 }
 

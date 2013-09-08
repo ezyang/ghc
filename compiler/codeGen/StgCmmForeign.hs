@@ -24,6 +24,7 @@ import StgCmmMonad
 import StgCmmUtils
 import StgCmmClosure
 import StgCmmLayout
+import {-# SOURCE #-} StgCmmContainer (rcType)
 
 import Cmm
 import CmmUtils
@@ -269,7 +270,8 @@ saveThreadState dflags =
   -- CurrentTSO->stackobj->sp = Sp;
   mkStore (cmmOffset dflags (CmmLoad (cmmOffset dflags stgCurrentTSO (tso_stackobj dflags)) (bWord dflags)) (stack_SP dflags)) stgSp
   <*> closeNursery dflags
-  -- and save the current cost centre stack in the TSO when profiling:
+  -- save the RC to the TSO
+  <*> mkStore (cmmOffset dflags stgCurrentTSO (tso_RC dflags)) stgRC
   <*> if gopt Opt_SccProfilingOn dflags then
         mkStore (cmmOffset dflags stgCurrentTSO (tso_CCCS dflags)) curCCS
       else mkNop
@@ -305,6 +307,18 @@ loadThreadState dflags tso stack = do
         --   a heap check, see HeapStackCheck.cmm:GC_GENERIC
         mkAssign hpAlloc (zeroExpr dflags),
 
+        -- load RC from the thread
+        -- XXX this generates some dumb code where we store the RC
+        -- in registers, and then immediately load it back out again
+        mkAssign rc (CmmLoad (cmmOffset dflags (CmmReg (CmmLocal tso)) (tso_RC dflags)) (rcType dflags)),
+        let myCapability = cmmSubWord dflags (CmmReg baseReg) (mkIntExpr dflags (oFFSET_Capability_r dflags))
+            threads = rc_threads dflags
+            capNoRep = rEP_Capability_no dflags
+            capNoSmall = CmmLoad (cmmOffset dflags myCapability (oFFSET_Capability_no dflags)) capNoRep
+            capNo = CmmMachOp (MO_SS_Conv (typeWidth capNoRep) (wordWidth dflags)) [capNoSmall]
+            rcthread = cmmAddWord dflags threads (cmmMulWord dflags capNo (mkIntExpr dflags (sIZEOF_rcthread dflags)))
+        in mkAssign currentNursery
+            (CmmLoad (cmmOffset dflags rcthread (oFFSET_rcthread_nursery dflags)) (rcType dflags)),
         openNursery dflags,
         -- and load the current cost centre stack from the TSO when profiling:
         if gopt Opt_SccProfilingOn dflags then
@@ -345,14 +359,17 @@ openNursery dflags = catAGraphs [
             )
    ]
 
-nursery_bdescr_free, nursery_bdescr_start, nursery_bdescr_blocks :: DynFlags -> CmmExpr
+nursery_bdescr_free, nursery_bdescr_start, nursery_bdescr_blocks, nursery_bdescr_rc, rc_threads :: DynFlags -> CmmExpr
 nursery_bdescr_free   dflags = cmmOffset dflags stgCurrentNursery (oFFSET_bdescr_free dflags)
 nursery_bdescr_start  dflags = cmmOffset dflags stgCurrentNursery (oFFSET_bdescr_start dflags)
 nursery_bdescr_blocks dflags = cmmOffset dflags stgCurrentNursery (oFFSET_bdescr_blocks dflags)
+nursery_bdescr_rc     dflags = cmmOffset dflags stgCurrentNursery (oFFSET_bdescr_rc dflags)
+rc_threads            dflags = cmmOffset dflags stgRC (oFFSET_ResourceContainer_threads dflags)
 
-tso_stackobj, tso_CCCS, stack_STACK, stack_SP :: DynFlags -> ByteOff
+tso_stackobj, tso_CCCS, tso_RC, stack_STACK, stack_SP :: DynFlags -> ByteOff
 tso_stackobj dflags = closureField dflags (oFFSET_StgTSO_stackobj dflags)
 tso_CCCS     dflags = closureField dflags (oFFSET_StgTSO_cccs dflags)
+tso_RC       dflags = closureField dflags (oFFSET_StgTSO_rc dflags)
 stack_STACK  dflags = closureField dflags (oFFSET_StgStack_stack dflags)
 stack_SP     dflags = closureField dflags (oFFSET_StgStack_sp dflags)
 
@@ -360,13 +377,14 @@ stack_SP     dflags = closureField dflags (oFFSET_StgStack_sp dflags)
 closureField :: DynFlags -> ByteOff -> ByteOff
 closureField dflags off = off + fixedHdrSize dflags * wORD_SIZE dflags
 
-stgSp, stgHp, stgCurrentTSO, stgCurrentNursery :: CmmExpr
+stgSp, stgHp, stgCurrentTSO, stgCurrentNursery, stgRC :: CmmExpr
 stgSp             = CmmReg sp
 stgHp             = CmmReg hp
 stgCurrentTSO     = CmmReg currentTSO
 stgCurrentNursery = CmmReg currentNursery
+stgRC             = CmmReg rc
 
-sp, spLim, hp, hpLim, currentTSO, currentNursery, hpAlloc :: CmmReg
+sp, spLim, hp, hpLim, currentTSO, currentNursery, hpAlloc, rc :: CmmReg
 sp                = CmmGlobal Sp
 spLim             = CmmGlobal SpLim
 hp                = CmmGlobal Hp
@@ -374,6 +392,7 @@ hpLim             = CmmGlobal HpLim
 currentTSO        = CmmGlobal CurrentTSO
 currentNursery    = CmmGlobal CurrentNursery
 hpAlloc           = CmmGlobal HpAlloc
+rc                = CmmGlobal RC
 
 -- -----------------------------------------------------------------------------
 -- For certain types passed to foreign calls, we adjust the actual

@@ -1133,6 +1133,8 @@ scheduleHandleHeapOverflow( Capability *cap, StgTSO *t )
 		bdescr *x;
 		for (x = bd; x < bd + blocks; x++) {
                     initBdescr(x,g0,g0);
+                    // XXX
+                    x->rc = RC_MAIN;
                     x->free = x->start;
 		    x->flags = 0;
 		}
@@ -1144,6 +1146,7 @@ scheduleHandleHeapOverflow( Capability *cap, StgTSO *t )
 	    
 	    // now update the nursery to point to the new block
 	    cap->r.rCurrentNursery = bd;
+            RC_MAIN->threads[cap->no].nursery = bd;
 	    
 	    // we might be unlucky and have another thread get on the
 	    // run queue before us and steal the large block, but in that
@@ -1962,6 +1965,7 @@ setNumCapabilities (nat new_n_capabilities USED_IF_THREADS)
     }
     return;
 #else
+    errorBelch("setNumCapabilities: not supported with resource containers");
     Task *task;
     Capability *cap;
     nat sync;

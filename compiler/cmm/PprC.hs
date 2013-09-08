@@ -863,6 +863,7 @@ isStrangeTypeReg (CmmGlobal g)  = isStrangeTypeGlobal g
 
 isStrangeTypeGlobal :: GlobalReg -> Bool
 isStrangeTypeGlobal CCCS                = True
+isStrangeTypeGlobal RC                  = True
 isStrangeTypeGlobal CurrentTSO          = True
 isStrangeTypeGlobal CurrentNursery      = True
 isStrangeTypeGlobal BaseReg             = True
@@ -870,6 +871,7 @@ isStrangeTypeGlobal r                   = isFixedPtrGlobalReg r
 
 strangeRegType :: CmmReg -> Maybe SDoc
 strangeRegType (CmmGlobal CCCS) = Just (ptext (sLit "struct CostCentreStack_ *"))
+strangeRegType (CmmGlobal RC) = Just (ptext (sLit "struct ResourceContainer_ *"))
 strangeRegType (CmmGlobal CurrentTSO) = Just (ptext (sLit "struct StgTSO_ *"))
 strangeRegType (CmmGlobal CurrentNursery) = Just (ptext (sLit "struct bdescr_ *"))
 strangeRegType (CmmGlobal BaseReg) = Just (ptext (sLit "struct StgRegTable_ *"))
@@ -901,6 +903,7 @@ pprGlobalReg gr = case gr of
     Hp             -> ptext (sLit "Hp")
     HpLim          -> ptext (sLit "HpLim")
     CCCS           -> ptext (sLit "CCCS")
+    RC             -> ptext (sLit "RC")
     CurrentTSO     -> ptext (sLit "CurrentTSO")
     CurrentNursery -> ptext (sLit "CurrentNursery")
     HpAlloc        -> ptext (sLit "HpAlloc")
