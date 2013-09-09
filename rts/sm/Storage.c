@@ -200,7 +200,7 @@ void storageAddCapabilities (nat from, nat to)
 {
     nat n, g, i;
 
-    ASSERT(from == 0 && to == 1);
+    ASSERT(from == 0);
 
     if (from > 0) {
         nurseries = stgReallocBytes(nurseries, to * sizeof(struct nursery_),
@@ -492,12 +492,12 @@ static void
 assignNurseriesToCapabilities (nat from, nat to)
 {
     nat i;
-    ASSERT(from == 0 && to == 1); // XXX
+    ASSERT(from == 0);
 
     for (i = from; i < to; i++) {
         capabilities[i].r.rCurrentNursery = nurseries[i].blocks;
         capabilities[i].r.rCurrentAlloc   = NULL;
-        RC_MAIN->nursery = nurseries[i].blocks;
+        RC_MAIN->threads[i].nursery = nurseries[i].blocks;
     }
 }
 
@@ -506,7 +506,7 @@ allocNurseries (nat from, nat to)
 { 
     nat i;
 
-    ASSERT(from == 0 && to == 1);
+    ASSERT(from == 0);
 
     for (i = from; i < to; i++) {
         nurseries[i].blocks =

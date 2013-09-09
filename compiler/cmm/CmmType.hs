@@ -16,6 +16,7 @@ module CmmType
     , rEP_CostCentreStack_scc_count
     , rEP_StgEntCounter_allocs
     , rEP_StgEntCounter_allocd
+    , rEP_Capability_no
 
     , ForeignHint(..)
 
@@ -341,6 +342,11 @@ rEP_StgEntCounter_allocs dflags
 rEP_StgEntCounter_allocd :: DynFlags -> CmmType
 rEP_StgEntCounter_allocd dflags
     = cmmBits (widthFromBytes (pc_REP_StgEntCounter_allocd pc))
+    where pc = sPlatformConstants (settings dflags)
+
+rEP_Capability_no :: DynFlags -> CmmType
+rEP_Capability_no dflags
+    = cmmBits (widthFromBytes (pc_REP_Capability_no pc))
     where pc = sPlatformConstants (settings dflags)
 
 -------------------------------------------------------------------------

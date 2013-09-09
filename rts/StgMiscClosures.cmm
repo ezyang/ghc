@@ -61,8 +61,8 @@ INFO_TABLE_RET (stg_restore_cccs, RET_SMALL, W_ info_ptr, W_ cccs)
 INFO_TABLE_RET (stg_restore_container, RET_SMALL, W_ info_ptr, W_ rc)
 {
     CLOSE_NURSERY();
-    CurrentNursery = ResourceContainer_nursery(Sp(1));
     RC = Sp(1);
+    CurrentNursery = RC_NURSERY;
     ASSERT(bdescr_rc(CurrentNursery) == RC);
     OPEN_NURSERY();
     Sp_adj(2);

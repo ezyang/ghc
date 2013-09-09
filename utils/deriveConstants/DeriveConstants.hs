@@ -337,13 +337,17 @@ wanteds = concat
 
           ,fieldOffset Both "Capability" "r"
           ,fieldOffset C    "Capability" "lock"
-          ,structField C    "Capability" "no"
+          ,structFieldH Both "Capability" "no"
           ,structField C    "Capability" "mut_lists"
           ,structField C    "Capability" "context_switch"
           ,structField C    "Capability" "interrupt"
           ,structField C    "Capability" "sparks"
 
-          ,structField Both "ResourceContainer" "nursery"
+          ,fieldOffset Both "ResourceContainer" "threads"
+
+          ,structField Both "rcthread" "gct"
+          ,structField Both "rcthread" "nursery"
+          ,structSize Both "rcthread"
 
           ,structField Both "bdescr" "start"
           ,structField Both "bdescr" "free"

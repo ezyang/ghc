@@ -14,20 +14,18 @@
 #ifndef RTS_RESOURCE_LIMITS_H
 #define RTS_RESOURCE_LIMITS_H
 
-// ToDo: keeping this structure small might be important for performance
-// if we can pack them together and that improves data locality
-typedef struct ResourceContainer_ {
-    StgInt rcID;
-
-    char *label;
-
-    // XXX: We actually need a nursery *per capability*, for now,
-    // assume no_capabilities == 1
+// NB: keep this size something nice...
+typedef struct rcthread_ {
     bdescr *nursery;
+    void *gct; /* gc_thread_, but that's not public */
+} rcthread;
 
+typedef struct ResourceContainer_ {
+    char *label;
     struct ResourceContainer_ *link;
+    rcthread threads[FLEXIBLE_ARRAY];
 } ResourceContainer;
 
-extern ResourceContainer RC_MAIN[];
+extern ResourceContainer *RC_MAIN;
 
 #endif /* RTS_RESOURCE_LIMITS_H */

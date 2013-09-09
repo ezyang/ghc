@@ -308,9 +308,17 @@ loadThreadState dflags tso stack = do
         mkAssign hpAlloc (zeroExpr dflags),
 
         -- load RC from the thread
+        -- XXX this generates some dumb code where we store the RC
+        -- in registers, and then immediately load it back out again
         mkAssign rc (CmmLoad (cmmOffset dflags (CmmReg (CmmLocal tso)) (tso_RC dflags)) (rcType dflags)),
-        -- load nursery accordingly
-        mkAssign currentNursery (CmmLoad (rc_nursery dflags) (rcType dflags)),
+        let myCapability = cmmSubWord dflags (CmmReg baseReg) (mkIntExpr dflags (oFFSET_Capability_r dflags))
+            threads = rc_threads dflags
+            capNoRep = rEP_Capability_no dflags
+            capNoSmall = CmmLoad (cmmOffset dflags myCapability (oFFSET_Capability_no dflags)) capNoRep
+            capNo = CmmMachOp (MO_SS_Conv (typeWidth capNoRep) (wordWidth dflags)) [capNoSmall]
+            rcthread = cmmAddWord dflags threads (cmmMulWord dflags capNo (mkIntExpr dflags (sIZEOF_rcthread dflags)))
+        in mkAssign currentNursery
+            (CmmLoad (cmmOffset dflags rcthread (oFFSET_rcthread_nursery dflags)) (rcType dflags)),
         openNursery dflags,
         -- and load the current cost centre stack from the TSO when profiling:
         if gopt Opt_SccProfilingOn dflags then
@@ -351,12 +359,12 @@ openNursery dflags = catAGraphs [
             )
    ]
 
-nursery_bdescr_free, nursery_bdescr_start, nursery_bdescr_blocks, nursery_bdescr_rc, rc_nursery :: DynFlags -> CmmExpr
+nursery_bdescr_free, nursery_bdescr_start, nursery_bdescr_blocks, nursery_bdescr_rc, rc_threads :: DynFlags -> CmmExpr
 nursery_bdescr_free   dflags = cmmOffset dflags stgCurrentNursery (oFFSET_bdescr_free dflags)
 nursery_bdescr_start  dflags = cmmOffset dflags stgCurrentNursery (oFFSET_bdescr_start dflags)
 nursery_bdescr_blocks dflags = cmmOffset dflags stgCurrentNursery (oFFSET_bdescr_blocks dflags)
 nursery_bdescr_rc     dflags = cmmOffset dflags stgCurrentNursery (oFFSET_bdescr_rc dflags)
-rc_nursery            dflags = cmmOffset dflags stgRC (oFFSET_ResourceContainer_nursery dflags)
+rc_threads            dflags = cmmOffset dflags stgRC (oFFSET_ResourceContainer_threads dflags)
 
 tso_stackobj, tso_CCCS, tso_RC, stack_STACK, stack_SP :: DynFlags -> ByteOff
 tso_stackobj dflags = closureField dflags (oFFSET_StgTSO_stackobj dflags)

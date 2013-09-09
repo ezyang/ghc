@@ -34,6 +34,7 @@
 #include "Hash.h"
 #include "Profiling.h"
 #include "StaticClosures.h"
+#include "ResourceLimits.h"
 #include "Timer.h"
 #include "Globals.h"
 #include "FileLock.h"
@@ -173,6 +174,12 @@ hs_init_ghc(int *argc, char **argv[], RtsConfig rts_config)
      */
     initMBlocks();
     initBlockAllocator();
+
+    /**
+     * initialise resource containers (needs to be done before
+     * static closures so the blocks can be initialized properly)
+     */
+    initResourceLimits();
 
     /* initialize static closures (needs to be done before
      * initScheduler) */

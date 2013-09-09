@@ -98,7 +98,7 @@ stg_gc_noregs
             HpAlloc = 0;
             CLOSE_NURSERY();
             CurrentNursery = bdescr_link(CurrentNursery);
-            ResourceContainer_nursery(RC) = CurrentNursery;
+            RC_NURSERY = CurrentNursery;
             ASSERT(RC == bdescr_rc(CurrentNursery));
             OPEN_NURSERY();
             if (Capability_context_switch(MyCapability()) != 0 :: CInt ||
@@ -122,7 +122,7 @@ stg_gc_noregs
                 Sp(1) = bdescr_rc(CurrentNursery);
                 Sp(0) = stg_restore_container_info;
                 CLOSE_NURSERY();
-                CurrentNursery = ResourceContainer_nursery(RC);
+                CurrentNursery = RC_NURSERY;
                 ASSERT(RC == bdescr_rc(CurrentNursery));
                 OPEN_NURSERY();
                 // XXX not sure if we have to check the capability again
