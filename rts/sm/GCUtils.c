@@ -118,14 +118,7 @@ steal_todo_block (nat g)
     nat n;
     bdescr *bd;
 
-    // look for work to steal
-    for (n = 0; n < n_gc_threads; n++) {
-        if (n == gct->thread_index) continue;
-        bd = stealWSDeque(gc_threads[n]->gens[g].todo_q);
-        if (bd) {
-            return bd;
-        }
-    }
+    // XXX don't try to steal from other resource containers
     return NULL;
 }
 #endif

@@ -912,6 +912,8 @@ compact(StgClosure *static_objects)
     W_ n, g, blocks;
     generation *gen;
 
+    barf("compaction not supported for resource limits");
+
     // 1. thread the roots
     markCapabilities((evac_fn)thread_root, NULL);
 
@@ -975,13 +977,17 @@ compact(StgClosure *static_objects)
 
     // 2. update forward ptrs
     for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
+        ResourceContainer *rc;
         gen = &generations[g];
         debugTrace(DEBUG_gc, "update_fwd:  %d", g);
 
         update_fwd(gen->blocks);
+        for (rc = RC_LIST; rc != NULL; rc = rc->link) {
         for (n = 0; n < n_capabilities; n++) {
-            update_fwd(gc_threads[n]->gens[g].todo_bd);
-            update_fwd(gc_threads[n]->gens[g].part_list);
+            gen_workspace *ws = &((gen_workspace*)rc->threads[n].workspaces)[g];
+            update_fwd(ws->todo_bd);
+            update_fwd(ws->part_list);
+        }
         }
         update_fwd_large(gen->scavenged_large_objects);
         if (g == RtsFlags.GcFlags.generations-1 && gen->old_blocks != NULL) {
