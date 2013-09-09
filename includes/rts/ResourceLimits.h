@@ -17,7 +17,7 @@
 // NB: keep this size something nice...
 typedef struct rcthread_ {
     bdescr *nursery;
-    void *gct; /* gc_thread_, but that's not public */
+    void *workspaces; /* gen_workspace*, but that's not public */
 } rcthread;
 
 typedef struct ResourceContainer_ {
@@ -27,5 +27,6 @@ typedef struct ResourceContainer_ {
 } ResourceContainer;
 
 extern ResourceContainer *RC_MAIN;
+extern ResourceContainer *RC_LIST;
 
 #endif /* RTS_RESOURCE_LIMITS_H */

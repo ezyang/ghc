@@ -979,22 +979,30 @@ W_ genLiveBlocks (generation *gen)
 
 W_ gcThreadLiveWords (nat i, nat g)
 {
-    W_ words;
+    W_ words = 0;
+    ResourceContainer *rc;
 
-    words   = countOccupied(gc_threads[i]->gens[g].todo_bd);
-    words  += countOccupied(gc_threads[i]->gens[g].part_list);
-    words  += countOccupied(gc_threads[i]->gens[g].scavd_list);
+    for (rc = RC_LIST; rc != NULL; rc = rc->link) {
+        gen_workspace *ws = &((gen_workspace*)rc->threads[i].workspaces)[g];
+        words  += countOccupied(ws->todo_bd);
+        words  += countOccupied(ws->part_list);
+        words  += countOccupied(ws->scavd_list);
+    }
 
     return words;
 }
 
 W_ gcThreadLiveBlocks (nat i, nat g)
 {
-    W_ blocks;
+    W_ blocks = 0;
+    ResourceContainer *rc;
 
-    blocks  = countBlocks(gc_threads[i]->gens[g].todo_bd);
-    blocks += gc_threads[i]->gens[g].n_part_blocks;
-    blocks += gc_threads[i]->gens[g].n_scavd_blocks;
+    for (rc = RC_LIST; rc != NULL; rc = rc->link) {
+        gen_workspace *ws = &((gen_workspace*)rc->threads[i].workspaces)[g];
+        blocks += countBlocks(ws->todo_bd);
+        blocks += ws->n_part_blocks;
+        blocks += ws->n_scavd_blocks;
+    }
 
     return blocks;
 }

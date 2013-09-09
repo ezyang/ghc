@@ -69,7 +69,7 @@ alloc_for_copy (nat size, nat gen_no)
 	}
     }
     
-    ws = &gct->gens[gen_no];  // zero memory references here
+    ws = &gwt[gen_no];
 
     /* chain a new block onto the to-space for the destination gen if
      * necessary.
@@ -298,13 +298,11 @@ evacuate_large(StgPtr p)
       }
   }
 
-  ws = &gct->gens[new_gen_no];
+  ws = &gwt[new_gen_no];
   new_gen = &generations[new_gen_no];
 
   bd->flags |= BF_EVACUATED;
   initBdescr(bd, new_gen, new_gen->to);
-  // XXX
-  bd->rc = RC_MAIN;
 
   // If this is a block of pinned objects, we don't have to scan
   // these objects, because they aren't allowed to contain any
@@ -518,6 +516,8 @@ loop:
   }
       
   gen_no = bd->dest_no;
+  // XXX ugh memory dereference
+  SET_GWT(((gen_workspace*)bd->rc->threads[gct->thread_index].workspaces));
 
   info = q->header.info;
   if (IS_FORWARDING_PTR(info))

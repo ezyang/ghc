@@ -28,8 +28,10 @@
 
 #ifdef llvm_CC_FLAVOR
 #define SET_GCT(to) (pthread_setspecific(gctKey, to))
+#define SET_GWT(to) (pthread_setspecific(gwtKey, to))
 #else
 #define SET_GCT(to) gct = (to)
+#define SET_GWT(to) gwt = (to)
 #endif
 
 
@@ -46,6 +48,9 @@
 extern __thread gc_thread* gct;
 #define DECLARE_GCT __thread gc_thread* gct;
 
+extern __thread gen_workspace* gwt;
+#define DECLARE_GWT __thread gen_workspace* gwt;
+
 #elif defined(llvm_CC_FLAVOR)
 // LLVM does not support the __thread extension and will generate
 // incorrect code for global register variables. If we are compiling
@@ -53,6 +58,9 @@ extern __thread gc_thread* gct;
 // use pthread_getspecific() to handle the thread local storage for gct.
 #define gct ((gc_thread *)(pthread_getspecific(gctKey)))
 #define DECLARE_GCT ThreadLocalKey gctKey;
+
+#define gwt ((gc_workspace *)(pthread_getspecific(gwtKey)))
+#define DECLARE_GWT ThreadLocalKey gwtKey;
 
 #elif defined(sparc_HOST_ARCH)
 // On SPARC we can't pin gct to a register. Names like %l1 are just offsets
@@ -68,6 +76,9 @@ extern __thread gc_thread* gct;
 extern __thread gc_thread* gct;
 #define DECLARE_GCT __thread gc_thread* gct;
 
+extern __thread gen_workspace* gwt;
+#define DECLARE_GWT __thread gen_workspace* gwt;
+
 
 #elif defined(REG_Base) && !defined(i386_HOST_ARCH)
 // on i386, REG_Base is %ebx which is also used for PIC, so we don't
@@ -76,17 +87,26 @@ extern __thread gc_thread* gct;
 GLOBAL_REG_DECL(gc_thread*, gct, REG_Base)
 #define DECLARE_GCT /* nothing */
 
+// use thread local state for gwt
+extern __thread gen_workspace* gwt;
+#define DECLARE_GWT __thread gen_workspace* gwt;
 
 #elif defined(REG_R1)
 
 GLOBAL_REG_DECL(gc_thread*, gct, REG_R1)
 #define DECLARE_GCT /* nothing */
 
+extern __thread gen_workspace* gwt;
+#define DECLARE_GWT __thread gen_workspace* gwt;
+
 
 #elif defined(__GNUC__)
 
 extern __thread gc_thread* gct;
 #define DECLARE_GCT __thread gc_thread* gct;
+
+extern __thread gen_workspace* gwt;
+#define DECLARE_GWT __thread gen_workspace* gwt;
 
 #else
 
@@ -97,10 +117,13 @@ extern __thread gc_thread* gct;
 #else  // not the threaded RTS
 
 extern StgWord8 the_gc_thread[];
+extern gen_workspace* gwt;
 
 #define gct ((gc_thread*)&the_gc_thread)
 #define SET_GCT(to) /*nothing*/
+#define SET_GWT(to) gwt = (to) /* still necessary */
 #define DECLARE_GCT /*nothing*/
+#define DECLARE_GWT gen_workspace *gwt;
 
 #endif // THREADED_RTS
 

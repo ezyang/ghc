@@ -345,7 +345,7 @@ wanteds = concat
 
           ,fieldOffset Both "ResourceContainer" "threads"
 
-          ,structField Both "rcthread" "gct"
+          ,structField Both "rcthread" "workspaces"
           ,structField Both "rcthread" "nursery"
           ,structSize Both "rcthread"
 
