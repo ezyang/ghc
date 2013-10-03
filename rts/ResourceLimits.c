@@ -30,3 +30,14 @@ initResourceLimits(void)
     RC_LIST = RC_MAIN;
 }
 
+ResourceContainer *
+newResourceContainer(void)
+{
+    // XXX leaky; need to do something like unloadObj
+    ResourceContainer *rc = stgMallocBytes(sizeof(ResourceContainer), "newResourceContainer");
+    rc->label = "DYNAMIC(*)";
+    // XXX add a lock here
+    rc->link = RC_LIST;
+    RC_LIST = rc;
+    return rc;
+}

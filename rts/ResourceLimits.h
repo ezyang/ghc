@@ -4,6 +4,7 @@
 #include "BeginPrivate.h"
 
 void initResourceLimits(void);
+ResourceContainer *newResourceContainer(void);
 
 #include "EndPrivate.h"
 

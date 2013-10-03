@@ -1483,6 +1483,9 @@ coercibleTyConKey = mkPreludeTyConUnique 175
 proxyPrimTyConKey :: Unique
 proxyPrimTyConKey = mkPreludeTyConUnique 176
 
+resourceContainerPrimTyConKey :: Unique
+resourceContainerPrimTyConKey = mkPreludeTyConUnique 180
+
 ---------------- Template Haskell -------------------
 --      USES TyConUniques 200-299
 -----------------------------------------------------
