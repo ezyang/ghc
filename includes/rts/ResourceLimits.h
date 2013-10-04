@@ -23,10 +23,19 @@ typedef struct rcthread_ {
 typedef struct ResourceContainer_ {
     char *label;
     struct ResourceContainer_ *link;
+    struct ResourceContainer_ *parent;
+    memcount max_blocks;
+    memcount used_blocks;
     rcthread threads[FLEXIBLE_ARRAY];
 } ResourceContainer;
 
 extern ResourceContainer *RC_MAIN;
 extern ResourceContainer *RC_LIST;
+
+// reports failure if resource-container bound is hit
+rtsBool allocGroupFor(bdescr **bd, W_ n, ResourceContainer *rc);
+rtsBool allocBlockFor(bdescr **bd, ResourceContainer *rc);
+
+// TODO: lock versions?
 
 #endif /* RTS_RESOURCE_LIMITS_H */

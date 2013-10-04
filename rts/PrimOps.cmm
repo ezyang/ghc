@@ -2210,10 +2210,10 @@ stg_traceMarkerzh ( W_ msg )
 
 // Note: use W_ for RC, since it's not garbage collected
 
-stg_newRCzh ()
+stg_newRCzh ( W_ limit, W_ parent )
 {
     W_ rc;
-    (rc) = ccall newResourceContainer();
+    (rc) = ccall newResourceContainer(limit, parent);
     return (rc);
 }
 

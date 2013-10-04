@@ -54,6 +54,8 @@ void gcWorkerThread (Capability *cap);
 void initGcThreads (nat from, nat to);
 void freeGcThreads (void);
 
+void initContainerGcThreads (ResourceContainer *rc);
+
 #if defined(THREADED_RTS)
 void waitForGcThreads (Capability *cap);
 void releaseGCThreads (Capability *cap);
