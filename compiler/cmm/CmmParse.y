@@ -1031,7 +1031,7 @@ stmtMacros = listToUFM [
                                       heapStackCheckGen (Just bytes) Nothing ),
 
   -- A stack check on entry to a thunk, where the argument is the thunk pointer.
-  ( fsLit "STK_CHK_NP"   ,         \[node] -> entryHeapCheck' False node 0 [] (return ())),
+  ( fsLit "STK_CHK_NP"   ,         \[node] -> entryHeapCheck' Nothing False node 0 [] (return ())),
 
   ( fsLit "LOAD_THREAD_STATE",     \[] -> emitLoadThreadState ),
   ( fsLit "SAVE_THREAD_STATE",     \[] -> emitSaveThreadState ),

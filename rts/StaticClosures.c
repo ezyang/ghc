@@ -9,6 +9,8 @@
 
 #include "Rts.h"
 #include "StaticClosures.h"
+#include "ResourceLimits.h"
+#include "sm/Storage.h"
 
 #include <string.h>
 
@@ -82,7 +84,10 @@ static void
 addBlock(void)
 {
     bdescr *old_block = current_block;
-    current_block = allocBlock_lock();
+    ASSERT(RC_MAIN != NULL);
+    ACQUIRE_SM_LOCK;
+    current_block = forceAllocBlockFor(RC_MAIN);
+    RELEASE_SM_LOCK;
     current_block->flags |= BF_STATIC;
     current_block->link = old_block;
     static_blocks++;

@@ -22,6 +22,7 @@
 #include "RtsUtils.h"
 #include "BlockAlloc.h"
 #include "OSMem.h"
+#include "ResourceLimits.h"
 
 #include <string.h>
 
@@ -173,10 +174,12 @@ initGroup(bdescr *head)
   n = head->blocks;
   head->free   = head->start;
   head->link   = NULL;
+  head->rc     = NULL;
   for (i=1, bd = head+1; i < n; i++, bd++) {
       bd->free = 0;
       bd->blocks = 0;
       bd->link = head;
+      bd->rc = NULL;
   }
 }
 
@@ -416,7 +419,7 @@ finish:
 // preferably if there are any.
 //
 bdescr *
-allocLargeChunk (W_ min, W_ max)
+allocLargeChunk (W_ min, W_ max, ResourceContainer *rc)
 {
     bdescr *bd;
     StgWord ln, lnmax;
@@ -432,7 +435,10 @@ allocLargeChunk (W_ min, W_ max)
         ln++;
     }
     if (ln == lnmax) {
-        return allocGroup(max);
+        // ToDo: proper strategy here is to allocate the *min* amount
+        // that doesn't go over the resource limit, and flip the
+        // killed flag. But I need to refactor that first.
+        return forceAllocGroupFor(max, rc);
     }
     bd = free_list[ln];
 
@@ -449,6 +455,7 @@ allocLargeChunk (W_ min, W_ max)
     }
 
     n_alloc_blocks += bd->blocks;
+    rc->used_blocks += bd->blocks;
     if (n_alloc_blocks > hw_alloc_blocks) hw_alloc_blocks = n_alloc_blocks;
 
     IF_DEBUG(sanity, memset(bd->start, 0xaa, bd->blocks * BLOCK_SIZE));
@@ -542,6 +549,7 @@ void
 freeGroup(bdescr *p)
 {
   StgWord ln;
+  ResourceContainer *rc;
 
   // Todo: not true in multithreaded GC
   // ASSERT_SM_LOCK();
@@ -551,6 +559,8 @@ freeGroup(bdescr *p)
   p->free = (void *)-1;  /* indicates that this block is free */
   p->gen = NULL;
   p->gen_no = 0;
+  rc = p->rc;
+  p->rc = NULL;
   /* fill the block group with garbage if sanity checking is on */
   IF_DEBUG(sanity,memset(p->start, 0xaa, (W_)p->blocks * BLOCK_SIZE));
 
@@ -566,12 +576,22 @@ freeGroup(bdescr *p)
 
       n_alloc_blocks -= mblocks * BLOCKS_PER_MBLOCK;
 
+      // uncharge it from its container
+      if (rc != NULL) {
+          ASSERT(rc->used_blocks >= mblocks * BLOCKS_PER_MBLOCK);
+          rc->used_blocks -= mblocks * BLOCKS_PER_MBLOCK;
+      }
+
       free_mega_group(p);
       return;
   }
 
   ASSERT(n_alloc_blocks >= p->blocks);
   n_alloc_blocks -= p->blocks;
+  if (rc != NULL) {
+      ASSERT(rc->used_blocks >= p->blocks);
+      rc->used_blocks -= p->blocks;
+  }
 
   // coalesce forwards
   {

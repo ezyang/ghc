@@ -29,6 +29,7 @@
 #include "Arena.h"
 #include "RetainerProfile.h"
 #include "StaticClosures.h"
+#include "ResourceLimits.h"
 
 /* -----------------------------------------------------------------------------
    Forward decls.
@@ -694,6 +695,7 @@ static void checkGeneration (generation *gen,
 {
     nat n;
     gen_workspace *ws;
+    ResourceContainer *rc;
 
     ASSERT(countBlocks(gen->blocks) == gen->n_blocks);
     ASSERT(countBlocks(gen->large_objects) == gen->n_large_blocks);
@@ -707,11 +709,13 @@ static void checkGeneration (generation *gen,
 
     checkHeapChain(gen->blocks);
 
-    for (n = 0; n < n_capabilities; n++) {
-        ws = &gc_threads[n]->gens[gen->no];
-        checkHeapChain(ws->todo_bd);
-        checkHeapChain(ws->part_list);
-        checkHeapChain(ws->scavd_list);
+    for (rc = RC_LIST; rc != NULL; rc = rc->link) {
+        for (n = 0; n < n_capabilities; n++) {
+            ws = &rc->threads[n].workspaces[gen->no];
+            checkHeapChain(ws->todo_bd);
+            checkHeapChain(ws->part_list);
+            checkHeapChain(ws->scavd_list);
+        }
     }
 
     checkLargeObjects(gen->large_objects);
@@ -721,12 +725,15 @@ static void checkGeneration (generation *gen,
 static void checkFullHeap (rtsBool after_major_gc)
 {
     nat g, n;
+    ResourceContainer *rc;
 
     for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
         checkGeneration(&generations[g], after_major_gc);
     }
+    for (rc = RC_LIST; rc != NULL; rc = rc->link) {
     for (n = 0; n < n_capabilities; n++) {
-        checkNurserySanity(&nurseries[n]);
+        checkNurserySanity(&rc->threads[n].nursery);
+    }
     }
 }
 
@@ -755,20 +762,35 @@ static void
 findMemoryLeak (void)
 {
     nat g, i;
+    ResourceContainer *rc;
     for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
         for (i = 0; i < n_capabilities; i++) {
             markBlocks(capabilities[i]->mut_lists[g]);
-            markBlocks(gc_threads[i]->gens[g].part_list);
-            markBlocks(gc_threads[i]->gens[g].scavd_list);
-            markBlocks(gc_threads[i]->gens[g].todo_bd);
         }
         markBlocks(generations[g].blocks);
+        markBlocks(generations[g].old_blocks);
         markBlocks(generations[g].large_objects);
+    }
+    for (rc = RC_LIST; rc != NULL; rc = rc->link) {
+        for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
+            for (i = 0; i < n_capabilities; i++) {
+                gen_workspace *ws = &rc->threads[i].workspaces[g];
+                markBlocks(ws->part_list);
+                markBlocks(ws->scavd_list);
+                markBlocks(ws->todo_bd);
+            }
+        }
+    }
+
+    for (rc = RC_LIST; rc != NULL; rc = rc->link) {
+    for (i = 0; i < n_capabilities; i++) {
+        markBlocks(rc->threads[i].nursery.blocks);
+    }
     }
 
     for (i = 0; i < n_capabilities; i++) {
-        markBlocks(nurseries[i].blocks);
         markBlocks(capabilities[i]->pinned_object_block);
+        markBlocks(capabilities[i]->pinned_object_blocks);
     }
 
 #ifdef PROFILING
@@ -837,6 +859,7 @@ void
 memInventory (rtsBool show)
 {
   nat g, i;
+  ResourceContainer *rc;
   W_ gen_blocks[RtsFlags.GcFlags.generations];
   W_ nursery_blocks, retainer_blocks, static_blocks,
        arena_blocks, exec_blocks;
@@ -849,17 +872,30 @@ memInventory (rtsBool show)
       gen_blocks[g] = 0;
       for (i = 0; i < n_capabilities; i++) {
           gen_blocks[g] += countBlocks(capabilities[i]->mut_lists[g]);
-          gen_blocks[g] += countBlocks(gc_threads[i]->gens[g].part_list);
-          gen_blocks[g] += countBlocks(gc_threads[i]->gens[g].scavd_list);
-          gen_blocks[g] += countBlocks(gc_threads[i]->gens[g].todo_bd);
       }
       gen_blocks[g] += genBlocks(&generations[g]);
   }
 
+  for (rc = RC_LIST; rc != NULL; rc = rc->link) {
+      for (i = 0; i < n_capabilities; i++) {
+          for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
+              gen_workspace *ws = &rc->threads[i].workspaces[g];
+              gen_blocks[g] += countBlocks(ws->part_list);
+              gen_blocks[g] += countBlocks(ws->scavd_list);
+              gen_blocks[g] += countBlocks(ws->todo_bd);
+          }
+      }
+  }
+
   nursery_blocks = 0;
+  for (rc = RC_LIST; rc != NULL; rc = rc->link) {
   for (i = 0; i < n_capabilities; i++) {
-      ASSERT(countBlocks(nurseries[i].blocks) == nurseries[i].n_blocks);
-      nursery_blocks += nurseries[i].n_blocks;
+      ASSERT(countBlocks(rc->threads[i].nursery.blocks) == rc->threads[i].nursery.n_blocks);
+      nursery_blocks += rc->threads[i].nursery.n_blocks;
+  }
+  }
+
+  for (i = 0; i < n_capabilities; i++) {
       if (capabilities[i]->pinned_object_block != NULL) {
           nursery_blocks += capabilities[i]->pinned_object_block->blocks;
       }

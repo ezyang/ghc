@@ -358,11 +358,22 @@ wanteds = concat
           ,structField C    "Capability" "interrupt"
           ,structField C    "Capability" "sparks"
 
+          ,fieldOffset Both "ResourceContainer" "threads"
+
+          ,structField Both "rcthread" "workspaces"
+          ,structField Both "rcthread" "nursery"
+          ,structField Both "rcthread" "currentNursery"
+          ,structSize Both "rcthread"
+
+          ,structField Both "nursery" "blocks"
+          ,structSize Both "nursery"
+
           ,structField Both "bdescr" "start"
           ,structField Both "bdescr" "free"
           ,structField Both "bdescr" "blocks"
           ,structField C    "bdescr" "gen_no"
           ,structField C    "bdescr" "link"
+          ,structField Both "bdescr" "rc"
 
           ,structSize C  "generation"
           ,structField C "generation" "n_new_large_words"
@@ -418,6 +429,7 @@ wanteds = concat
           ,closureField  C    "StgTSO"      "bq"
           ,closureField_ Both "StgTSO_cccs" "StgTSO" "prof.cccs"
           ,closureField  Both "StgTSO"      "stackobj"
+          ,closureField  Both "StgTSO"      "rc"
 
           ,closureField       Both "StgStack" "sp"
           ,closureFieldOffset Both "StgStack" "stack"
@@ -667,6 +679,7 @@ getWanted verbose tmpdir gccProgram gccFlags nmProgram
                      "#include \"Rts.h\"",
                      "#include \"Stable.h\"",
                      "#include \"Capability.h\"",
+                     "#include \"ResourceLimits.h\"",
                      "",
                      "#include <inttypes.h>",
                      "#include <stddef.h>",

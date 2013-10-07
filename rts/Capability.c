@@ -288,6 +288,8 @@ initCapability( Capability *cap, nat i )
     cap->r.rCCCS = NULL;
 #endif
 
+    cap->r.rRC = RC_MAIN;
+
     traceCapCreate(cap);
     traceCapsetAssignCap(CAPSET_OSPROCESS_DEFAULT, i);
     traceCapsetAssignCap(CAPSET_CLOCKDOMAIN_DEFAULT, i);

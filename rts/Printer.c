@@ -13,6 +13,7 @@
 #include "sm/Storage.h"
 #include "Printer.h"
 #include "RtsUtils.h"
+#include "ResourceLimits.h"
 
 #include <string.h>
 
@@ -926,15 +927,18 @@ findPtr(P_ p, int follow)
 {
   nat g, n;
   bdescr *bd;
+  ResourceContainer *rc;
   const int arr_size = 1024;
   StgPtr arr[arr_size];
   int i = 0;
   searched = 0;
 
+  for (rc = RC_LIST; rc != NULL; rc = rc->link) {
   for (n = 0; n < n_capabilities; n++) {
-      bd = nurseries[i].blocks;
+      bd = rc->threads[n].nursery.blocks;
       i = findPtrBlocks(p,bd,arr,arr_size,i);
       if (i >= arr_size) return;
+  }
   }
 
   for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
