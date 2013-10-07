@@ -265,6 +265,7 @@ pprGlobalReg gr
         CCCS           -> ptext (sLit "CCCS")
         CurrentTSO     -> ptext (sLit "CurrentTSO")
         CurrentNursery -> ptext (sLit "CurrentNursery")
+        Nursery        -> ptext (sLit "Nursery")
         HpAlloc        -> ptext (sLit "HpAlloc")
         EagerBlackholeInfo -> ptext (sLit "stg_EAGER_BLACKHOLE_info")
         GCEnter1       -> ptext (sLit "stg_gc_enter_1")
