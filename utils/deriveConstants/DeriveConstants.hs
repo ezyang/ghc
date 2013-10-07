@@ -331,6 +331,7 @@ wanteds = concat
           ,fieldOffset Both "StgRegTable" "rHp"
           ,fieldOffset Both "StgRegTable" "rHpLim"
           ,fieldOffset Both "StgRegTable" "rCCCS"
+          ,fieldOffset Both "StgRegTable" "rRC"
           ,fieldOffset Both "StgRegTable" "rCurrentTSO"
           ,fieldOffset Both "StgRegTable" "rCurrentNursery"
           ,fieldOffset Both "StgRegTable" "rCurrentAlloc"
