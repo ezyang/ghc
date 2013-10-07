@@ -790,7 +790,7 @@ GarbageCollect (nat collect_gen,
 #define GC_THREAD_WAITING_TO_CONTINUE  3
 
 static void
-new_gc_thread_workspaces (gen_workspace *gens, gc_thread *t)
+new_gc_thread_workspaces (ResourceContainer *rc, gen_workspace *gens, gc_thread *t)
 {
     nat g;
     gen_workspace *ws;
@@ -807,10 +807,12 @@ new_gc_thread_workspaces (gen_workspace *gens, gc_thread *t)
         // but can't, because it uses gct which isn't set up at this point.
         // Hence, allocate a block for todo_bd manually:
         {
-            bdescr *bd = allocBlock(); // no lock, locks aren't initialised yet
+            bdescr *bd;
+            // no lock, locks aren't initialised yet
+            if (!allocBlockFor(&bd, rc)) {
+                barf("new_gc_thread_workspaces: too few blocks in container to setup workspace");
+            }
             initBdescr(bd, ws->gen, ws->gen->to);
-            // XXX
-            bd->rc = RC_MAIN;
             bd->flags = BF_EVACUATED;
             bd->u.scan = bd->free = bd->start;
 
@@ -829,6 +831,17 @@ new_gc_thread_workspaces (gen_workspace *gens, gc_thread *t)
 
         ws->scavd_list = NULL;
         ws->n_scavd_blocks = 0;
+    }
+}
+
+void
+initContainerGcThreads(ResourceContainer *rc, nat from USED_IF_THREADS, nat to USED_IF_THREADS) {
+    nat i;
+    for (i = from; i < to; i++) {
+        rc->threads[i].workspaces =
+            stgMallocBytes (RtsFlags.GcFlags.generations * sizeof(gen_workspace),
+                            "alloc_gc_threads");
+        new_gc_thread_workspaces(rc, rc->threads[i].workspaces, gc_threads[i]);
     }
 }
 
@@ -891,13 +904,7 @@ initGcThreads (nat from USED_IF_THREADS, nat to USED_IF_THREADS)
 
     ResourceContainer *rc = RC_LIST;
     for (; rc != NULL; rc = rc->link) {
-        nat i;
-        for (i = from; i < to; i++) {
-            rc->threads[i].workspaces =
-                stgMallocBytes (RtsFlags.GcFlags.generations * sizeof(gen_workspace),
-                                "alloc_gc_threads");
-            new_gc_thread_workspaces(rc->threads[i].workspaces, gc_threads[i]);
-        }
+        initContainerGcThreads(rc, from, to);
     }
 }
 

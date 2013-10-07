@@ -2208,3 +2208,32 @@ stg_traceMarkerzh ( W_ msg )
    return ();
 }
 
+// Note: use W_ for RC, since it's not garbage collected
+
+stg_newRCzh ( W_ limit, W_ parent )
+{
+    W_ rc;
+    (rc) = ccall newResourceContainer(limit, parent);
+    return (rc);
+}
+
+stg_withRCzh ( W_ rc, P_ io )
+{
+    STK_CHK_GEN();
+    Sp(-1) = RC;
+    Sp(-2) = stg_restore_container_info;
+    Sp_adj(-2);
+    CLOSE_NURSERY();
+    RC = rc;
+    CurrentNursery = RC_CURRENT_NURSERY;
+    Nursery = RC_NURSERY;
+    CurrentAlloc = NULL;
+    ASSERT(bdescr_rc(CurrentNursery) == RC);
+    // could add a Nursery assert; but be careful about macro'ing
+    OPEN_NURSERY();
+
+    R1 = io;
+    TICK_UNKNOWN_CALL();
+    TICK_SLOW_CALL_fast_v();
+    jump stg_ap_v_fast [R1];
+}

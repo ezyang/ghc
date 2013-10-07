@@ -2683,6 +2683,39 @@ primop PrefetchAddrOp0 "prefetchAddr0#" GenPrimOp
 
 
 ------------------------------------------------------------------------
+section "Resource containers"
+        {Resource container operations}
+------------------------------------------------------------------------
+
+primtype RC#
+
+primop NewRCOp "newRC#" GenPrimOp
+    Word# -> RC# -> State# RealWorld -> (# State# RealWorld, RC# #)
+    with
+    out_of_line = True
+    has_side_effects = True
+
+primop WithRCOp "withRC#" GenPrimOp
+    RC# -> (State# s -> (# State# s, a #)) -> State# s -> (# State# s, a #)
+    with
+    out_of_line = True
+    has_side_effects = True
+
+primop GetRCOfOp "getRCOf#" GenPrimOp
+   a -> State# s -> (# State# s, RC# #)
+
+primop  GetCurrentRCOp "getCurrentRC#" GenPrimOp
+   a -> State# s -> (# State# s, RC# #)
+   { Returns the current {\tt RC}.  Takes a dummy argument which can be used to
+     avoid the call to {\tt getCurrentRC\#} being floated out by the
+     simplifier, which would result in an uninformative container. }
+
+primop RCToAddrOp  "rcToAddr"  GenPrimOp RC# -> Addr#
+    with code_size = 0
+primop AddrToRCOp  "addrToRC"  GenPrimOp Addr# -> RC#
+    with code_size = 0
+
+------------------------------------------------------------------------
 ---                                                                  ---
 ------------------------------------------------------------------------
 

@@ -15,10 +15,14 @@ typedef struct rcthread_ {
 typedef struct ResourceContainer_ {
     char *label;
     struct ResourceContainer_ *link;
+    struct ResourceContainer_ *parent;
+    memcount max_blocks;
+    memcount used_blocks;
     rcthread threads[FLEXIBLE_ARRAY];
 } ResourceContainer;
 
 void initResourceLimits(void);
+ResourceContainer *newResourceContainer(nat max_blocks, ResourceContainer *parent);
 
 #include "EndPrivate.h"
 
