@@ -483,9 +483,15 @@ GLOBAL_REG_DECL(struct _StgTSO *,CurrentTSO,REG_CurrentTSO)
 #endif
 
 #if defined(REG_CurrentNursery) && !defined(NO_GLOBAL_REG_DECLS)
-GLOBAL_REG_DECL(bdescr *,CurrentNursery,REG_CurrentNursery)
+GLOBAL_REG_DECL(struct nursery_ *,CurrentNursery,REG_CurrentNursery)
 #else
 #define CurrentNursery (BaseReg->rCurrentNursery)
+#endif
+
+#if defined(REG_Nursery) && !defined(NO_GLOBAL_REG_DECLS)
+GLOBAL_REG_DECL(bdescr *,Nursery,REG_Nursery)
+#else
+#define Nursery (BaseReg->rNursery)
 #endif
 
 #if defined(REG_HpAlloc) && !defined(NO_GLOBAL_REG_DECLS)

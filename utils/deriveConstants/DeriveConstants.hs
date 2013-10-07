@@ -333,6 +333,7 @@ wanteds = concat
           ,fieldOffset Both "StgRegTable" "rCCCS"
           ,fieldOffset Both "StgRegTable" "rCurrentTSO"
           ,fieldOffset Both "StgRegTable" "rCurrentNursery"
+          ,fieldOffset Both "StgRegTable" "rNursery"
           ,fieldOffset Both "StgRegTable" "rHpAlloc"
           ,structField C    "StgRegTable" "rRet"
           ,structField C    "StgRegTable" "rNursery"
