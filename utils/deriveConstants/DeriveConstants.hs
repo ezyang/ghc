@@ -283,6 +283,10 @@ wanteds = concat
            -- blocks that fit in an MBlock, leaving space for the block
            -- descriptors
           ,constantWord Both "BLOCKS_PER_MBLOCK" "BLOCKS_PER_MBLOCK"
+          ,constantWord Haskell "BLOCK_SHIFT" "BLOCK_SHIFT"
+          ,constantWord Haskell "BDESCR_SHIFT" "BDESCR_SHIFT"
+          ,constantWord Haskell "MBLOCK_MASK" "MBLOCK_MASK"
+          ,constantWord Haskell "BLOCK_MASK" "BLOCK_MASK"
            -- could be derived, but better to save doing the calculation twice
 
           ,fieldOffset Both "StgRegTable" "rR1"
