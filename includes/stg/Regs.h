@@ -494,6 +494,12 @@ GLOBAL_REG_DECL(bdescr *,Nursery,REG_Nursery)
 #define Nursery (BaseReg->rNursery)
 #endif
 
+#if defined(REG_CurrentAlloc) && !defined(NO_GLOBAL_REG_DECLS)
+GLOBAL_REG_DECL(bdescr *,CurrentAlloc,REG_CurrentAlloc)
+#else
+#define CurrentAlloc (BaseReg->rCurrentAlloc)
+#endif
+
 #if defined(REG_HpAlloc) && !defined(NO_GLOBAL_REG_DECLS)
 GLOBAL_REG_DECL(bdescr *,HpAlloc,REG_HpAlloc)
 #else
