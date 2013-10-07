@@ -5,6 +5,7 @@ module CmmLayoutStack (
 
 import StgCmmUtils      ( callerSaveVolatileRegs ) -- XXX layering violation
 import StgCmmForeign    ( saveThreadState, loadThreadState ) -- XXX layering violation
+import StgCmmContainer  ( rcType ) -- XXX layering violation
 
 import BasicTypes
 import Cmm
@@ -927,6 +928,7 @@ lowerSafeForeignCall dflags block
     let (caller_save, caller_load) = callerSaveVolatileRegs dflags
     load_tso <- newTemp (gcWord dflags)
     load_stack <- newTemp (gcWord dflags)
+    load_rc <- newTemp (rcType dflags)
     let suspend = saveThreadState dflags <*>
                   caller_save <*>
                   mkMiddle (callSuspendThread dflags id intrbl)
@@ -936,7 +938,7 @@ lowerSafeForeignCall dflags block
                   -- might now have a different Capability!
                   mkAssign (CmmGlobal BaseReg) (CmmReg (CmmLocal new_base)) <*>
                   caller_load <*>
-                  loadThreadState dflags load_tso load_stack
+                  loadThreadState dflags load_tso load_stack load_rc
 
         (_, regs, copyout) =
              copyOutOflow dflags NativeReturn Jump (Young succ)

@@ -32,6 +32,7 @@
 #if defined(ios_HOST_OS)
 #include "Hash.h"
 #endif
+#include "ResourceLimits.h"
 
 #include <string.h>
 
@@ -52,8 +53,6 @@ bdescr *exec_block;
 generation *generations = NULL; /* all the generations */
 generation *g0          = NULL; /* generation 0, for convenience */
 generation *oldest_gen  = NULL; /* oldest generation, for convenience */
-
-nursery *nurseries = NULL;     /* array of nurseries, size == n_capabilities */
 
 #ifdef THREADED_RTS
 /*
@@ -202,18 +201,14 @@ void storageAddCapabilities (nat from, nat to)
 {
     nat n, g, i;
 
-    if (from > 0) {
-        nurseries = stgReallocBytes(nurseries, to * sizeof(struct nursery_),
-                                    "storageAddCapabilities");
-    } else {
-        nurseries = stgMallocBytes(to * sizeof(struct nursery_),
-                                   "storageAddCapabilities");
-    }
+    ASSERT(from == 0);
+
+    // XXX some fiddling here omitted
 
     // we've moved the nurseries, so we have to update the rNursery
     // pointers from the Capabilities.
     for (i = 0; i < to; i++) {
-        capabilities[i]->r.rNursery = &nurseries[i];
+        capabilities[i]->r.rNursery = &capabilities[i]->r.rRC->threads[i].nursery;
     }
 
     /* The allocation area.  Policy: keep the allocation area
@@ -254,7 +249,6 @@ freeStorage (rtsBool free_heap)
 #if defined(THREADED_RTS)
     closeMutex(&sm_mutex);
 #endif
-    stgFree(nurseries);
 #if defined(THREADED_RTS) && defined(llvm_CC_FLAVOR)
     freeThreadLocalKey(&gctKey);
 #endif
@@ -458,6 +452,9 @@ allocNursery (bdescr *tail, W_ blocks)
         for (i = 0; i < n; i++) {
             initBdescr(&bd[i], g0, g0);
 
+            // XXX
+            bd[i].rc = RC_MAIN;
+
             bd[i].blocks = 1;
             bd[i].flags = 0;
 
@@ -489,9 +486,12 @@ static void
 assignNurseriesToCapabilities (nat from, nat to)
 {
     nat i;
+    ASSERT(from == 0);
 
     for (i = from; i < to; i++) {
-        capabilities[i]->r.rCurrentNursery = nurseries[i].blocks;
+        bdescr *currentNursery = capabilities[i]->r.rRC->threads[i].nursery.blocks;
+        capabilities[i]->r.rRC->threads[i].currentNursery = currentNursery;
+        capabilities[i]->r.rCurrentNursery = currentNursery;
         capabilities[i]->r.rCurrentAlloc   = NULL;
     }
 }
@@ -500,12 +500,17 @@ static void
 allocNurseries (nat from, nat to)
 { 
     nat i;
+    ResourceContainer *rc;
 
+    ASSERT(from == 0);
+
+    for (rc = RC_LIST; rc != NULL; rc = rc->link) {
     for (i = from; i < to; i++) {
-        nurseries[i].blocks =
+        rc->threads[i].nursery.blocks =
             allocNursery(NULL, RtsFlags.GcFlags.minAllocAreaSize);
-        nurseries[i].n_blocks =
+        rc->threads[i].nursery.n_blocks =
             RtsFlags.GcFlags.minAllocAreaSize;
+    }
     }
     assignNurseriesToCapabilities(from, to);
 }
@@ -514,13 +519,16 @@ void
 clearNursery (Capability *cap)
 {
     bdescr *bd;
+    ResourceContainer *rc;
 
-    for (bd = nurseries[cap->no].blocks; bd; bd = bd->link) {
+    for (rc = RC_LIST; rc != NULL; rc = rc->link) {
+    for (bd = rc->threads[cap->no].nursery.blocks; bd; bd = bd->link) {
         cap->total_allocated += (W_)(bd->free - bd->start);
         bd->free = bd->start;
         ASSERT(bd->gen_no == 0);
         ASSERT(bd->gen == g0);
         IF_DEBUG(sanity,memset(bd->start, 0xaa, BLOCK_SIZE));
+    }
     }
 }
 
@@ -534,10 +542,13 @@ W_
 countNurseryBlocks (void)
 {
     nat i;
+    ResourceContainer *rc;
     W_ blocks = 0;
 
+    for (rc = RC_LIST; rc != NULL; rc = rc->link) {
     for (i = 0; i < n_capabilities; i++) {
-        blocks += nurseries[i].n_blocks;
+        blocks += rc->threads[i].nursery.n_blocks;
+    }
     }
     return blocks;
 }
@@ -589,8 +600,11 @@ void
 resizeNurseriesFixed (W_ blocks)
 {
     nat i;
+    ResourceContainer *rc;
+    for (rc = RC_LIST; rc != NULL; rc = rc->link) {
     for (i = 0; i < n_capabilities; i++) {
-        resizeNursery(&nurseries[i], blocks);
+        resizeNursery(&rc->threads[i].nursery, blocks);
+    }
     }
 }
 
@@ -670,6 +684,9 @@ allocate (Capability *cap, W_ n)
         g0->n_new_large_words += n;
         RELEASE_SM_LOCK;
         initBdescr(bd, g0, g0);
+        // XXX
+        // NB: linked onto large_objects so it'll get special handling
+        bd->rc = RC_MAIN;
         bd->flags = BF_LARGE;
         bd->free = bd->start + n;
         cap->total_allocated += n;
@@ -694,6 +711,8 @@ allocate (Capability *cap, W_ n)
             cap->r.rNursery->n_blocks++;
             RELEASE_SM_LOCK;
             initBdescr(bd, g0, g0);
+            // XXX
+            bd->rc = RC_MAIN;
             bd->flags = 0;
             // If we had to allocate a new block, then we'll GC
             // pretty quickly now, because MAYBE_GC() will
@@ -821,6 +840,8 @@ allocatePinned (Capability *cap, W_ n)
             bd = allocBlock();
             RELEASE_SM_LOCK;
             initBdescr(bd, g0, g0);
+            // XXX
+            bd->rc = RC_MAIN;
         } else {
             // we have a block in the nursery: steal it
             cap->r.rCurrentNursery->link = bd->link;
@@ -957,9 +978,12 @@ dirty_MVAR(StgRegTable *reg, StgClosure *p)
 void updateNurseriesStats (void)
 {
     nat i;
+    ResourceContainer *rc;
 
+    for (rc = RC_LIST; rc != NULL; rc = rc->link) {
     for (i = 0; i < n_capabilities; i++) {
-        capabilities[i]->total_allocated += countOccupied(nurseries[i].blocks);
+        capabilities[i]->total_allocated += countOccupied(rc->threads[i].nursery.blocks);
+    }
     }
 }
 
@@ -987,22 +1011,30 @@ W_ genLiveBlocks (generation *gen)
 
 W_ gcThreadLiveWords (nat i, nat g)
 {
-    W_ words;
+    W_ words = 0;
+    ResourceContainer *rc;
 
-    words   = countOccupied(gc_threads[i]->gens[g].todo_bd);
-    words  += countOccupied(gc_threads[i]->gens[g].part_list);
-    words  += countOccupied(gc_threads[i]->gens[g].scavd_list);
+    for (rc = RC_LIST; rc != NULL; rc = rc->link) {
+        gen_workspace *ws = &rc->threads[i].workspaces[g];
+        words  += countOccupied(ws->todo_bd);
+        words  += countOccupied(ws->part_list);
+        words  += countOccupied(ws->scavd_list);
+    }
 
     return words;
 }
 
 W_ gcThreadLiveBlocks (nat i, nat g)
 {
-    W_ blocks;
+    W_ blocks = 0;
+    ResourceContainer *rc;
 
-    blocks  = countBlocks(gc_threads[i]->gens[g].todo_bd);
-    blocks += gc_threads[i]->gens[g].n_part_blocks;
-    blocks += gc_threads[i]->gens[g].n_scavd_blocks;
+    for (rc = RC_LIST; rc != NULL; rc = rc->link) {
+        gen_workspace *ws = &rc->threads[i].workspaces[g];
+        blocks += countBlocks(ws->todo_bd);
+        blocks += ws->n_part_blocks;
+        blocks += ws->n_scavd_blocks;
+    }
 
     return blocks;
 }

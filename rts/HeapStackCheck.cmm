@@ -98,6 +98,9 @@ stg_gc_noregs
             HpAlloc = 0;
             CLOSE_NURSERY();
             CurrentNursery = bdescr_link(CurrentNursery);
+            RC_CURRENT_NURSERY = CurrentNursery;
+            // NB: not necessary nor possible to set RC_NURSERY
+            ASSERT(RC == bdescr_rc(CurrentNursery));
             OPEN_NURSERY();
             if (Capability_context_switch(MyCapability()) != 0 :: CInt ||
                 Capability_interrupt(MyCapability())      != 0 :: CInt) {
@@ -111,6 +114,28 @@ stg_gc_noregs
             goto sched;
         }
     } else {
+        // XXX alternate strategy, check if RC is tagged
+        if (RC != bdescr_rc(CurrentNursery)) {
+            // we need to have enough stack space to push
+            // the restore frame
+            if (Sp - WDS(2) >= SpLim) {
+                Sp_adj(-2);
+                Sp(1) = bdescr_rc(CurrentNursery);
+                Sp(0) = stg_restore_container_info;
+                CLOSE_NURSERY();
+                CurrentNursery = RC_CURRENT_NURSERY;
+                Nursery = RC_NURSERY;
+                CurrentAlloc = NULL; // XXX fixme
+                ASSERT(RC == bdescr_rc(CurrentNursery));
+                OPEN_NURSERY();
+                // XXX not sure if we have to check the capability again
+                jump %ENTRY_CODE(Sp(0)) [];
+            } else {
+                // revert the RC so we try this path again
+                RC = bdescr_rc(CurrentNursery);
+                ret = StackOverflow;
+            }
+        }
         if (CHECK_GC()) {
             ret = HeapOverflow;
         } else {

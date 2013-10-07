@@ -15,6 +15,7 @@ module StgCmmBind (
 
 #include "HsVersions.h"
 
+import StgCmmContainer
 import StgCmmExpr
 import StgCmmMonad
 import StgCmmEnv
@@ -487,7 +488,7 @@ closureCodeBody top_lvl bndr cl_info cc args arity body fv_details
                 ; withSelfLoop (bndr, loop_header_id, arg_regs) $ do
                 {
                 -- Main payload
-                ; entryHeapCheck cl_info node' arity arg_regs $ do
+                ; entryHeapCheck Nothing cl_info node' arity arg_regs $ do
                 { -- ticky after heap check to avoid double counting
                   tickyEnterFun cl_info
                 ; enterCostCentreFun cc
@@ -550,8 +551,9 @@ thunkCode cl_info fv_details _cc node arity body
              node'       = if node_points then Just node else Nothing
         ; ldvEnterClosure cl_info -- NB: Node always points when profiling
 
+        ; rc <- assignTemp (rcFrom dflags (CmmReg nodeReg))
         -- Heap overflow check
-        ; entryHeapCheck cl_info node' arity [] $ do
+        ; entryHeapCheck (Just rc) cl_info node' arity [] $ do
         { -- Overwrite with black hole if necessary
           -- but *after* the heap-overflow check
         ; tickyEnterThunk cl_info

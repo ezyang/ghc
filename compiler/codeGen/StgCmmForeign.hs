@@ -24,6 +24,7 @@ import StgCmmMonad
 import StgCmmUtils
 import StgCmmClosure
 import StgCmmLayout
+import {-# SOURCE #-} StgCmmContainer (rcType)
 
 import Cmm
 import CmmUtils
@@ -269,6 +270,8 @@ saveThreadState dflags =
   -- CurrentTSO->stackobj->sp = Sp;
   mkStore (cmmOffset dflags (CmmLoad (cmmOffset dflags stgCurrentTSO (tso_stackobj dflags)) (bWord dflags)) (stack_SP dflags)) stgSp
   <*> closeNursery dflags
+  -- save the RC to the TSO
+  <*> mkStore (cmmOffset dflags stgCurrentTSO (tso_RC dflags)) stgRC
   -- and save the current cost centre stack in the TSO when profiling:
   <*> if gopt Opt_SccProfilingOn dflags then
         mkStore (cmmOffset dflags stgCurrentTSO (tso_CCCS dflags)) curCCS
@@ -288,8 +291,9 @@ emitCloseNursery = do
 closeNursery :: DynFlags -> CmmAGraph
 closeNursery dflags = mkStore (nursery_bdescr_free dflags) (cmmOffsetW dflags stgHp 1)
 
-loadThreadState :: DynFlags -> LocalReg -> LocalReg -> CmmAGraph
-loadThreadState dflags tso stack = do
+loadThreadState :: DynFlags -> LocalReg -> LocalReg -> LocalReg -> CmmAGraph
+loadThreadState dflags tso stack rc_reg = do
+  let rcthread = rc_reg
   catAGraphs [
         -- tso = CurrentTSO;
         mkAssign (CmmLocal tso) stgCurrentTSO,
@@ -305,9 +309,36 @@ loadThreadState dflags tso stack = do
         --   a heap check, see HeapStackCheck.cmm:GC_GENERIC
         mkAssign hpAlloc (zeroExpr dflags),
 
+        -- load RC from the thread (use a local register because RC
+        -- lives in memory)
+        -- rc = tso->rc
+        mkAssign (CmmLocal rc_reg) (CmmLoad (cmmOffset dflags (CmmReg (CmmLocal tso)) (tso_RC dflags)) (rcType dflags)),
+        -- RC = rc
+        mkAssign rc (CmmReg (CmmLocal rc_reg)),
+        -- XXX Properly use a new register rather than reusing rc
+        -- rcthread = rc->threads[(I_)MyCapability()->no]
+        let myCapability = cmmSubWord dflags (CmmReg baseReg) (mkIntExpr dflags (oFFSET_Capability_r dflags))
+            capNoRep = rEP_Capability_no dflags
+            capNoSmall = CmmLoad (cmmOffset dflags myCapability (oFFSET_Capability_no dflags)) capNoRep
+            capNo = CmmMachOp (MO_SS_Conv (typeWidth capNoRep) (wordWidth dflags)) [capNoSmall]
+            threads = cmmOffset dflags (CmmReg (CmmLocal rc_reg)) (oFFSET_ResourceContainer_threads dflags)
+        in mkAssign (CmmLocal rcthread) (cmmAddWord dflags threads (cmmMulWord dflags capNo (mkIntExpr dflags (sIZEOF_rcthread dflags)))),
+        -- CurrentNursery = rcthread.currentNursery
+        mkAssign currentNursery
+            (CmmLoad (cmmRegOff (CmmLocal rcthread) (oFFSET_rcthread_currentNursery dflags)) (bWord dflags)),
+        -- CurrentAlloc = NULL
+        -- XXX NULL for now, but arguably currentalloc should be saved
+        -- so we don't waste alloc blocks. It's safe to leave it null,
+        -- however!
+        mkAssign currentAlloc (zeroExpr dflags),
+        -- Nursery = &rcthread.nursery
+        mkAssign nursery (cmmRegOff (CmmLocal rcthread) (oFFSET_rcthread_nursery dflags)),
+
+        -- OPEN_NURSERY()
         openNursery dflags,
         -- and load the current cost centre stack from the TSO when profiling:
         if gopt Opt_SccProfilingOn dflags then
+          -- CCCS = tso->CCCS
           storeCurCCS
             (CmmLoad (cmmOffset dflags (CmmReg (CmmLocal tso)) (tso_CCCS dflags)) (ccsType dflags))
         else mkNop]
@@ -317,7 +348,8 @@ emitLoadThreadState = do
   dflags <- getDynFlags
   load_tso <- newTemp (gcWord dflags)
   load_stack <- newTemp (gcWord dflags)
-  emit $ loadThreadState dflags load_tso load_stack
+  load_rc <- newTemp (rcType dflags)
+  emit $ loadThreadState dflags load_tso load_stack load_rc
 
 emitOpenNursery :: FCode ()
 emitOpenNursery = do
@@ -350,9 +382,10 @@ nursery_bdescr_free   dflags = cmmOffset dflags stgCurrentNursery (oFFSET_bdescr
 nursery_bdescr_start  dflags = cmmOffset dflags stgCurrentNursery (oFFSET_bdescr_start dflags)
 nursery_bdescr_blocks dflags = cmmOffset dflags stgCurrentNursery (oFFSET_bdescr_blocks dflags)
 
-tso_stackobj, tso_CCCS, stack_STACK, stack_SP :: DynFlags -> ByteOff
+tso_stackobj, tso_CCCS, tso_RC, stack_STACK, stack_SP :: DynFlags -> ByteOff
 tso_stackobj dflags = closureField dflags (oFFSET_StgTSO_stackobj dflags)
 tso_CCCS     dflags = closureField dflags (oFFSET_StgTSO_cccs dflags)
+tso_RC       dflags = closureField dflags (oFFSET_StgTSO_rc dflags)
 stack_STACK  dflags = closureField dflags (oFFSET_StgStack_stack dflags)
 stack_SP     dflags = closureField dflags (oFFSET_StgStack_sp dflags)
 
@@ -360,20 +393,24 @@ stack_SP     dflags = closureField dflags (oFFSET_StgStack_sp dflags)
 closureField :: DynFlags -> ByteOff -> ByteOff
 closureField dflags off = off + fixedHdrSize dflags * wORD_SIZE dflags
 
-stgSp, stgHp, stgCurrentTSO, stgCurrentNursery :: CmmExpr
+stgSp, stgHp, stgCurrentTSO, stgCurrentNursery, stgRC :: CmmExpr
 stgSp             = CmmReg sp
 stgHp             = CmmReg hp
 stgCurrentTSO     = CmmReg currentTSO
 stgCurrentNursery = CmmReg currentNursery
+stgRC             = CmmReg rc
 
-sp, spLim, hp, hpLim, currentTSO, currentNursery, hpAlloc :: CmmReg
+sp, spLim, hp, hpLim, currentTSO, currentAlloc, nursery, currentNursery, hpAlloc, rc :: CmmReg
 sp                = CmmGlobal Sp
 spLim             = CmmGlobal SpLim
 hp                = CmmGlobal Hp
 hpLim             = CmmGlobal HpLim
 currentTSO        = CmmGlobal CurrentTSO
 currentNursery    = CmmGlobal CurrentNursery
+currentAlloc      = CmmGlobal CurrentAlloc
+nursery           = CmmGlobal Nursery
 hpAlloc           = CmmGlobal HpAlloc
+rc                = CmmGlobal RC
 
 -- -----------------------------------------------------------------------------
 -- For certain types passed to foreign calls, we adjust the actual

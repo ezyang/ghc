@@ -76,7 +76,6 @@ extern __thread gc_thread* gct;
 GLOBAL_REG_DECL(gc_thread*, gct, REG_Base)
 #define DECLARE_GCT /* nothing */
 
-
 #elif defined(REG_R1)
 
 GLOBAL_REG_DECL(gc_thread*, gct, REG_R1)

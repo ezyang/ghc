@@ -79,8 +79,6 @@ void dirty_TVAR(Capability *cap, StgTVar *p);
    Nursery manipulation
    -------------------------------------------------------------------------- */
 
-extern nursery *nurseries;
-
 void     resetNurseries       ( void );
 void     clearNursery         ( Capability *cap );
 void     resizeNurseries      ( W_ blocks );
