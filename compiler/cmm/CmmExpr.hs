@@ -426,6 +426,7 @@ data GlobalReg
   | CCCS                -- Current cost-centre stack
   | CurrentTSO          -- pointer to current thread's TSO
   | CurrentNursery      -- pointer to allocation area
+  | Nursery             -- pointer to nursery containing CurrentNursery
   | HpAlloc             -- allocation count for heap check failure
 
                 -- We keep the address of some commonly-called
@@ -463,6 +464,7 @@ instance Eq GlobalReg where
    CCCS == CCCS = True
    CurrentTSO == CurrentTSO = True
    CurrentNursery == CurrentNursery = True
+   Nursery == Nursery = True
    HpAlloc == HpAlloc = True
    EagerBlackholeInfo == EagerBlackholeInfo = True
    GCEnter1 == GCEnter1 = True
@@ -487,6 +489,7 @@ instance Ord GlobalReg where
    compare CCCS CCCS = EQ
    compare CurrentTSO CurrentTSO = EQ
    compare CurrentNursery CurrentNursery = EQ
+   compare Nursery Nursery = EQ
    compare HpAlloc HpAlloc = EQ
    compare EagerBlackholeInfo EagerBlackholeInfo = EQ
    compare GCEnter1 GCEnter1 = EQ
@@ -521,6 +524,8 @@ instance Ord GlobalReg where
    compare _ CurrentTSO = GT
    compare CurrentNursery _ = LT
    compare _ CurrentNursery = GT
+   compare Nursery _ = LT
+   compare _ Nursery = GT
    compare HpAlloc _ = LT
    compare _ HpAlloc = GT
    compare GCEnter1 _ = LT
