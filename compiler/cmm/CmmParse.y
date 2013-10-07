@@ -998,6 +998,7 @@ isPtrGlobalReg HpLim                 = True
 isPtrGlobalReg CCCS                  = True
 isPtrGlobalReg CurrentTSO            = True
 isPtrGlobalReg CurrentNursery        = True
+isPtrGlobalReg CurrentAlloc          = True
 isPtrGlobalReg Nursery               = True
 isPtrGlobalReg (VanillaReg _ VGcPtr) = True
 isPtrGlobalReg _                     = False
