@@ -344,7 +344,7 @@ wanteds = concat
 
           ,fieldOffset Both "Capability" "r"
           ,fieldOffset C    "Capability" "lock"
-          ,structField C    "Capability" "no"
+          ,structFieldH Both "Capability" "no"
           ,structField C    "Capability" "mut_lists"
           ,structField C    "Capability" "context_switch"
           ,structField C    "Capability" "interrupt"
