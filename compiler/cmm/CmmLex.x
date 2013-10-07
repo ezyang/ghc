@@ -109,6 +109,7 @@ $white_no_nl+		;
   CCCS                  { global_reg CCCS }
   CurrentTSO            { global_reg CurrentTSO }
   CurrentNursery        { global_reg CurrentNursery }
+  CurrentAlloc          { global_reg CurrentAlloc }
   Nursery               { global_reg Nursery }
   HpAlloc		{ global_reg HpAlloc }
   BaseReg		{ global_reg BaseReg }

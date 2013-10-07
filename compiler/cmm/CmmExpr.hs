@@ -426,6 +426,7 @@ data GlobalReg
   | CCCS                -- Current cost-centre stack
   | CurrentTSO          -- pointer to current thread's TSO
   | CurrentNursery      -- pointer to allocation area
+  | CurrentAlloc        -- pointer to RTS allocation area
   | Nursery             -- pointer to nursery containing CurrentNursery
   | HpAlloc             -- allocation count for heap check failure
 
@@ -464,6 +465,7 @@ instance Eq GlobalReg where
    CCCS == CCCS = True
    CurrentTSO == CurrentTSO = True
    CurrentNursery == CurrentNursery = True
+   CurrentAlloc == CurrentAlloc = True
    Nursery == Nursery = True
    HpAlloc == HpAlloc = True
    EagerBlackholeInfo == EagerBlackholeInfo = True
@@ -489,6 +491,7 @@ instance Ord GlobalReg where
    compare CCCS CCCS = EQ
    compare CurrentTSO CurrentTSO = EQ
    compare CurrentNursery CurrentNursery = EQ
+   compare CurrentAlloc CurrentAlloc = EQ
    compare Nursery Nursery = EQ
    compare HpAlloc HpAlloc = EQ
    compare EagerBlackholeInfo EagerBlackholeInfo = EQ
@@ -524,6 +527,8 @@ instance Ord GlobalReg where
    compare _ CurrentTSO = GT
    compare CurrentNursery _ = LT
    compare _ CurrentNursery = GT
+   compare CurrentAlloc _ = LT
+   compare _ CurrentAlloc = GT
    compare Nursery _ = LT
    compare _ Nursery = GT
    compare HpAlloc _ = LT
