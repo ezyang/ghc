@@ -2,6 +2,7 @@
 #include "RtsUtils.h"
 #include "ResourceLimits.h"
 #include "sm/GC.h"
+#include "sm/Storage.h"
 
 ResourceContainer *RC_MAIN = NULL;
 ResourceContainer *RC_LIST = NULL;
@@ -35,6 +36,29 @@ rtsBool
 allocBlockFor(bdescr **pbd, ResourceContainer *rc)
 {
     return allocGroupFor(pbd, 1, rc);
+}
+
+// XXX refactor this to not take the lock unless we actually go in
+// the manager
+
+rtsBool
+allocGroupFor_lock(bdescr **pbd, W_ n, ResourceContainer *rc)
+{
+    rtsBool r;
+    ACQUIRE_SM_LOCK;
+    r = allocGroupFor(pbd, n, rc);
+    RELEASE_SM_LOCK;
+    return r;
+}
+
+rtsBool
+allocBlockFor_lock(bdescr **pbd, ResourceContainer *rc)
+{
+    rtsBool r;
+    ACQUIRE_SM_LOCK;
+    r = allocBlockFor(pbd, rc);
+    RELEASE_SM_LOCK;
+    return r;
 }
 
 void

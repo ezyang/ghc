@@ -21,6 +21,12 @@ typedef struct ResourceContainer_ {
     rcthread threads[FLEXIBLE_ARRAY];
 } ResourceContainer;
 
+rtsBool allocGroupFor(bdescr **pbd, W_ n, ResourceContainer *rc);
+rtsBool allocBlockFor(bdescr **pbd, ResourceContainer *rc);
+
+rtsBool allocGroupFor_lock(bdescr **pbd, W_ n, ResourceContainer *rc);
+rtsBool allocBlockFor_lock(bdescr **pbd, ResourceContainer *rc);
+
 void initResourceLimits(void);
 ResourceContainer *newResourceContainer(nat max_blocks, ResourceContainer *parent);
 

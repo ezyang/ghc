@@ -19,10 +19,4 @@ typedef struct ResourceContainer_ ResourceContainer;
 extern ResourceContainer *RC_MAIN;
 extern ResourceContainer *RC_LIST;
 
-// reports failure if resource-container bound is hit
-rtsBool allocGroupFor(bdescr **bd, W_ n, ResourceContainer *rc);
-rtsBool allocBlockFor(bdescr **bd, ResourceContainer *rc);
-
-// TODO: lock versions?
-
 #endif /* RTS_RESOURCE_LIMITS_H */
