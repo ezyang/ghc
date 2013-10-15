@@ -16,19 +16,27 @@ typedef struct ResourceContainer_ {
     char *label;
     struct ResourceContainer_ *link;
     struct ResourceContainer_ *parent;
-    memcount max_blocks;
+    memcount soft_max_blocks;
+    memcount hard_max_blocks;
     memcount used_blocks;
+    nat status;
     rcthread threads[FLEXIBLE_ARRAY];
 } ResourceContainer;
+
+#define RC_NORMAL       0
+#define RC_RECOVERING   1
+#define RC_KILLED       2
 
 rtsBool allocGroupFor(bdescr **pbd, W_ n, ResourceContainer *rc);
 rtsBool allocBlockFor(bdescr **pbd, ResourceContainer *rc);
 
-rtsBool allocGroupFor_lock(bdescr **pbd, W_ n, ResourceContainer *rc);
-rtsBool allocBlockFor_lock(bdescr **pbd, ResourceContainer *rc);
+bdescr *forceAllocGroupFor(W_ n, ResourceContainer *rc);
+bdescr *forceAllocBlockFor(ResourceContainer *rc);
 
 void initResourceLimits(void);
 ResourceContainer *newResourceContainer(nat max_blocks, ResourceContainer *parent);
+
+const char *rc_status(ResourceContainer *rc);
 
 #include "EndPrivate.h"
 

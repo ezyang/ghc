@@ -28,6 +28,7 @@
 #include "Weak.h"
 #include "sm/GC.h" // waitForGcThreads, releaseGCThreads, N
 #include "sm/GCThread.h"
+#include "sm/BlockAlloc.h" // neededBlocks
 #include "Sparks.h"
 #include "Capability.h"
 #include "Task.h"
@@ -1110,7 +1111,41 @@ scheduleHandleHeapOverflow( Capability *cap, StgTSO *t )
 	    cap->r.rNursery->n_blocks == 1) {  // paranoia to prevent infinite loop
 	                                       // if the nursery has only one block.
 	    
-            bd = allocGroup_lock(blocks);
+            ACQUIRE_SM_LOCK;
+            ResourceContainer *rc = cap->r.rRC;
+            if(!allocGroupFor(&bd, blocks, rc)) {
+                debugTrace(DEBUG_gc,
+                    "heap overflow of TSO %ld (%p): "
+                    "rc %s (%p) too large (%s request of %ld blocks; max is %ld/%ld)",
+                    (long)t->id, t,
+                    rc->label, rc,
+                    rc_status(rc),
+                    (long)(rc->used_blocks + neededBlocks(blocks)),
+                    (long)rc->soft_max_blocks,
+                    (long)rc->hard_max_blocks);
+                if ((t->flags & TSO_BLOCKEX) == 0) {
+                    throwToSingleThreaded(cap, t, (StgClosure *)heapOverflow_closure);
+                    // the next allocation by user-supplied recovering handler
+                    // will succeed if it was soft, or we'll hit a TCB
+                    // recovering handler which will allocate somewhere
+                    // else
+                    goto gc;
+                } else {
+                    // See note [Throw to self when masked]
+                    // NB: This really ought not to happen; bad things
+                    // can happen if untrusted code gets its grubby
+                    // hands on the mask.  We /have/ to give the process
+                    // the memory, otherwise it will infinite loop.
+                    MessageThrowTo *msg = (MessageThrowTo*)allocate(cap, sizeofW(MessageThrowTo));
+                    SET_HDR(msg, &stg_MSG_THROWTO_info, CCS_SYSTEM);
+                    msg->source = t;
+                    msg->target = t;
+                    msg->exception = (StgClosure *)heapOverflow_closure;
+                    blockedThrowTo(cap, t, msg);
+                    bd = forceAllocGroupFor(blocks, rc);
+                }
+            }
+            RELEASE_SM_LOCK;
             cap->r.rNursery->n_blocks += blocks;
 	    
 	    // link the new group into the list
@@ -1156,6 +1191,8 @@ scheduleHandleHeapOverflow( Capability *cap, StgTSO *t )
 	    return rtsFalse;  /* not actually GC'ing */
 	}
     }
+
+gc:
     
     if (cap->r.rHpLim == NULL || cap->context_switch) {
         // Sometimes we miss a context switch, e.g. when calling

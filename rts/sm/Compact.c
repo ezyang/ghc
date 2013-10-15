@@ -907,7 +907,7 @@ update_bkwd_compact( generation *gen )
     return free_blocks;
 }
 
-void
+void GNU_ATTRIBUTE(__noreturn__)
 compact(StgClosure *static_objects)
 {
     W_ n, g, blocks;

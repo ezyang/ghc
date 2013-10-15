@@ -3,9 +3,23 @@
 #include "ResourceLimits.h"
 #include "sm/GC.h"
 #include "sm/Storage.h"
+#include "sm/BlockAlloc.h"
 
 ResourceContainer *RC_MAIN = NULL;
 ResourceContainer *RC_LIST = NULL;
+
+const char*
+rc_status(ResourceContainer *rc)
+{
+    if (rc->status == RC_NORMAL) {
+        return "NORMAL";
+    } else if (rc->status == RC_RECOVERING) {
+        return "RECOVERING";
+    } else {
+        ASSERT(rc->status == RC_KILLED);
+        return "KILLED";
+    }
+}
 
 rtsBool
 allocGroupFor(bdescr **pbd, W_ n, ResourceContainer *rc)
@@ -14,22 +28,49 @@ allocGroupFor(bdescr **pbd, W_ n, ResourceContainer *rc)
     // (code duplication!)  We have to do this before we actually
     // commit to allocating any blocks
     W_ real = 0;
-    if (rc->max_blocks != 0) {
-        if (n >= BLOCKS_PER_MBLOCK) {
-            real = BLOCKS_TO_MBLOCKS(n) * BLOCKS_PER_MBLOCK;
-        } else {
-            real = n;
+    // XXX synchronization
+    // Idea: normally, check against soft limit. However, if the
+    // container is recovering from an exception thrown from exceeding
+    // the soft limit, check for the hard limit instead.  Note that
+    // the user needs to explicitly set a thread back to normal state
+    // in order to trigger soft exceptions to be thrown again.
+    //
+    // NB: soft_max_blocks <= hard_max_blocks
+    if (rc->status == RC_NORMAL) {
+        if (rc->soft_max_blocks != 0) {
+            real = neededBlocks(n);
+            if (rc->used_blocks + real > rc->soft_max_blocks) {
+                rc->status = RC_RECOVERING;
+                return rtsFalse;
+            }
         }
-        // check and make sure that we're within our limits
-        if (rc->used_blocks + real > rc->max_blocks) {
-            return rtsFalse;
+    } else if (rc->status == RC_RECOVERING) {
+        if (rc->hard_max_blocks != 0) {
+            real = neededBlocks(n);
+            if (rc->used_blocks + real > rc->hard_max_blocks) {
+                rc->status = RC_KILLED;
+                return rtsFalse;
+            }
         }
+    } else {
+        ASSERT(rc->status == RC_KILLED);
+        return rtsFalse;
     }
     bdescr *bd = allocGroup(n);
     ASSERT(real == 0 || bd->blocks == real);
     bd->rc = rc;
+    rc->used_blocks += bd->blocks;
     *pbd = bd;
     return rtsTrue;
+}
+
+bdescr *
+forceAllocGroupFor(W_ n, ResourceContainer *rc)
+{
+    bdescr *bd = allocGroup(n);
+    rc->used_blocks += bd->blocks;
+    ASSERT(rc->used_blocks > rc->hard_max_blocks);
+    return bd;
 }
 
 rtsBool
@@ -38,27 +79,10 @@ allocBlockFor(bdescr **pbd, ResourceContainer *rc)
     return allocGroupFor(pbd, 1, rc);
 }
 
-// XXX refactor this to not take the lock unless we actually go in
-// the manager
-
-rtsBool
-allocGroupFor_lock(bdescr **pbd, W_ n, ResourceContainer *rc)
+bdescr *
+forceAllocBlockFor(ResourceContainer *rc)
 {
-    rtsBool r;
-    ACQUIRE_SM_LOCK;
-    r = allocGroupFor(pbd, n, rc);
-    RELEASE_SM_LOCK;
-    return r;
-}
-
-rtsBool
-allocBlockFor_lock(bdescr **pbd, ResourceContainer *rc)
-{
-    rtsBool r;
-    ACQUIRE_SM_LOCK;
-    r = allocBlockFor(pbd, rc);
-    RELEASE_SM_LOCK;
-    return r;
+    return forceAllocGroupFor(1, rc);
 }
 
 void
@@ -82,7 +106,8 @@ initResourceLimits(void)
     RC_MAIN->label = "RC_MAIN";
     RC_MAIN->link = NULL;
     RC_MAIN->parent = NULL;
-    RC_MAIN->max_blocks = 0; // unlimited
+    RC_MAIN->soft_max_blocks = 0; // unlimited
+    RC_MAIN->hard_max_blocks = 0; // unlimited
     RC_MAIN->used_blocks = 0; // XXX inaccurate but whatever
     IF_DEBUG(sanity, memset(RC_MAIN->threads, 0xDD, n * sizeof(rcthread)));
 
@@ -95,7 +120,8 @@ newResourceContainer(nat max_blocks, ResourceContainer *parent)
     // XXX leaky; need to do something like unloadObj
     ResourceContainer *rc = stgMallocBytes(sizeof(ResourceContainer), "newResourceContainer");
     rc->label = "DYNAMIC(*)";
-    rc->max_blocks = max_blocks;
+    rc->soft_max_blocks = max_blocks;
+    rc->hard_max_blocks = max_blocks + 8; // XXX make customizable
     rc->used_blocks = 0; // will be bumped shortly
     rc->parent = parent;
     // initialize the workspaces
