@@ -117,15 +117,26 @@ initResourceLimits(void)
 ResourceContainer *
 newResourceContainer(nat max_blocks, ResourceContainer *parent)
 {
+    nat i;
     // XXX leaky; need to do something like unloadObj
-    ResourceContainer *rc = stgMallocBytes(sizeof(ResourceContainer), "newResourceContainer");
+    ResourceContainer *rc = stgMallocBytes(sizeof(ResourceContainer) + n_capabilities * sizeof(rcthread),
+                                           "newResourceContainer");
     rc->label = "DYNAMIC(*)";
     rc->soft_max_blocks = max_blocks;
     rc->hard_max_blocks = max_blocks + 8; // XXX make customizable
     rc->used_blocks = 0; // will be bumped shortly
     rc->parent = parent;
     // initialize the workspaces
+    IF_DEBUG(sanity, memset(rc->threads, 0xDD, n_capabilities * sizeof(rcthread)));
     initContainerGcThreads(rc, 0, n_capabilities);
+    for (i = 0; i < n_capabilities; i++) {
+        // ToDo: copied from allocNurseries
+        rc->threads[i].nursery.blocks =
+            allocNursery(NULL, RtsFlags.GcFlags.minAllocAreaSize, rc);
+        rc->threads[i].nursery.n_blocks =
+            RtsFlags.GcFlags.minAllocAreaSize;
+        rc->threads[i].currentNursery = rc->threads[i].nursery.blocks;
+    }
     // XXX add a lock here
     rc->link = RC_LIST;
     RC_LIST = rc;

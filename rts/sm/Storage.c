@@ -428,8 +428,8 @@ newDynCAF (StgRegTable *reg STG_UNUSED, StgClosure *caf, StgClosure *bh)
    Nursery management.
    -------------------------------------------------------------------------- */
 
-static bdescr *
-allocNursery (bdescr *tail, W_ blocks)
+bdescr *
+allocNursery (bdescr *tail, W_ blocks, ResourceContainer *rc)
 {
     bdescr *bd = NULL;
     W_ i, n;
@@ -452,9 +452,7 @@ allocNursery (bdescr *tail, W_ blocks)
         for (i = 0; i < n; i++) {
             initBdescr(&bd[i], g0, g0);
 
-            // XXX
-            bd[i].rc = RC_MAIN;
-
+            bd[i].rc = rc;
             bd[i].blocks = 1;
             bd[i].flags = 0;
 
@@ -507,7 +505,7 @@ allocNurseries (nat from, nat to)
     for (rc = RC_LIST; rc != NULL; rc = rc->link) {
     for (i = from; i < to; i++) {
         rc->threads[i].nursery.blocks =
-            allocNursery(NULL, RtsFlags.GcFlags.minAllocAreaSize);
+            allocNursery(NULL, RtsFlags.GcFlags.minAllocAreaSize, rc);
         rc->threads[i].nursery.n_blocks =
             RtsFlags.GcFlags.minAllocAreaSize;
     }
@@ -554,7 +552,7 @@ countNurseryBlocks (void)
 }
 
 static void
-resizeNursery (nursery *nursery, W_ blocks)
+resizeNursery (nursery *nursery, W_ blocks, ResourceContainer *rc)
 {
   bdescr *bd;
   W_ nursery_blocks;
@@ -565,7 +563,7 @@ resizeNursery (nursery *nursery, W_ blocks)
   if (nursery_blocks < blocks) {
       debugTrace(DEBUG_gc, "increasing size of nursery to %d blocks", 
                  blocks);
-    nursery->blocks = allocNursery(nursery->blocks, blocks-nursery_blocks);
+    nursery->blocks = allocNursery(nursery->blocks, blocks-nursery_blocks, rc);
   } 
   else {
     bdescr *next_bd;
@@ -585,7 +583,7 @@ resizeNursery (nursery *nursery, W_ blocks)
     // might have gone just under, by freeing a large block, so make
     // up the difference.
     if (nursery_blocks < blocks) {
-        nursery->blocks = allocNursery(nursery->blocks, blocks-nursery_blocks);
+        nursery->blocks = allocNursery(nursery->blocks, blocks-nursery_blocks, rc);
     }
   }
   
@@ -603,7 +601,7 @@ resizeNurseriesFixed (W_ blocks)
     ResourceContainer *rc;
     for (rc = RC_LIST; rc != NULL; rc = rc->link) {
     for (i = 0; i < n_capabilities; i++) {
-        resizeNursery(&rc->threads[i].nursery, blocks);
+        resizeNursery(&rc->threads[i].nursery, blocks, rc);
     }
     }
 }
