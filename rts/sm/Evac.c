@@ -25,6 +25,7 @@
 #include "Prelude.h"
 #include "Trace.h"
 #include "LdvProfile.h"
+#include "ResourceLimits.h"
 
 #if defined(PROF_SPIN) && defined(THREADED_RTS) && defined(PARALLEL_GC)
 StgWord64 whitehole_spin = 0;
@@ -35,26 +36,27 @@ StgWord64 whitehole_spin = 0;
 #endif
 
 #if !defined(PARALLEL_GC) || defined(PROFILING)
-#define copy_tag_nolock(p, info, src, size, stp, tag) \
-        copy_tag(p, info, src, size, stp, tag)
+#define copy_tag_nolock(gwt, p, info, src, size, stp, tag) \
+        copy_tag(gwt, p, info, src, size, stp, tag)
 #endif
 
 /* Used to avoid long recursion due to selector thunks
  */
 #define MAX_THUNK_SELECTOR_DEPTH 16
 
-static void eval_thunk_selector (StgClosure **q, StgSelector * p, rtsBool);
-STATIC_INLINE void evacuate_large(StgPtr p);
+static void eval_thunk_selector (gen_workspace *gwt, StgClosure **q, StgSelector * p, rtsBool);
+STATIC_INLINE void evacuate_large(gen_workspace *gwt, StgPtr p);
 
 /* -----------------------------------------------------------------------------
    Allocate some space in which to copy an object.
    -------------------------------------------------------------------------- */
 
 STATIC_INLINE StgPtr
-alloc_for_copy (nat size, nat gen_no)
+alloc_for_copy (gen_workspace *gwt, nat size, nat gen_no)
 {
     StgPtr to;
     gen_workspace *ws;
+    gen_global_workspace *gws;
 
     /* Find out where we're going, using the handy "to" pointer in 
      * the gen of the source object.  If it turns out we need to
@@ -69,7 +71,16 @@ alloc_for_copy (nat size, nat gen_no)
 	}
     }
     
-    ws = &gct->gens[gen_no];  // zero memory references here
+    ws = &gwt[gen_no];
+    gws = &gct->gens[gen_no];  // zero memory references here
+
+    if (!ws->pushed_scan) {
+        // push onto the stack for scavenging
+        *(gws->scan_sp) = ws;
+        IF_DEBUG(sanity, ASSERT(gws->scan_sp - gws->scan_stack < RC_COUNT));
+        gws->scan_sp++;
+        ws->pushed_scan = 1;
+    }
 
     /* chain a new block onto the to-space for the destination gen if
      * necessary.
@@ -77,7 +88,7 @@ alloc_for_copy (nat size, nat gen_no)
     to = ws->todo_free;
     ws->todo_free += size;
     if (ws->todo_free > ws->todo_lim) {
-	to = todo_block_full(size, ws);
+	to = todo_block_full(size, ws, gws);
     }
     ASSERT(ws->todo_free >= ws->todo_bd->free && ws->todo_free <= ws->todo_lim);
 
@@ -89,13 +100,14 @@ alloc_for_copy (nat size, nat gen_no)
    -------------------------------------------------------------------------- */
 
 STATIC_INLINE GNUC_ATTR_HOT void
-copy_tag(StgClosure **p, const StgInfoTable *info, 
+copy_tag(gen_workspace *gwt,
+         StgClosure **p, const StgInfoTable *info, 
          StgClosure *src, nat size, nat gen_no, StgWord tag)
 {
     StgPtr to, from;
     nat i;
 
-    to = alloc_for_copy(size,gen_no);
+    to = alloc_for_copy(gwt,size,gen_no);
     
     from = (StgPtr)src;
     to[0] = (W_)info;
@@ -144,13 +156,13 @@ copy_tag(StgClosure **p, const StgInfoTable *info,
 
 #if defined(PARALLEL_GC) && !defined(PROFILING)
 STATIC_INLINE void
-copy_tag_nolock(StgClosure **p, const StgInfoTable *info, 
+copy_tag_nolock(gen_workspace *gwt, StgClosure **p, const StgInfoTable *info, 
          StgClosure *src, nat size, nat gen_no, StgWord tag)
 {
     StgPtr to, from;
     nat i;
 
-    to = alloc_for_copy(size,gen_no);
+    to = alloc_for_copy(gwt,size,gen_no);
 
     from = (StgPtr)src;
     to[0] = (W_)info;
@@ -181,7 +193,7 @@ copy_tag_nolock(StgClosure **p, const StgInfoTable *info,
  * used to optimise evacuation of TSOs.
  */
 static rtsBool
-copyPart(StgClosure **p, StgClosure *src, nat size_to_reserve, 
+copyPart(gen_workspace *gwt, StgClosure **p, StgClosure *src, nat size_to_reserve, 
          nat size_to_copy, nat gen_no)
 {
     StgPtr to, from;
@@ -206,7 +218,7 @@ spin:
     info = (W_)src->header.info;
 #endif
 
-    to = alloc_for_copy(size_to_reserve, gen_no);
+    to = alloc_for_copy(gwt, size_to_reserve, gen_no);
 
     from = (StgPtr)src;
     to[0] = info;
@@ -233,10 +245,10 @@ spin:
 
 /* Copy wrappers that don't tag the closure after copying */
 STATIC_INLINE GNUC_ATTR_HOT void
-copy(StgClosure **p, const StgInfoTable *info, 
+copy(gen_workspace *gwt, StgClosure **p, const StgInfoTable *info, 
      StgClosure *src, nat size, nat gen_no)
 {
-    copy_tag(p,info,src,size,gen_no,0);
+    copy_tag(gwt,p,info,src,size,gen_no,0);
 }
 
 /* -----------------------------------------------------------------------------
@@ -251,12 +263,12 @@ copy(StgClosure **p, const StgInfoTable *info,
    -------------------------------------------------------------------------- */
 
 STATIC_INLINE void
-evacuate_large(StgPtr p)
+evacuate_large(gen_workspace *gwt STG_UNUSED, StgPtr p)
 {
   bdescr *bd;
   generation *gen, *new_gen;
   nat gen_no, new_gen_no;
-  gen_workspace *ws;
+  gen_global_workspace *gws;
     
   bd = Bdescr(p);
   gen = bd->gen;
@@ -298,11 +310,12 @@ evacuate_large(StgPtr p)
       }
   }
 
-  ws = &gct->gens[new_gen_no];
+  gws = &gct->gens[new_gen_no];  // zero memory references here
   new_gen = &generations[new_gen_no];
 
   bd->flags |= BF_EVACUATED;
   initBdescr(bd, new_gen, new_gen->to);
+  // rc unchanged
 
   // If this is a block of pinned objects, we don't have to scan
   // these objects, because they aren't allowed to contain any
@@ -315,8 +328,8 @@ evacuate_large(StgPtr p)
       new_gen->n_scavenged_large_blocks += bd->blocks;
       if (new_gen != gen) { RELEASE_SPIN_LOCK(&new_gen->sync); }
   } else {
-      bd->link = ws->todo_large_objects;
-      ws->todo_large_objects = bd;
+      bd->link = gws->todo_large_objects;
+      gws->todo_large_objects = bd;
   }
 
   RELEASE_SPIN_LOCK(&gen->sync);
@@ -479,6 +492,15 @@ loop:
 
   bd = Bdescr((P_)q);
 
+  gen_workspace *gwt;
+#ifdef THREADED_RTS
+  // XXX ugh memory dereference for gct->thread_index :-(
+  gwt = bd->rc->threads[gct->thread_index].workspaces;
+#else
+  // on single-threaded, we should be able to avoid another deref
+  gwt = bd->rc->threads[0].workspaces;
+#endif
+
   if ((bd->flags & (BF_LARGE | BF_MARKED | BF_EVACUATED)) != 0) {
 
       // pointer into to-space: just return it.  It might be a pointer
@@ -501,7 +523,7 @@ loop:
       /* evacuate large objects by re-linking them onto a different list.
        */
       if (bd->flags & BF_LARGE) {
-          evacuate_large((P_)q);
+          evacuate_large(gwt, (P_)q);
 	  return;
       }
       
@@ -514,7 +536,7 @@ loop:
       }
       return;
   }
-      
+
   gen_no = bd->dest_no;
 
   info = q->header.info;
@@ -561,7 +583,7 @@ loop:
   case CONSTR_0_1:
   {   
 #if defined(COMPILING_WINDOWS_DLL)
-      copy_tag_nolock(p,info,q,sizeofW(StgHeader)+1,gen_no,tag);
+      copy_tag_nolock(gwt,p,info,q,sizeofW(StgHeader)+1,gen_no,tag);
 #else
       StgWord w = (StgWord)q->payload[0];
       if (info == Czh_con_info &&
@@ -578,7 +600,7 @@ loop:
 			     );
       }
       else {
-          copy_tag_nolock(p,info,q,sizeofW(StgHeader)+1,gen_no,tag);
+          copy_tag_nolock(gwt,p,info,q,sizeofW(StgHeader)+1,gen_no,tag);
       }
 #endif
       return;
@@ -587,12 +609,12 @@ loop:
   case FUN_0_1:
   case FUN_1_0:
   case CONSTR_1_0:
-      copy_tag_nolock(p,info,q,sizeofW(StgHeader)+1,gen_no,tag);
+      copy_tag_nolock(gwt,p,info,q,sizeofW(StgHeader)+1,gen_no,tag);
       return;
 
   case THUNK_1_0:
   case THUNK_0_1:
-      copy(p,info,q,sizeofW(StgThunk)+1,gen_no);
+      copy(gwt,p,info,q,sizeofW(StgThunk)+1,gen_no);
       return;
 
   case THUNK_1_1:
@@ -601,7 +623,7 @@ loop:
 #ifdef NO_PROMOTE_THUNKS
 #error bitrotted
 #endif
-    copy(p,info,q,sizeofW(StgThunk)+2,gen_no);
+    copy(gwt,p,info,q,sizeofW(StgThunk)+2,gen_no);
     return;
 
   case FUN_1_1:
@@ -609,21 +631,21 @@ loop:
   case FUN_0_2:
   case CONSTR_1_1:
   case CONSTR_2_0:
-      copy_tag_nolock(p,info,q,sizeofW(StgHeader)+2,gen_no,tag);
+      copy_tag_nolock(gwt,p,info,q,sizeofW(StgHeader)+2,gen_no,tag);
       return;
 
   case CONSTR_0_2:
-      copy_tag_nolock(p,info,q,sizeofW(StgHeader)+2,gen_no,tag);
+      copy_tag_nolock(gwt,p,info,q,sizeofW(StgHeader)+2,gen_no,tag);
       return;
 
   case THUNK:
-      copy(p,info,q,thunk_sizeW_fromITBL(INFO_PTR_TO_STRUCT(info)),gen_no);
+      copy(gwt,p,info,q,thunk_sizeW_fromITBL(INFO_PTR_TO_STRUCT(info)),gen_no);
       return;
 
   case FUN:
   case IND_PERM:
   case CONSTR:
-      copy_tag_nolock(p,info,q,sizeW_fromITBL(INFO_PTR_TO_STRUCT(info)),gen_no,tag);
+      copy_tag_nolock(gwt,p,info,q,sizeW_fromITBL(INFO_PTR_TO_STRUCT(info)),gen_no,tag);
       return;
 
   case BLACKHOLE:
@@ -641,7 +663,7 @@ loop:
               || i == &stg_WHITEHOLE_info 
               || i == &stg_BLOCKING_QUEUE_CLEAN_info
               || i == &stg_BLOCKING_QUEUE_DIRTY_info) {
-              copy(p,info,q,sizeofW(StgInd),gen_no);
+              copy(gwt,p,info,q,sizeofW(StgInd),gen_no);
               return;
           }
           ASSERT(i != &stg_IND_info);
@@ -660,15 +682,15 @@ loop:
   case WEAK:
   case PRIM:
   case MUT_PRIM:
-      copy(p,info,q,sizeW_fromITBL(INFO_PTR_TO_STRUCT(info)),gen_no);
+      copy(gwt,p,info,q,sizeW_fromITBL(INFO_PTR_TO_STRUCT(info)),gen_no);
       return;
 
   case BCO:
-      copy(p,info,q,bco_sizeW((StgBCO *)q),gen_no);
+      copy(gwt,p,info,q,bco_sizeW((StgBCO *)q),gen_no);
       return;
 
   case THUNK_SELECTOR:
-      eval_thunk_selector(p, (StgSelector *)q, rtsTrue);
+      eval_thunk_selector(gwt,p, (StgSelector *)q, rtsTrue);
       return;
 
   case IND:
@@ -687,24 +709,25 @@ loop:
   case CATCH_STM_FRAME:
   case CATCH_RETRY_FRAME:
   case ATOMICALLY_FRAME:
+  case RC_FRAME:
     // shouldn't see these 
     barf("evacuate: stack frame at %p\n", q);
 
   case PAP:
-      copy(p,info,q,pap_sizeW((StgPAP*)q),gen_no);
+      copy(gwt,p,info,q,pap_sizeW((StgPAP*)q),gen_no);
       return;
 
   case AP:
-      copy(p,info,q,ap_sizeW((StgAP*)q),gen_no);
+      copy(gwt,p,info,q,ap_sizeW((StgAP*)q),gen_no);
       return;
 
   case AP_STACK:
-      copy(p,info,q,ap_stack_sizeW((StgAP_STACK*)q),gen_no);
+      copy(gwt,p,info,q,ap_stack_sizeW((StgAP_STACK*)q),gen_no);
       return;
 
   case ARR_WORDS:
       // just copy the block 
-      copy(p,info,q,arr_words_sizeW((StgArrWords *)q),gen_no);
+      copy(gwt,p,info,q,arr_words_sizeW((StgArrWords *)q),gen_no);
       return;
 
   case MUT_ARR_PTRS_CLEAN:
@@ -712,11 +735,11 @@ loop:
   case MUT_ARR_PTRS_FROZEN:
   case MUT_ARR_PTRS_FROZEN0:
       // just copy the block 
-      copy(p,info,q,mut_arr_ptrs_sizeW((StgMutArrPtrs *)q),gen_no);
+      copy(gwt,p,info,q,mut_arr_ptrs_sizeW((StgMutArrPtrs *)q),gen_no);
       return;
 
   case TSO:
-      copy(p,info,q,sizeofW(StgTSO),gen_no);
+      copy(gwt,p,info,q,sizeofW(StgTSO),gen_no);
       return;
 
   case STACK:
@@ -730,7 +753,7 @@ loop:
 	  StgPtr r, s;
           rtsBool mine;
 
-          mine = copyPart(p,(StgClosure *)stack, stack_sizeW(stack),
+          mine = copyPart(gwt,p,(StgClosure *)stack, stack_sizeW(stack),
                           sizeofW(StgStack), gen_no);
           if (mine) {
               new_stack = (StgStack *)*p;
@@ -745,7 +768,7 @@ loop:
     }
 
   case TREC_CHUNK:
-      copy(p,info,q,sizeofW(StgTRecChunk),gen_no);
+      copy(gwt,p,info,q,sizeofW(StgTRecChunk),gen_no);
       return;
 
   default:
@@ -819,7 +842,7 @@ unchain_thunk_selectors(StgSelector *p, StgClosure *val)
 }
 
 static void
-eval_thunk_selector (StgClosure **q, StgSelector * p, rtsBool evac)
+eval_thunk_selector (gen_workspace *gwt, StgClosure **q, StgSelector * p, rtsBool evac)
                  // NB. for legacy reasons, p & q are swapped around :(
 {
     nat field;
@@ -1057,7 +1080,7 @@ selector_loop:
           // rtsFalse says "don't evacuate the result".  It will,
           // however, update any THUNK_SELECTORs that are evaluated
           // along the way.
-	  eval_thunk_selector(&val, (StgSelector*)selectee, rtsFalse);
+	  eval_thunk_selector(gwt, &val, (StgSelector*)selectee, rtsFalse);
 	  gct->thunk_selector_depth--;
 
           // did we actually manage to evaluate it?
@@ -1094,7 +1117,7 @@ bale_out:
     // check whether it was updated in the meantime.
     *q = (StgClosure *)p;
     if (evac) {
-        copy(q,(const StgInfoTable *)info_ptr,(StgClosure *)p,THUNK_SELECTOR_sizeW(),bd->dest_no);
+        copy(gwt,q,(const StgInfoTable *)info_ptr,(StgClosure *)p,THUNK_SELECTOR_sizeW(),bd->dest_no);
     }
     unchain_thunk_selectors(prev_thunk_selector, *q);
     return;

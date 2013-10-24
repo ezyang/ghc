@@ -22,6 +22,7 @@
 #include "RtsUtils.h"
 #include "BlockAlloc.h"
 #include "OSMem.h"
+#include "ResourceLimits.h"
 
 #include <string.h>
 
@@ -52,6 +53,14 @@ static void  initMBlock(void *mblock);
       - number of blocks in this group otherwise
 
    bd->link either points to a block descriptor or is NULL
+
+   bd->rc either points to a resource container or is NULL.  Sometimes
+   all blocks in a group will have their rc set (e.g. nursery blocks),
+   other times only the head will have it set.  It is arranged so Bdescr
+   always reports the right RC; it follows the same rules as gen/gen_no
+
+   ToDo: It really ought not to be handled here, but it's quite convenient
+   for the block count.
 
    The following fields are not used by the allocator:
      bd->flags
@@ -196,10 +205,13 @@ initGroup(bdescr *head)
   n = head->blocks > BLOCKS_PER_MBLOCK ? 1 : head->blocks;
   head->free   = head->start;
   head->link   = NULL;
+  head->rc     = NULL;
   for (i=1, bd = head+1; i < n; i++, bd++) {
       bd->free = 0;
       bd->blocks = 0;
       bd->link = head;
+      // ToDo: might as well clear it, but it should not be necessary
+      bd->rc = NULL;
   }
 }
 
@@ -266,6 +278,7 @@ setup_tail (bdescr *bd)
 
 // Take a free block group bd, and split off a group of size n from
 // it.  Adjust the free list as necessary, and return the new group.
+// The new group is uninitialized.
 static bdescr *
 split_free_block (bdescr *bd, W_ n, nat ln)
 {
@@ -336,11 +349,19 @@ alloc_mega_group (StgWord mblocks)
     return bd;
 }
 
+// NB: This function /accurately/ reports the total number of blocks
+// that are needed to service an allocation of size n (including extra
+// blocks from a megablock group).  However, it does not report the
+// blocks used for block descriptors.  (This only constitutes a 4k loss
+// of precision for every 1+ MB lump allocation, which results in less
+// than a constant factor higher effective allocation.)  Invariant is
+// that neededBlocks coincides with the blocks field of the resulting
+// allocation.
 W_
 neededBlocks(W_ n)
 {
     if (n >= BLOCKS_PER_MBLOCK) {
-        return BLOCKS_TO_MBLOCKS(n) * BLOCKS_PER_MBLOCK;
+        return MBLOCK_GROUP_BLOCKS(BLOCKS_TO_MBLOCKS(n));
     } else {
         return n;
     }
@@ -441,14 +462,14 @@ finish:
 // fragmentation, but we make sure that we allocate large blocks
 // preferably if there are any.
 //
-bdescr *
-allocLargeChunk (W_ min, W_ max)
+rtsBool
+allocLargeChunkFor (bdescr **pbd, W_ min, W_ max, ResourceContainer *rc)
 {
     bdescr *bd;
     StgWord ln, lnmax;
 
     if (min >= BLOCKS_PER_MBLOCK) {
-        return allocGroup(max);
+        return allocGroupFor(pbd, max, rc);
     }
 
     ln = log_2_ceil(min);
@@ -458,28 +479,37 @@ allocLargeChunk (W_ min, W_ max)
         ln++;
     }
     if (ln == lnmax) {
-        return allocGroup(max);
+        return allocGroupFor(pbd, max, rc);
     }
     bd = free_list[ln];
 
     if (bd->blocks <= max)              // exactly the right size!
     {
+        if (rc->max_blocks != 0 && rc->used_blocks + bd->blocks > rc->max_blocks) {
+            return rtsFalse;
+        }
         dbl_link_remove(bd, &free_list[ln]);
         initGroup(bd);
     }
     else   // block too big...
     {                              
+        // XXX derp. But bd->blocks is not right
+        if (rc->max_blocks != 0 && rc->used_blocks + max > rc->max_blocks) {
+            return rtsFalse;
+        }
         bd = split_free_block(bd, max, ln);
         ASSERT(bd->blocks == max);
         initGroup(bd);
     }
 
     n_alloc_blocks += bd->blocks;
+    allocNotifyRC(rc, bd);
     if (n_alloc_blocks > hw_alloc_blocks) hw_alloc_blocks = n_alloc_blocks;
 
     IF_DEBUG(sanity, memset(bd->start, 0xaa, bd->blocks * BLOCK_SIZE));
     IF_DEBUG(sanity, checkFreeListSanity());
-    return bd;
+    *pbd = bd;
+    return rtsTrue;
 }
 
 bdescr *
@@ -577,6 +607,7 @@ freeGroup(bdescr *p)
   p->free = (void *)-1;  /* indicates that this block is free */
   p->gen = NULL;
   p->gen_no = 0;
+  // p->rc zeroed by freeNotifyRC
   /* fill the block group with garbage if sanity checking is on */
   IF_DEBUG(sanity,memset(p->start, 0xaa, (W_)p->blocks * BLOCK_SIZE));
 
@@ -592,12 +623,20 @@ freeGroup(bdescr *p)
 
       n_alloc_blocks -= mblocks * BLOCKS_PER_MBLOCK;
 
+      // uncharge it from its container
+      if (p->rc != NULL) {
+          freeNotifyRC(p->rc, p);
+      }
+
       free_mega_group(p);
       return;
   }
 
   ASSERT(n_alloc_blocks >= p->blocks);
   n_alloc_blocks -= p->blocks;
+  if (p->rc != NULL) {
+      freeNotifyRC(p->rc, p);
+  }
 
   // coalesce forwards
   {
@@ -705,6 +744,32 @@ countBlocks(bdescr *bd)
     return n;
 }
 
+W_
+countBlocksWithoutRC(bdescr *bd)
+{
+    W_ n;
+    for (n=0; bd != NULL; bd=bd->link) {
+	n += bd->blocks;
+        ASSERT(bd->rc == NULL);
+    }
+    return n;
+}
+
+W_
+inventoryBlocks(bdescr *bd, ResourceContainer *rc)
+{
+    W_ n;
+    for (n=0; bd != NULL; bd=bd->link) {
+	n += bd->blocks;
+        ASSERT(rc == NULL || rc == bd->rc);
+        ASSERT(bd->rc != NULL);
+        ASSERT(bd->rc->status != RC_DEAD);
+        bd->rc->u.count += bd->blocks;
+        IF_DEBUG(sanity, ASSERT(lookupHashTable(bd->rc->block_record, (StgWord)bd) == (void*)(StgWord)bd->blocks));
+    }
+    return n;
+}
+
 // (*1) Just like countBlocks, except that we adjust the count for a
 // megablock group so that it doesn't include the extra few blocks
 // that would be taken up by block descriptors in the second and
@@ -721,6 +786,40 @@ countAllocdBlocks(bdescr *bd)
 	    n -= (MBLOCK_SIZE / BLOCK_SIZE - BLOCKS_PER_MBLOCK)
 		* (bd->blocks/(MBLOCK_SIZE/BLOCK_SIZE));
 	}
+    }
+    return n;
+}
+
+W_
+countAllocdBlocksWithoutRC(bdescr *bd)
+{
+    W_ n;
+    for (n=0; bd != NULL; bd=bd->link) {
+	n += bd->blocks;
+        ASSERT(bd->rc == NULL);
+	// hack for megablock groups: see (*1) above
+	if (bd->blocks > BLOCKS_PER_MBLOCK) {
+	    n -= (MBLOCK_SIZE / BLOCK_SIZE - BLOCKS_PER_MBLOCK)
+		* (bd->blocks/(MBLOCK_SIZE/BLOCK_SIZE));
+	}
+    }
+    return n;
+}
+
+W_
+inventoryAllocdBlocks(bdescr *bd, ResourceContainer *rc)
+{
+    W_ n;
+    for (n=0; bd != NULL; bd=bd->link) {
+        n += bd->blocks;
+        // hack for megablock groups: see (*1) above
+        if (bd->blocks > BLOCKS_PER_MBLOCK) {
+            n -= (MBLOCK_SIZE / BLOCK_SIZE - BLOCKS_PER_MBLOCK)
+                * (bd->blocks/(MBLOCK_SIZE/BLOCK_SIZE));
+        }
+        ASSERT(rc == NULL || rc == bd->rc);
+        // do *not* apply the hack here
+        bd->rc->u.count += bd->blocks;
     }
     return n;
 }
@@ -858,10 +957,12 @@ countFreeList(void)
 
   for (ln=0; ln < MAX_FREE_LIST; ln++) {
       for (bd = free_list[ln]; bd != NULL; bd = bd->link) {
+          ASSERT(bd->rc == NULL);
           total_blocks += bd->blocks;
       }
   }
   for (bd = free_mblock_list; bd != NULL; bd = bd->link) {
+      ASSERT(bd->rc == NULL);
       total_blocks += BLOCKS_PER_MBLOCK * BLOCKS_TO_MBLOCKS(bd->blocks);
       // The caller of this function, memInventory(), expects to match
       // the total number of blocks in the system against mblocks *

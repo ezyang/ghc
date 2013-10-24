@@ -15,6 +15,7 @@
 #include "Hash.h"
 #include "LinkerInternals.h"
 #include "CheckUnload.h"
+#include "ResourceLimits.h"
 #include "sm/Storage.h"
 #include "sm/GCThread.h"
 
@@ -248,7 +249,9 @@ void checkUnload (StgClosure *static_objects)
   const StgInfoTable *info;
   ObjectCode *oc, *prev, *next;
   gen_workspace *ws;
+  gen_global_workspace *gws;
   StgClosure* link;
+  ResourceContainer *rc;
 
   if (unloaded_objects == NULL) return;
 
@@ -278,11 +281,17 @@ void checkUnload (StgClosure *static_objects)
       searchHeapBlocks (addrs, generations[g].blocks);
       searchHeapBlocks (addrs, generations[g].large_objects);
 
+      for (rc = RC_LIST; rc != NULL; rc = rc->link) {
       for (n = 0; n < n_capabilities; n++) {
-          ws = &gc_threads[n]->gens[g];
+          ws = &rc->threads[n].workspaces[g];
           searchHeapBlocks(addrs, ws->todo_bd);
           searchHeapBlocks(addrs, ws->part_list);
-          searchHeapBlocks(addrs, ws->scavd_list);
+      }
+      }
+
+      for (n = 0; n < n_capabilities; n++) {
+          gws = &gc_threads[n]->gens[g];
+          searchHeapBlocks(addrs, gws->scavd_list);
       }
   }
 

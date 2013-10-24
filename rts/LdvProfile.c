@@ -137,6 +137,7 @@ processHeapClosureForDead( StgClosure *c )
     case RET_BCO:
     case RET_SMALL:
     case RET_BIG:
+    case RC_FRAME:
 	// others
     case INVALID_OBJECT:
     default:

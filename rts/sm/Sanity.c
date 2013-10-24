@@ -30,6 +30,7 @@
 #include "RetainerProfile.h"
 #include "StaticClosures.h"
 #include "LinkerInternals.h"
+#include "ResourceLimits.h"
 
 /* -----------------------------------------------------------------------------
    Forward decls.
@@ -118,6 +119,7 @@ checkStackFrame( StgPtr c )
     case UNDERFLOW_FRAME:
     case STOP_FRAME:
     case RET_SMALL:
+    case RC_FRAME:
 	size = BITMAP_SIZE(info->i.layout.bitmap);
 	checkSmallBitmap((StgPtr)c + 1, 
 			 BITMAP_BITS(info->i.layout.bitmap), size);
@@ -365,6 +367,7 @@ checkClosure( StgClosure* p )
     case ATOMICALLY_FRAME:
     case CATCH_RETRY_FRAME:
     case CATCH_STM_FRAME:
+    case RC_FRAME:
 	    barf("checkClosure: stack frame");
 
     case AP:
@@ -695,6 +698,7 @@ static void checkGeneration (generation *gen,
 {
     nat n;
     gen_workspace *ws;
+    ResourceContainer *rc;
 
     ASSERT(countBlocks(gen->blocks) == gen->n_blocks);
     ASSERT(countBlocks(gen->large_objects) == gen->n_large_blocks);
@@ -708,11 +712,15 @@ static void checkGeneration (generation *gen,
 
     checkHeapChain(gen->blocks);
 
+    for (rc = RC_LIST; rc != NULL; rc = rc->link) {
+        for (n = 0; n < n_capabilities; n++) {
+            ws = &rc->threads[n].workspaces[gen->no];
+            checkHeapChain(ws->todo_bd);
+            checkHeapChain(ws->part_list);
+        }
+    }
     for (n = 0; n < n_capabilities; n++) {
-        ws = &gc_threads[n]->gens[gen->no];
-        checkHeapChain(ws->todo_bd);
-        checkHeapChain(ws->part_list);
-        checkHeapChain(ws->scavd_list);
+        checkHeapChain(gc_threads[n]->gens[gen->no].scavd_list);
     }
 
     checkLargeObjects(gen->large_objects);
@@ -722,12 +730,15 @@ static void checkGeneration (generation *gen,
 static void checkFullHeap (rtsBool after_major_gc)
 {
     nat g, n;
+    ResourceContainer *rc;
 
     for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
         checkGeneration(&generations[g], after_major_gc);
     }
+    for (rc = RC_LIST; rc != NULL; rc = rc->link) {
     for (n = 0; n < n_capabilities; n++) {
-        checkNurserySanity(&nurseries[n]);
+        checkNurserySanity(&rc->threads[n].nursery);
+    }
     }
 }
 
@@ -756,20 +767,39 @@ static void
 findMemoryLeak (void)
 {
     nat g, i;
+    ResourceContainer *rc;
     for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
         for (i = 0; i < n_capabilities; i++) {
             markBlocks(capabilities[i]->mut_lists[g]);
-            markBlocks(gc_threads[i]->gens[g].part_list);
-            markBlocks(gc_threads[i]->gens[g].scavd_list);
-            markBlocks(gc_threads[i]->gens[g].todo_bd);
         }
         markBlocks(generations[g].blocks);
+        markBlocks(generations[g].old_blocks);
         markBlocks(generations[g].large_objects);
+    }
+    for (rc = RC_LIST; rc != NULL; rc = rc->link) {
+        for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
+            for (i = 0; i < n_capabilities; i++) {
+                gen_workspace *ws = &rc->threads[i].workspaces[g];
+                markBlocks(ws->part_list);
+                markBlocks(ws->todo_bd);
+            }
+        }
+    }
+    for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
+        for (i = 0; i < n_capabilities; i++) {
+            markBlocks(gc_threads[i]->gens[g].scavd_list);
+        }
+    }
+
+    for (rc = RC_LIST; rc != NULL; rc = rc->link) {
+    for (i = 0; i < n_capabilities; i++) {
+        markBlocks(rc->threads[i].nursery.blocks);
+    }
     }
 
     for (i = 0; i < n_capabilities; i++) {
-        markBlocks(nurseries[i].blocks);
         markBlocks(capabilities[i]->pinned_object_block);
+        markBlocks(capabilities[i]->pinned_object_blocks);
     }
 
 #ifdef PROFILING
@@ -828,43 +858,86 @@ void findSlop(bdescr *bd)
 static W_
 genBlocks (generation *gen)
 {
-    ASSERT(countBlocks(gen->blocks) == gen->n_blocks);
-    ASSERT(countBlocks(gen->large_objects) == gen->n_large_blocks);
+    W_ n_blocks = inventoryBlocks(gen->blocks, NULL);
+    ASSERT(n_blocks == gen->n_blocks);
+    W_ n_old_blocks = inventoryBlocks(gen->old_blocks, NULL);
+    ASSERT(n_old_blocks == gen->n_old_blocks);
     return gen->n_blocks + gen->n_old_blocks + 
-	    countAllocdBlocks(gen->large_objects);
+	    inventoryAllocdBlocks(gen->large_objects, NULL);
+}
+
+// Assume that there aren't any leaks proper
+static void
+assertTableMarked(void *user, StgWord key, void *data)
+{
+    bdescr *bd = (bdescr*)key;
+    StgWord count = (StgWord)data;
+    ResourceContainer *rc = (ResourceContainer*)user;
+    // We're looking for block descriptors which the marked
+    // table thinks belong to a resource container, but
+    // we disagree about
+    ASSERT(bd->rc == rc);
+    ASSERT(bd->blocks == count);
 }
 
 void
 memInventory (rtsBool show)
 {
   nat g, i;
+  ResourceContainer *rc;
   W_ gen_blocks[RtsFlags.GcFlags.generations];
   W_ nursery_blocks, retainer_blocks, static_blocks,
        arena_blocks, exec_blocks;
   W_ live_blocks = 0, free_blocks = 0;
   rtsBool leak;
 
+  // reset RC counters
+
+  for (rc = RC_LIST; rc != NULL; rc = rc->link) {
+      rc->u.count = 0;
+  }
+
   // count the blocks we current have
 
   for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
       gen_blocks[g] = 0;
       for (i = 0; i < n_capabilities; i++) {
-          gen_blocks[g] += countBlocks(capabilities[i]->mut_lists[g]);
-          gen_blocks[g] += countBlocks(gc_threads[i]->gens[g].part_list);
-          gen_blocks[g] += countBlocks(gc_threads[i]->gens[g].scavd_list);
-          gen_blocks[g] += countBlocks(gc_threads[i]->gens[g].todo_bd);
+          gen_blocks[g] += countBlocksWithoutRC(capabilities[i]->mut_lists[g]);
       }
       gen_blocks[g] += genBlocks(&generations[g]);
   }
 
-  nursery_blocks = 0;
-  for (i = 0; i < n_capabilities; i++) {
-      ASSERT(countBlocks(nurseries[i].blocks) == nurseries[i].n_blocks);
-      nursery_blocks += nurseries[i].n_blocks;
-      if (capabilities[i]->pinned_object_block != NULL) {
-          nursery_blocks += capabilities[i]->pinned_object_block->blocks;
+  for (rc = RC_LIST; rc != NULL; rc = rc->link) {
+      for (i = 0; i < n_capabilities; i++) {
+          for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
+              gen_workspace *ws = &rc->threads[i].workspaces[g];
+              gen_blocks[g] += inventoryBlocks(ws->part_list, rc);
+              gen_blocks[g] += inventoryBlocks(ws->todo_bd, rc);
+          }
       }
-      nursery_blocks += countBlocks(capabilities[i]->pinned_object_blocks);
+  }
+  for (i = 0; i < n_capabilities; i++) {
+      for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
+          gen_blocks[g] += inventoryBlocks(gc_threads[i]->gens[g].scavd_list, NULL);
+      }
+  }
+
+  nursery_blocks = 0;
+  for (rc = RC_LIST; rc != NULL; rc = rc->link) {
+      for (i = 0; i < n_capabilities; i++) {
+          W_ cnt = inventoryBlocks(rc->threads[i].nursery.blocks, rc);
+          ASSERT(cnt == rc->threads[i].nursery.n_blocks);
+          nursery_blocks += cnt;
+      }
+  }
+
+  for (i = 0; i < n_capabilities; i++) {
+      if (capabilities[i]->pinned_object_block != NULL) {
+          // XXX looks dodgy
+          nursery_blocks += capabilities[i]->pinned_object_block->blocks;
+          capabilities[i]->pinned_object_block->rc->u.count += capabilities[i]->pinned_object_block->blocks;
+      }
+      nursery_blocks += inventoryBlocks(capabilities[i]->pinned_object_blocks, NULL);
   }
 
   retainer_blocks = 0;
@@ -878,10 +951,11 @@ memInventory (rtsBool show)
   arena_blocks = arenaBlocks();
 
   // count the blocks containing executable memory
-  exec_blocks = countAllocdBlocks(exec_block);
+  exec_blocks = countAllocdBlocksWithoutRC(exec_block);
 
   // count the blocks allocated to hold static closures
   static_blocks = countStaticBlocks();
+  RC_MAIN->u.count += static_blocks; // special cased
 
   // don't forget linker objects
   ObjectCode *oc;
@@ -931,6 +1005,13 @@ memInventory (rtsBool show)
                  free_blocks, MB(free_blocks));
       debugBelch("  total        : %5" FMT_Word " blocks (%6.1lf MB)\n",
                  live_blocks + free_blocks, MB(live_blocks+free_blocks));
+      debugBelch("\n");
+      debugBelch("Containers:\n");
+      for (rc = RC_LIST; rc != NULL; rc = rc->link) {
+          debugBelch("  %-13s: %5" FMT_Word " blocks (%6.1lf MB) [%p] %s\n",
+                  rc->label,
+                  rc->used_blocks, MB(rc->used_blocks), rc, rc_status(rc));
+      }
       if (leak) {
           debugBelch("\n  in system    : %5" FMT_Word " blocks (%" FMT_Word " MB)\n", 
                      (W_)(mblocks_allocated * BLOCKS_PER_MBLOCK), mblocks_allocated);
@@ -943,6 +1024,16 @@ memInventory (rtsBool show)
   }
   ASSERT(n_alloc_blocks == live_blocks);
   ASSERT(!leak);
+
+  // check RC counts (do this after checking for leaks, because a leak
+  // is a more serious matter and basically ~guarantees this check will
+  // fail)
+  for (rc = RC_LIST; rc != NULL; rc = rc->link) {
+      if (rc->u.count != rc->used_blocks) {
+          IF_DEBUG(sanity, iterateHashTable(rc->block_record, assertTableMarked, rc));
+          ASSERT(0);
+      }
+  }
 }
 
 

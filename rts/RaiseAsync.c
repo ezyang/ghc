@@ -826,6 +826,7 @@ raiseAsync(Capability *cap, StgTSO *tso, StgClosure *exception,
 		ap->payload[i] = (StgClosure *)*sp++;
 	    }
 	    
+            // XXX AP_STACK needs to record RC it was running as
 	    SET_HDR(ap,&stg_AP_STACK_info,
 		    ((StgClosure *)frame)->header.prof.ccs /* ToDo */); 
 	    TICK_ALLOC_UP_THK(WDS(words+1),0);
@@ -852,11 +853,20 @@ raiseAsync(Capability *cap, StgTSO *tso, StgClosure *exception,
                             ((StgUpdateFrame *)frame)->updatee, (StgClosure *)ap);
             }
 
+            // XXX manage AP_STACK RC restoration properly
+            tso->rc = ((StgUpdateFrame*)frame)->rc;
+
 	    sp += sizeofW(StgUpdateFrame) - 1;
 	    sp[0] = (W_)ap; // push onto stack
 	    frame = sp + 1;
 	    continue; //no need to bump frame
 	}
+
+        case RC_FRAME:
+        {
+            tso->rc = ((StgRCFrame*)frame)->rc;
+            break;
+        }
 
         case UNDERFLOW_FRAME:
         {
