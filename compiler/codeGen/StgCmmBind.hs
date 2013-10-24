@@ -560,13 +560,14 @@ thunkCode cl_info fv_details _cc node arity body
         ; when (blackHoleOnEntry cl_info && node_points)
                 (blackHoleIt node)
 
-          -- Push update frame
+          -- Push update frame / restore container frame
         ; setupUpdate cl_info node $
             -- We only enter cc after setting up update so
             -- that cc of enclosing scope will be recorded
             -- in update frame CAF/DICT functions will be
             -- subsumed by this enclosing cc
             do { tickyEnterThunk cl_info
+               ; emit rcReset
                ; enterCostCentreThunk (CmmReg nodeReg)
                ; let lf_info = closureLFInfo cl_info
                ; fv_bindings <- mapM bind_fv fv_details
@@ -624,11 +625,11 @@ setupUpdate :: ClosureInfo -> LocalReg -> FCode () -> FCode ()
         -- extracted by a subsequent enterCostCentre
 setupUpdate closure_info node body
   | not (lfUpdatable (closureLFInfo closure_info))
-  = body
+  = pushRestoreContainerFrame body
 
   | not (isStaticClosure closure_info)
   = if not (closureUpdReqd closure_info)
-      then do tickyUpdateFrameOmitted; body
+      then do tickyUpdateFrameOmitted; pushRestoreContainerFrame body
       else do
           tickyPushUpdateFrame
           dflags <- getDynFlags
@@ -649,7 +650,7 @@ setupUpdate closure_info node body
           then do       -- Blackhole the (updatable) CAF:
                 { upd_closure <- link_caf node True
                 ; pushUpdateFrame mkBHUpdInfoLabel upd_closure body }
-          else do {tickyUpdateFrameOmitted; body}
+          else do {tickyUpdateFrameOmitted; pushRestoreContainerFrame body}
     }
 
 -----------------------------------------------------------------------------
@@ -676,9 +677,32 @@ emitUpdateFrame dflags frame lbl updatee = do
   let
            hdr         = fixedHdrSize dflags * wORD_SIZE dflags
            off_updatee = hdr + oFFSET_StgUpdateFrame_updatee dflags
+           off_rc      = hdr + oFFSET_StgUpdateFrame_rc dflags
   --
   emitStore frame (mkLblExpr lbl)
   emitStore (cmmOffset dflags frame off_updatee) updatee
+  emitStore (cmmOffset dflags frame off_rc) (CmmReg (CmmGlobal OldRC))
+  initUpdFrameProf frame
+
+-- A lot like an update frame, but without the updating bit
+pushRestoreContainerFrame :: CmmExpr -> FCode () -> FCode ()
+pushRestoreContainerFrame body = do
+       updfr  <- getUpdFrameOff
+       dflags <- getDynFlags
+       let
+           hdr         = fixedHdrSize dflags * wORD_SIZE dflags
+           frame       = updfr + hdr + sIZEOF_StgRestoreContainerFrame_NoHdr dflags
+       emitRestoreContainerFrame dflags (CmmStackSlot Old frame)
+       withUpdFrameOff frame body
+
+emitRestoreContainerFrame :: DynFlags -> CmmExpr -> FCode ()
+emitRestoreContainerFrame dflags frame = do
+  let
+           hdr         = fixedHdrSize dflags * wORD_SIZE dflags
+           off_rc      = hdr + oFFSET_StgRestoreContainerFrame_rc dflags
+  --
+  emitStore frame (mkLblExpr mkRestoreContainerInfoLabel)
+  emitStore (cmmOffset dflags frame off_rc) (CmmReg (CmmGlobal OldRC))
   initUpdFrameProf frame
 
 -----------------------------------------------------------------------------

@@ -8,6 +8,8 @@ module StgCmmContainer (
         rcType,
         rcFrom,
         rcCurrent,
+        rcReset,
+        rcRestoreFrame,
         ifResourceLimits
   ) where
 
@@ -55,6 +57,10 @@ rcType = bWord
 -- Bdescr(Hp)->rc
 rcCurrent :: DynFlags -> CmmExpr
 rcCurrent _ = CmmReg (CmmGlobal RC)
+
+-- OldRC = RC
+rcReset :: DynFlags -> CmmAGraph
+rcReset dflags = mkAssign (CmmGlobal OldRC) rcCurrent
 
 rcFrom :: DynFlags
                -> CmmExpr       -- A closure pointer

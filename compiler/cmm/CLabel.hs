@@ -433,6 +433,8 @@ mkDirty_MUT_VAR_Label           = mkForeignLabel (fsLit "dirty_MUT_VAR") Nothing
 mkSplitMarkerLabel              = CmmLabel rtsPackageId (fsLit "__stg_split_marker")    CmmCode
 mkUpdInfoLabel                  = CmmLabel rtsPackageId (fsLit "stg_upd_frame")         CmmInfo
 mkBHUpdInfoLabel                = CmmLabel rtsPackageId (fsLit "stg_bh_upd_frame" )     CmmInfo
+-- ToDo: add _frame to the end
+mkRestoreContainerInfoLabel     = CmmLabel rtsPackageId (fsLit "stg_restore_container") CmmInfo
 mkIndStaticInfoLabel            = CmmLabel rtsPackageId (fsLit "stg_IND_STATIC")        CmmInfo
 mkMainCapabilityLabel           = CmmLabel rtsPackageId (fsLit "MainCapability")        CmmData
 mkMAP_FROZEN_infoLabel          = CmmLabel rtsPackageId (fsLit "stg_MUT_ARR_PTRS_FROZEN0") CmmInfo

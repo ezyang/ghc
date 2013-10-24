@@ -157,7 +157,13 @@ typedef struct {
 typedef struct _StgUpdateFrame {
     StgHeader  header;
     StgClosure *updatee;
+    ResourceContainer_ *rc;
 } StgUpdateFrame;
+
+typedef struct _StgRestoreContainerFrame {
+    StgHeader  header;
+    ResourceContainer_ *rc;
+} StgRestoreContainerFrame;
 
 typedef struct {
     StgHeader  header;

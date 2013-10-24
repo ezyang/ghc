@@ -403,6 +403,7 @@ wanteds = concat
           ,structField  Both "StgEntCounter" "entry_count"
 
           ,closureSize Both "StgUpdateFrame"
+          ,closureSize Both "StgRestoreContainerFrame"
           ,closureSize C    "StgCatchFrame"
           ,closureSize C    "StgStopFrame"
 
@@ -439,6 +440,8 @@ wanteds = concat
           ,structSize C "StgTSOProfInfo"
 
           ,closureField Both "StgUpdateFrame" "updatee"
+          ,closureField Both "StgUpdateFrame" "rc"
+          ,closureField Both "StgRestoreContainerFrame" "rc"
 
           ,closureField C "StgCatchFrame" "handler"
           ,closureField C "StgCatchFrame" "exceptions_blocked"
