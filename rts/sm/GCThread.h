@@ -186,16 +186,6 @@ typedef struct gc_thread_ {
     Time gc_start_elapsed;  // process elapsed time
     Time gc_start_thread_cpu; // thread CPU time
     W_ gc_start_faults;
-
-    // -------------------
-    // workspaces
-
-    // array of workspaces, indexed by gen->abs_no.  This is placed
-    // directly at the end of the gc_thread structure so that we can get from
-    // the gc_thread pointer to a workspace using only pointer
-    // arithmetic, no memory access.  This happens in the inner loop
-    // of the GC, see Evac.c:alloc_for_copy().
-    gen_workspace gens[];
 } gc_thread;
 
 

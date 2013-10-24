@@ -28,6 +28,7 @@
 #include "Weak.h"
 #include "sm/GC.h" // waitForGcThreads, releaseGCThreads, N
 #include "sm/GCThread.h"
+#include "sm/BlockAlloc.h" // neededBlocks
 #include "Sparks.h"
 #include "Capability.h"
 #include "Task.h"
@@ -42,6 +43,7 @@
 #include "ThreadPaused.h"
 #include "Messages.h"
 #include "Stable.h"
+#include "ResourceLimits.h"
 
 #ifdef HAVE_SYS_TYPES_H
 #include <sys/types.h>
@@ -1109,7 +1111,32 @@ scheduleHandleHeapOverflow( Capability *cap, StgTSO *t )
 	    cap->r.rNursery->n_blocks == 1) {  // paranoia to prevent infinite loop
 	                                       // if the nursery has only one block.
 	    
-            bd = allocGroup_lock(blocks);
+            ACQUIRE_SM_LOCK;
+            ResourceContainer *rc = cap->r.rRC;
+            if(!allocGroupFor(&bd, blocks, rc)) {
+                if ((t->flags & TSO_BLOCKEX) == 0) {
+                    throwToSingleThreaded(cap, t, (StgClosure *)heapOverflow_closure);
+                    // the next allocation by user-supplied recovering handler
+                    // will succeed if it was soft, or we'll hit a TCB
+                    // recovering handler which will allocate somewhere
+                    // else
+                    goto gc;
+                } else {
+                    // See note [Throw to self when masked]
+                    // NB: This really ought not to happen; bad things
+                    // can happen if untrusted code gets its grubby
+                    // hands on the mask.  We /have/ to give the process
+                    // the memory, otherwise it will infinite loop.
+                    MessageThrowTo *msg = (MessageThrowTo*)allocate(cap, sizeofW(MessageThrowTo));
+                    SET_HDR(msg, &stg_MSG_THROWTO_info, CCS_SYSTEM);
+                    msg->source = t;
+                    msg->target = t;
+                    msg->exception = (StgClosure *)heapOverflow_closure;
+                    blockedThrowTo(cap, t, msg);
+                    bd = forceAllocGroupFor(blocks, rc);
+                }
+            }
+            RELEASE_SM_LOCK;
             cap->r.rNursery->n_blocks += blocks;
 	    
 	    // link the new group into the list
@@ -1123,7 +1150,7 @@ scheduleHandleHeapOverflow( Capability *cap, StgTSO *t )
 	    cap->r.rCurrentNursery->u.back = bd;
 	    
 	    // initialise it as a nursery block.  We initialise the
-	    // step, gen_no, and flags field of *every* sub-block in
+	    // step, gen_no, rc and flags field of *every* sub-block in
 	    // this large block, because this is easier than making
 	    // sure that we always find the block head of a large
 	    // block whenever we call Bdescr() (eg. evacuate() and
@@ -1133,6 +1160,7 @@ scheduleHandleHeapOverflow( Capability *cap, StgTSO *t )
 		bdescr *x;
 		for (x = bd; x < bd + blocks; x++) {
                     initBdescr(x,g0,g0);
+                    x->rc = cap->r.rRC;
                     x->free = x->start;
 		    x->flags = 0;
 		}
@@ -1144,6 +1172,7 @@ scheduleHandleHeapOverflow( Capability *cap, StgTSO *t )
 	    
 	    // now update the nursery to point to the new block
 	    cap->r.rCurrentNursery = bd;
+            cap->r.rRC->threads[cap->no].currentNursery = bd;
 	    
 	    // we might be unlucky and have another thread get on the
 	    // run queue before us and steal the large block, but in that
@@ -1153,6 +1182,8 @@ scheduleHandleHeapOverflow( Capability *cap, StgTSO *t )
 	    return rtsFalse;  /* not actually GC'ing */
 	}
     }
+
+gc:
     
     if (cap->r.rHpLim == NULL || cap->context_switch) {
         // Sometimes we miss a context switch, e.g. when calling
@@ -1962,6 +1993,7 @@ setNumCapabilities (nat new_n_capabilities USED_IF_THREADS)
     }
     return;
 #else
+    errorBelch("setNumCapabilities: not supported with resource containers");
     Task *task;
     Capability *cap;
     nat sync;
@@ -2679,8 +2711,14 @@ raiseExceptionHelper (StgRegTable *reg, StgTSO *tso, StgClosure *exception)
 	    }
             updateThunk(cap, tso, ((StgUpdateFrame *)p)->updatee,
                         (StgClosure *)raise_closure);
+            tso->rc = ((StgUpdateFrame *)p)->rc; // LOAD_THREAD_STATE will take care of the rest
 	    p = next;
 	    continue;
+
+        case RC_FRAME:
+            tso->rc = ((StgRCFrame*)p)->rc;
+            p = next;
+            continue;
 
         case ATOMICALLY_FRAME:
 	    debugTrace(DEBUG_stm, "found ATOMICALLY_FRAME at %p", p);

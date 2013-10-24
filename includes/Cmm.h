@@ -781,6 +781,14 @@
 #define STM_AWOKEN                stg_STM_AWOKEN_closure
 #define END_INVARIANT_CHECK_QUEUE stg_END_INVARIANT_CHECK_QUEUE_closure
 
+#define RC_NURSERY                   (RC + OFFSET_ResourceContainer_threads + \
+                                     TO_W_(Capability_no(MyCapability())) * SIZEOF_rcthread + \
+                                     OFFSET_rcthread_nursery)
+
+#define RC_CURRENT_NURSERY           W_[RC + OFFSET_ResourceContainer_threads + \
+                                     TO_W_(Capability_no(MyCapability())) * SIZEOF_rcthread + \
+                                     OFFSET_rcthread_currentNursery]
+
 #define recordMutableCap(p, gen)                                        \
   W_ __bd;								\
   W_ mut_list;								\

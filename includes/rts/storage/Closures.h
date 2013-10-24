@@ -164,6 +164,7 @@ typedef struct {
 typedef struct _StgUpdateFrame {
     StgHeader  header;
     StgClosure *updatee;
+    struct ResourceContainer_ *rc;
 } StgUpdateFrame;
 
 typedef struct {
@@ -419,5 +420,14 @@ typedef struct MessageBlackHole_ {
     StgTSO     *tso;
     StgClosure *bh;
 } MessageBlackHole;
+
+/* ----------------------------------------------------------------------------
+   Resource containers
+   ------------------------------------------------------------------------- */
+
+typedef struct {
+    StgHeader  header;
+    struct ResourceContainer_ *rc;
+} StgRCFrame;
 
 #endif /* RTS_STORAGE_CLOSURES_H */

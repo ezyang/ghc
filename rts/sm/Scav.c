@@ -27,6 +27,7 @@
 #include "Sanity.h"
 #include "Capability.h"
 #include "LdvProfile.h"
+#include "ResourceLimits.h"
 
 static void scavenge_stack (StgPtr p, StgPtr stack_end);
 
@@ -37,7 +38,7 @@ static void scavenge_large_bitmap (StgPtr p,
 #if defined(THREADED_RTS) && !defined(PARALLEL_GC)
 # define evacuate(a) evacuate1(a)
 # define scavenge_loop(a) scavenge_loop1(a)
-# define scavenge_block(a) scavenge_block1(a)
+# define scavenge_block(a,b) scavenge_block1(a,b)
 # define scavenge_mutable_list(bd,g) scavenge_mutable_list1(bd,g)
 # define scavenge_capability_mut_lists(cap) scavenge_capability_mut_Lists1(cap)
 #endif
@@ -377,12 +378,11 @@ scavenge_fun_srt(const StgInfoTable *info)
    -------------------------------------------------------------------------- */
 
 static GNUC_ATTR_HOT void
-scavenge_block (bdescr *bd)
+scavenge_block (gen_workspace *ws, bdescr *bd)
 {
   StgPtr p, q;
   StgInfoTable *info;
   rtsBool saved_eager_promotion;
-  gen_workspace *ws;
 
   //debugTrace(DEBUG_gc, "scavenging block %p (gen %d) @ %p",
   //	     bd->start, bd->gen_no, bd->u.scan);
@@ -391,8 +391,6 @@ scavenge_block (bdescr *bd)
   gct->evac_gen_no = bd->gen_no;
   saved_eager_promotion = gct->eager_promotion;
   gct->failed_to_evac = rtsFalse;
-
-  ws = &gct->gens[bd->gen->no];
 
   p = bd->u.scan;
   
@@ -1716,6 +1714,7 @@ scavenge_stack(StgPtr p, StgPtr stack_end)
     case STOP_FRAME:
     case CATCH_FRAME:
     case RET_SMALL:
+    case RC_FRAME:
 	bitmap = BITMAP_BITS(info->i.layout.bitmap);
 	size   = BITMAP_SIZE(info->i.layout.bitmap);
 	// NOTE: the payload starts immediately after the info-ptr, we
@@ -1842,47 +1841,55 @@ scavenge_find_work (void)
     gen_workspace *ws;
     rtsBool did_something, did_anything;
     bdescr *bd;
+    ResourceContainer *rc;
 
     gct->scav_find_work++;
 
     did_anything = rtsFalse;
 
+    // XXX a lot of possibilities of how to structure this
+    // Right now, we assume RC_LIST is not too big
 loop:
     did_something = rtsFalse;
     for (g = RtsFlags.GcFlags.generations-1; g >= 0; g--) {
-        ws = &gct->gens[g];
-        
+
         gct->scan_bd = NULL;
 
-        // If we have a scan block with some work to do,
-        // scavenge everything up to the free pointer.
-        if (ws->todo_bd->u.scan < ws->todo_free)
-        {
-            scavenge_block(ws->todo_bd);
-            did_something = rtsTrue;
-            break;
-        }
+        for (rc = RC_LIST; rc != NULL; rc = rc->link) {
+            ws = &rc->threads[gct->thread_index].workspaces[g];
 
-        // If we have any large objects to scavenge, do them now.
-        if (ws->todo_large_objects) {
-            scavenge_large(ws);
-            did_something = rtsTrue;
-            break;
-        }
+            if (ws->todo_bd->u.scan < ws->todo_free) {
+                scavenge_block(ws, ws->todo_bd);
+                did_something = rtsTrue;
+            }
 
-        if ((bd = grab_local_todo_block(ws)) != NULL) {
-            scavenge_block(bd);
-            did_something = rtsTrue;
-            break;
+            // If we have any large objects to scavenge, do them now.
+            if (ws->todo_large_objects) {
+                scavenge_large(ws);
+                did_something = rtsTrue;
+            }
+        }
+        if (did_something) goto check;
+
+        // do the todo blocks in another pass afterwards
+        for (rc = RC_LIST; rc != NULL; rc = rc->link) {
+            ws = &rc->threads[gct->thread_index].workspaces[g];
+            if ((bd = grab_local_todo_block(ws)) != NULL) {
+                scavenge_block(ws, bd);
+                did_something = rtsTrue;
+                goto check;
+            }
         }
     }
 
+check:
     if (did_something) {
         did_anything = rtsTrue;
         goto loop;
     }
 
 #if defined(THREADED_RTS)
+    /*
     if (work_stealing) {
         // look for work to steal
         for (g = RtsFlags.GcFlags.generations-1; g >= 0; g--) {
@@ -1898,6 +1905,7 @@ loop:
             goto loop;
         }
     }
+    */
 #endif
 
     // only return when there is no more work to do

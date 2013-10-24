@@ -331,14 +331,15 @@ These are used in the following circumstances
 --------------------------------------------------------------
 -- A heap/stack check at a function or thunk entry point.
 
-entryHeapCheck :: ClosureInfo
+entryHeapCheck :: Maybe LocalReg -- Possible RC we have to switch into
+               -> ClosureInfo
                -> Maybe LocalReg -- Function (closure environment)
                -> Int            -- Arity -- not same as len args b/c of voids
                -> [LocalReg]     -- Non-void args (empty for thunk)
                -> FCode ()
                -> FCode ()
 
-entryHeapCheck cl_info nodeSet arity args code = do
+entryHeapCheck mb_rc cl_info nodeSet arity args code = do
     dflags <- getDynFlags
 
     let node = case nodeSet of
@@ -350,16 +351,17 @@ entryHeapCheck cl_info nodeSet arity args code = do
                  Just (_, ArgGen _) -> False
                  _otherwise         -> True
 
-    entryHeapCheck' is_fastf node arity args code
+    entryHeapCheck' mb_rc is_fastf node arity args code
 
 -- | lower-level version for CmmParse
-entryHeapCheck' :: Bool           -- is a known function pattern
+entryHeapCheck' :: Maybe LocalReg -- RC we may have to switch into
+                -> Bool           -- is a known function pattern
                 -> CmmExpr        -- expression for the closure pointer
                 -> Int            -- Arity -- not same as len args b/c of voids
                 -> [LocalReg]     -- Non-void args (empty for thunk)
                 -> FCode ()
                 -> FCode ()
-entryHeapCheck' is_fastf node arity args code
+entryHeapCheck' mb_rc is_fastf node arity args code
   = do dflags <- getDynFlags
        let is_thunk = arity == 0
 
@@ -387,7 +389,7 @@ entryHeapCheck' is_fastf node arity args code
 
        loop_id <- newLabelC
        emitLabel loop_id
-       heapCheck True True (gc_call updfr_sz <*> mkBranch loop_id) code
+       heapCheck mb_rc True True (gc_call updfr_sz <*> mkBranch loop_id) code
 
 -- ------------------------------------------------------------
 -- A heap/stack check in a case alternative
@@ -442,7 +444,7 @@ cannedGCReturnsTo :: Bool -> Bool -> CmmExpr -> [LocalReg] -> Label -> ByteOff
 cannedGCReturnsTo checkYield cont_on_stack gc regs lret off code
   = do dflags <- getDynFlags
        updfr_sz <- getUpdFrameOff
-       heapCheck False checkYield (gc_call dflags gc updfr_sz) code
+       heapCheck Nothing False checkYield (gc_call dflags gc updfr_sz) code
   where
     reg_exprs = map (CmmReg . CmmLocal) regs
       -- Note [stg_gc arguments]
@@ -463,7 +465,7 @@ genericGC checkYield code
        lretry <- newLabelC
        emitLabel lretry
        call <- mkCall generic_gc (GC, GC) [] [] updfr_sz []
-       heapCheck False checkYield (call <*> mkBranch lretry) code
+       heapCheck Nothing False checkYield (call <*> mkBranch lretry) code
 
 cannedGCEntryPoint :: DynFlags -> [LocalReg] -> Maybe CmmExpr
 cannedGCEntryPoint dflags regs
@@ -522,8 +524,9 @@ mkGcLabel :: String -> CmmExpr
 mkGcLabel s = CmmLit (CmmLabel (mkCmmCodeLabel rtsPackageId (fsLit s)))
 
 -------------------------------
-heapCheck :: Bool -> Bool -> CmmAGraph -> FCode a -> FCode a
-heapCheck checkStack checkYield do_gc code
+heapCheck :: Maybe LocalReg -- RC to change into before heap check
+          -> Bool -> Bool -> CmmAGraph -> FCode a -> FCode a
+heapCheck mb_rc checkStack checkYield do_gc code
   = getHeapUsage $ \ hpHw ->
     -- Emit heap checks, but be sure to do it lazily so
     -- that the conditionals on hpHw don't cause a black hole
@@ -533,18 +536,21 @@ heapCheck checkStack checkYield do_gc code
                  | otherwise = Nothing
               stk_hwm | checkStack = Just (CmmLit CmmHighStackMark)
                       | otherwise  = Nothing
-        ; codeOnly $ do_checks stk_hwm checkYield mb_alloc_bytes do_gc
+        ; codeOnly $ do_checks mb_rc stk_hwm checkYield mb_alloc_bytes do_gc
         ; tickyAllocHeap True hpHw
         ; setRealHp hpHw
         ; code }
 
+-- NB: at the moment, only used for high-level C--, and there,
+-- only used for atomicModifyMutVar#, which is function entry.
+-- So never an RC to restore. But this could change...
 heapStackCheckGen :: Maybe CmmExpr -> Maybe CmmExpr -> FCode ()
 heapStackCheckGen stk_hwm mb_bytes
   = do updfr_sz <- getUpdFrameOff
        lretry <- newLabelC
        emitLabel lretry
        call <- mkCall generic_gc (GC, GC) [] [] updfr_sz []
-       do_checks stk_hwm False  mb_bytes (call <*> mkBranch lretry)
+       do_checks Nothing stk_hwm False  mb_bytes (call <*> mkBranch lretry)
 
 -- Note [Single stack check]
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -592,13 +598,14 @@ heapStackCheckGen stk_hwm mb_bytes
 --     Just (CmmLit 8)  or some other fixed valuet
 -- If it is Nothing, we don't generate a stack check at all.
 
-do_checks :: Maybe CmmExpr    -- Should we check the stack?
+do_checks :: Maybe LocalReg -- saved RC to restore before heap check
+          -> Maybe CmmExpr    -- Should we check the stack?
                               -- See Note [Stack usage]
           -> Bool             -- Should we check for preemption?
           -> Maybe CmmExpr    -- Heap headroom (bytes)
           -> CmmAGraph        -- What to do on failure
           -> FCode ()
-do_checks mb_stk_hwm checkYield mb_alloc_lit do_gc = do
+do_checks mb_rc mb_stk_hwm checkYield mb_alloc_lit do_gc = do
   dflags <- getDynFlags
   gc_id <- newLabelC
 
@@ -627,6 +634,17 @@ do_checks mb_stk_hwm checkYield mb_alloc_lit do_gc = do
   case mb_stk_hwm of
     Nothing -> return ()
     Just stk_hwm -> tickyStackCheck >> (emit =<< mkCmmIfGoto (sp_oflo stk_hwm) gc_id)
+
+  case mb_rc of
+    Nothing -> return ()
+    Just rc -> do
+        let rc_neq = cmmNeWord dflags (CmmReg (CmmLocal rc)) (CmmReg (CmmGlobal RC))
+        -- NB: OldRC is not updated here
+        -- XXX alternate implementation strategy: tag RC, so we save
+        -- a memory deref to calculate RC of CurrentNursery
+        -- XXX other alternate implementation strategy: do the
+        -- open/close nursery *inline*
+        emit =<< mkCmmIfThen rc_neq (mkAssign (CmmGlobal RC) (CmmReg (CmmLocal rc)) <*> mkBranch gc_id)
 
   if (isJust mb_alloc_lit)
     then do

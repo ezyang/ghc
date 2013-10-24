@@ -15,6 +15,7 @@
 #include "Rts.h"
 
 #include "BlockAlloc.h"
+#include "ResourceLimits.h"
 #include "Storage.h"
 #include "GC.h"
 #include "GCThread.h"
@@ -36,16 +37,6 @@ allocBlock_sync(void)
     bdescr *bd;
     ACQUIRE_SPIN_LOCK(&gc_alloc_block_sync);
     bd = allocBlock();
-    RELEASE_SPIN_LOCK(&gc_alloc_block_sync);
-    return bd;
-}
-
-static bdescr *
-allocGroup_sync(nat n)
-{
-    bdescr *bd;
-    ACQUIRE_SPIN_LOCK(&gc_alloc_block_sync);
-    bd = allocGroup(n);
     RELEASE_SPIN_LOCK(&gc_alloc_block_sync);
     return bd;
 }
@@ -118,14 +109,7 @@ steal_todo_block (nat g)
     nat n;
     bdescr *bd;
 
-    // look for work to steal
-    for (n = 0; n < n_gc_threads; n++) {
-        if (n == gct->thread_index) continue;
-        bd = stealWSDeque(gc_threads[n]->gens[g].todo_q);
-        if (bd) {
-            return bd;
-        }
-    }
+    // XXX don't try to steal from other resource containers
     return NULL;
 }
 #endif
@@ -170,6 +154,7 @@ todo_block_full (nat size, gen_workspace *ws)
     ws->todo_free -= size;
 
     bd = ws->todo_bd;
+    ResourceContainer *rc = bd->rc;
 
     ASSERT(bd != NULL);
     ASSERT(bd->link == NULL);
@@ -266,7 +251,7 @@ todo_block_full (nat size, gen_workspace *ws)
     ws->todo_free = NULL;
     ws->todo_lim  = NULL;
 
-    alloc_todo_block(ws, size);
+    alloc_todo_block(ws, size, rc);
 
     p = ws->todo_free;
     ws->todo_free += size;
@@ -274,7 +259,7 @@ todo_block_full (nat size, gen_workspace *ws)
 }
 
 StgPtr
-alloc_todo_block (gen_workspace *ws, nat size)
+alloc_todo_block (gen_workspace *ws, nat size, ResourceContainer *rc)
 {
     bdescr *bd/*, *hd, *tl */;
 
@@ -300,10 +285,14 @@ alloc_todo_block (gen_workspace *ws, nat size)
 //        bd = hd;
 
         if (size > BLOCK_SIZE_W) {
-            bd = allocGroup_sync((W_)BLOCK_ROUND_UP(size*sizeof(W_))
-                                 / BLOCK_SIZE);
+            ACQUIRE_SPIN_LOCK(&gc_alloc_block_sync);
+            bd = forceAllocGroupFor((W_)BLOCK_ROUND_UP(size*sizeof(W_))
+                                     / BLOCK_SIZE, rc);
+            RELEASE_SPIN_LOCK(&gc_alloc_block_sync);
         } else {
-            bd = allocBlock_sync();
+            ACQUIRE_SPIN_LOCK(&gc_alloc_block_sync);
+            bd = forceAllocBlockFor(rc);
+            RELEASE_SPIN_LOCK(&gc_alloc_block_sync);
         }
         initBdescr(bd, ws->gen, ws->gen->to);
         bd->flags = BF_EVACUATED;

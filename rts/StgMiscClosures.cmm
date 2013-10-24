@@ -55,6 +55,24 @@ INFO_TABLE_RET (stg_restore_cccs, RET_SMALL, W_ info_ptr, W_ cccs)
 }
 
 /* ----------------------------------------------------------------------------
+   Restore a saved resource container
+   ------------------------------------------------------------------------- */
+
+INFO_TABLE_RET (stg_restore_container, RC_FRAME, W_ info_ptr, W_ rc)
+{
+    CLOSE_NURSERY();
+    RC = Sp(1);
+    OldRC = RC;
+    CurrentNursery = RC_CURRENT_NURSERY;
+    Nursery = RC_NURSERY;
+    CurrentAlloc = NULL;
+    ASSERT(bdescr_rc(CurrentNursery) == RC);
+    OPEN_NURSERY();
+    Sp_adj(2);
+    jump %ENTRY_CODE(Sp(0)) [*]; // NB. all registers live!
+}
+
+/* ----------------------------------------------------------------------------
    Support for the bytecode interpreter.
    ------------------------------------------------------------------------- */
 

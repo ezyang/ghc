@@ -1005,6 +1005,8 @@ isPtrGlobalReg SpLim                 = True
 isPtrGlobalReg Hp                    = True
 isPtrGlobalReg HpLim                 = True
 isPtrGlobalReg CCCS                  = True
+isPtrGlobalReg RC                    = True
+isPtrGlobalReg OldRC                 = True
 isPtrGlobalReg CurrentTSO            = True
 isPtrGlobalReg CurrentNursery        = True
 isPtrGlobalReg CurrentAlloc          = True
@@ -1046,7 +1048,7 @@ stmtMacros = listToUFM [
                                       heapStackCheckGen (Just bytes) Nothing ),
 
   -- A stack check on entry to a thunk, where the argument is the thunk pointer.
-  ( fsLit "STK_CHK_NP"   ,         \[node] -> entryHeapCheck' False node 0 [] (return ())),
+  ( fsLit "STK_CHK_NP"   ,         \[node] -> entryHeapCheck' Nothing False node 0 [] (return ())),
 
   ( fsLit "LOAD_THREAD_STATE",     \[] -> emitLoadThreadState ),
   ( fsLit "SAVE_THREAD_STATE",     \[] -> emitSaveThreadState ),
