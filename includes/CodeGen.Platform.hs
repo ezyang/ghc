@@ -363,6 +363,12 @@ callerSaves HpLim             = True
 #ifdef CALLER_SAVES_CCCS
 callerSaves CCCS              = True
 #endif
+#ifdef CALLER_SAVES_RC
+callerSaves RC                = True
+#endif
+#ifdef CALLER_SAVES_OldRC
+callerSaves OldRC             = True
+#endif
 #ifdef CALLER_SAVES_CurrentTSO
 callerSaves CurrentTSO        = True
 #endif

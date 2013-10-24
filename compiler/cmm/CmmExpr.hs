@@ -355,6 +355,8 @@ data GlobalReg
   | Hp                  -- Heap ptr; points to last occupied heap location.
   | HpLim               -- Heap limit register
   | CCCS                -- Current cost-centre stack
+  | RC                  -- Current resource container (derivable from CurrentNursery)
+  | OldRC               -- Old resource container (to handle update frames)
   | CurrentTSO          -- pointer to current thread's TSO
   | CurrentNursery      -- pointer to allocation area
   | CurrentAlloc        -- pointer to RTS allocation area
@@ -394,6 +396,8 @@ instance Eq GlobalReg where
    Hp == Hp = True
    HpLim == HpLim = True
    CCCS == CCCS = True
+   RC == RC = True
+   OldRC == OldRC = True
    CurrentTSO == CurrentTSO = True
    CurrentNursery == CurrentNursery = True
    CurrentAlloc == CurrentAlloc = True
@@ -420,6 +424,8 @@ instance Ord GlobalReg where
    compare Hp Hp = EQ
    compare HpLim HpLim = EQ
    compare CCCS CCCS = EQ
+   compare RC RC = EQ
+   compare OldRC OldRC = EQ
    compare CurrentTSO CurrentTSO = EQ
    compare CurrentNursery CurrentNursery = EQ
    compare CurrentAlloc CurrentAlloc = EQ
@@ -454,6 +460,10 @@ instance Ord GlobalReg where
    compare _ HpLim = GT
    compare CCCS _ = LT
    compare _ CCCS = GT
+   compare RC _ = LT
+   compare _ RC = GT
+   compare OldRC _ = LT
+   compare _ OldRC = GT
    compare CurrentTSO _ = LT
    compare _ CurrentTSO = GT
    compare CurrentNursery _ = LT
