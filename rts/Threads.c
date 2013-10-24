@@ -59,6 +59,7 @@ static StgThreadID next_thread_id = 1;
 StgTSO *
 createThread(Capability *cap, W_ size)
 {
+    // TODO make this failable
     StgTSO *tso;
     StgStack *stack;
     nat stack_size;
@@ -115,6 +116,8 @@ createThread(Capability *cap, W_ size)
 #ifdef PROFILING
     tso->prof.cccs = CCS_MAIN;
 #endif
+
+    tso->rc = cap->r.rRC;
     
     // put a stop frame on the stack
     stack->sp -= sizeofW(StgStopFrame);

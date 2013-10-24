@@ -79,13 +79,18 @@ void dirty_TVAR(Capability *cap, StgTVar *p);
    Nursery manipulation
    -------------------------------------------------------------------------- */
 
-extern nursery *nurseries;
-
 void     resetNurseries       ( void );
-void     clearNursery         ( Capability *cap );
-void     resizeNurseries      ( W_ blocks );
-void     resizeNurseriesFixed ( W_ blocks );
+void     clearNursery         ( ResourceContainer *rc, Capability *cap );
+void     resizeNurseries      ( ResourceContainer *rc, W_ blocks );
+void     resizeNurseriesFixed ( ResourceContainer *rc, W_ blocks );
 W_       countNurseryBlocks   ( void );
+bdescr * allocNursery         ( bdescr *tail, W_ *blocks, ResourceContainer *rc );
+
+// RC related things
+
+StgPtr cmmMaybeAllocate (Capability *cap, W_ n);
+rtsBool allocateFor(StgPtr *pp, Capability *cap, W_ n);
+StgPtr forceAllocateFor (Capability *cap, ResourceContainer *rc, W_ n);
 
 /* -----------------------------------------------------------------------------
    Stats 'n' DEBUG stuff

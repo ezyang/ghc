@@ -85,6 +85,22 @@ typedef struct gen_workspace_ {
     StgPtr       todo_free;            // free ptr for todo_bd
     StgPtr       todo_lim;             // lim for todo_bd
 
+    // Partially-full, scavenged, blocks
+    bdescr *     part_list;
+    unsigned int n_part_blocks;      // count of above
+
+    StgWord      pushed_scan;
+
+    StgWord pad[8];
+
+} gen_workspace ATTRIBUTE_ALIGNED(64);
+// align so that computing gct->gens[n] is a shift, not a multiply
+// fails if the size is <64, which is why we need the pad above
+
+typedef struct gen_global_workspace_ {
+    generation * gen;		// the gen for this workspace 
+    struct gc_thread_ * my_gct; // the gc_thread that contains this workspace
+
     WSDeque *    todo_q;
     bdescr *     todo_overflow;
     nat          n_todo_overflow;
@@ -96,15 +112,17 @@ typedef struct gen_workspace_ {
     bdescr *     scavd_list;
     nat          n_scavd_blocks;     // count of blocks in this list
 
-    // Partially-full, scavenged, blocks
-    bdescr *     part_list;
-    unsigned int n_part_blocks;      // count of above
+    // scan stack records scan pointers for RCs with partially filled
+    // blocks for this generation so we can quickly find them.  To avoid
+    // an extra conditional for overflows, we allocate this to be big
+    // enough to fit scan pointers for *all* live RCs at the beginning
+    // of GC.
+    gen_workspace **scan_stack;
+    gen_workspace **scan_sp;
 
-    StgWord pad[3];
+    StgWord pad[6];
 
-} gen_workspace ATTRIBUTE_ALIGNED(64);
-// align so that computing gct->gens[n] is a shift, not a multiply
-// fails if the size is <64, which is why we need the pad above
+} gen_global_workspace ATTRIBUTE_ALIGNED(64);
 
 /* ----------------------------------------------------------------------------
    GC thread object
@@ -187,15 +205,7 @@ typedef struct gc_thread_ {
     Time gc_start_thread_cpu; // thread CPU time
     W_ gc_start_faults;
 
-    // -------------------
-    // workspaces
-
-    // array of workspaces, indexed by gen->abs_no.  This is placed
-    // directly at the end of the gc_thread structure so that we can get from
-    // the gc_thread pointer to a workspace using only pointer
-    // arithmetic, no memory access.  This happens in the inner loop
-    // of the GC, see Evac.c:alloc_for_copy().
-    gen_workspace gens[];
+    gen_global_workspace gens[];
 } gc_thread;
 
 

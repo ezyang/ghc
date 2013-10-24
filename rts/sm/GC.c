@@ -48,6 +48,7 @@
 #include "Papi.h"
 #include "Stable.h"
 #include "CheckUnload.h"
+#include "ResourceLimits.h"
 
 #include <string.h> // for memset()
 #include <unistd.h>
@@ -122,7 +123,7 @@ nat mutlist_MUTVARS,
 gc_thread **gc_threads = NULL;
 
 #if !defined(THREADED_RTS)
-StgWord8 the_gc_thread[sizeof(gc_thread) + 64 * sizeof(gen_workspace)];
+StgWord8 the_gc_thread[sizeof(gc_thread) + 64 * sizeof(gen_global_workspace)];
 #endif
 
 // Number of threads running in *this* GC.  Affects how many
@@ -146,7 +147,7 @@ static void prepare_collected_gen   (generation *gen);
 static void prepare_uncollected_gen (generation *gen);
 static void init_gc_thread          (gc_thread *t);
 static void resize_generations      (void);
-static void resize_nursery          (void);
+static W_ calculate_resize_nursery          (void);
 static void start_gc_threads        (void);
 static void scavenge_until_all_done (void);
 static StgWord inc_running          (void);
@@ -189,6 +190,7 @@ GarbageCollect (nat collect_gen,
   gc_thread *saved_gct;
 #endif
   nat g, n;
+  ResourceContainer *rc;
 
   // necessary if we stole a callee-saves register for gct:
 #if defined(THREADED_RTS)
@@ -302,6 +304,17 @@ GarbageCollect (nat collect_gen,
       prepare_uncollected_gen(&generations[g]);
   }
 
+
+  // Setup scan stack
+  for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
+    for (n = 0; n < n_capabilities; n++) {
+        gen_global_workspace *ws = &gc_threads[n]->gens[g];
+        ws->scan_stack = stgMallocBytes(RC_COUNT * sizeof(StgPtr), "setup_scan_stack");
+        ws->scan_sp = ws->scan_stack;
+    }
+  }
+
+
   // Prepare this gc_thread
   init_gc_thread(gct);
 
@@ -406,7 +419,10 @@ GarbageCollect (nat collect_gen,
   }
 
   if (!DEBUG_IS_ON && n_gc_threads != 1) {
-      clearNursery(cap);
+
+    for (rc = RC_LIST; rc != NULL; rc = rc->link) {
+      clearNursery(rc,cap);
+    }
   }
 
   shutdown_gc_threads(gct->thread_index);
@@ -471,6 +487,17 @@ GarbageCollect (nat collect_gen,
           par_max_copied = 0;
           par_tot_copied = 0;
       }
+  }
+
+  // Free the scan stacks
+  for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
+    for (n = 0; n < n_capabilities; n++) {
+        gen_global_workspace *ws = &gc_threads[n]->gens[g];
+        ASSERT(ws->scan_sp == ws->scan_stack);
+        stgFree(ws->scan_stack);
+        ws->scan_stack = NULL;
+        ws->scan_sp = NULL;
+    }
   }
 
   // Run through all the generations/steps and tidy up.
@@ -543,6 +570,9 @@ GarbageCollect (nat collect_gen,
                     else
                     {
                         gen->n_words += bd->free - bd->start;
+                        bd->rc->n_words += bd->free - bd->start;
+                        ASSERT(bd->free != bd->start);
+                        // XXX probably didn't do this right
 
                         // NB. this step might not be compacted next
                         // time, so reset the BF_MARKED flags.
@@ -584,7 +614,13 @@ GarbageCollect (nat collect_gen,
         freeChain(gen->large_objects);
         gen->large_objects  = gen->scavenged_large_objects;
         gen->n_large_blocks = gen->n_scavenged_large_blocks;
-        gen->n_large_words  = countOccupied(gen->large_objects);
+        gen->n_large_words = 0;
+        for (bd = gen->large_objects; bd != NULL; bd = bd->link) {
+            ASSERT(bd->free <= bd->start + bd->blocks * BLOCK_SIZE_W);
+            ASSERT(bd->free != bd->start);
+            gen->n_large_words += bd->free - bd->start;
+            bd->rc->n_words += bd->free - bd->start;
+        }
         gen->n_new_large_words = 0;
     }
     else // for generations > N
@@ -597,6 +633,7 @@ GarbageCollect (nat collect_gen,
             next = bd->link;
             dbl_link_onto(bd, &gen->large_objects);
             gen->n_large_words += bd->free - bd->start;
+            bd->rc->n_words += bd->free - bd->start;
         }
 
 	// add the new blocks we promoted during this GC
@@ -643,22 +680,53 @@ GarbageCollect (nat collect_gen,
       }
   }
 
+  // Check for free resource containers
+  ResourceContainer *prev;
+  if (major_gc) {
+      for (rc = RC_LIST, prev = NULL; rc != NULL; prev = rc, rc = rc->link) {
+          if (isDeadResourceContainer(rc)) {
+              freeResourceContainer(rc);
+              // everything in the resource container has to be dead
+              if (prev == NULL) {
+                  RC_LIST = rc->link;
+                  rc->link = NULL;
+              } else {
+                  prev->link = rc->link;
+                  rc->link = NULL;
+                  rc = prev;
+              }
+              RC_COUNT--;
+#ifdef DEBUG
+              memInventory(DEBUG_gc);
+#endif
+          }
+      }
+  }
+
+  W_ resize_blocks = calculate_resize_nursery();
+
   // Reset the nursery: make the blocks empty
+  for (rc = RC_LIST; rc != NULL; rc = rc->link) {
   if (DEBUG_IS_ON || n_gc_threads == 1) {
       for (n = 0; n < n_capabilities; n++) {
-          clearNursery(capabilities[n]);
+          clearNursery(rc, capabilities[n]);
       }
   } else {
       // When doing parallel GC, clearNursery() is called by the
       // worker threads
       for (n = 0; n < n_capabilities; n++) {
           if (gc_threads[n]->idle) {
-              clearNursery(capabilities[n]);
+              clearNursery(rc, capabilities[n]);
           }
       }
   }
-
-  resize_nursery();
+  resizeNurseriesFixed(rc, resize_blocks);
+  nat i;
+  for (i = 0; i < n_capabilities; i++) {
+      bdescr *currentNursery = rc->threads[i].nursery.blocks;
+      rc->threads[i].currentNursery = currentNursery;
+  }
+  }
 
   resetNurseries();
 
@@ -789,11 +857,84 @@ GarbageCollect (nat collect_gen,
 #define GC_THREAD_WAITING_TO_CONTINUE  3
 
 static void
-new_gc_thread (nat n, gc_thread *t)
+new_gc_thread_workspaces (ResourceContainer *rc, gen_workspace *gens, gc_thread *t)
 {
     nat g;
     gen_workspace *ws;
 
+    for (g = 0; g < RtsFlags.GcFlags.generations; g++)
+    {
+        ws = &gens[g];
+        ws->gen = &generations[g];
+        ASSERT(g == ws->gen->no);
+        ws->my_gct = t;
+
+        // We want to call
+        //   alloc_todo_block(ws,0);
+        // but can't, because it uses gct which isn't set up at this point.
+        // Hence, allocate a block for todo_bd manually:
+        {
+            bdescr *bd;
+            // no lock, locks aren't initialised yet
+            if (!allocBlockFor(&bd, rc)) {
+                barf("new_gc_thread_workspaces: too few blocks in container to setup workspace");
+            }
+            initBdescr(bd, ws->gen, ws->gen->to);
+            bd->flags = BF_EVACUATED;
+            bd->u.scan = bd->free = bd->start;
+
+            ws->todo_bd = bd;
+            ws->todo_free = bd->free;
+            ws->todo_lim = bd->start + BLOCK_SIZE_W;
+
+            ws->pushed_scan = rtsFalse;
+        }
+
+        ws->part_list = NULL;
+        ws->n_part_blocks = 0;
+    }
+}
+
+static void
+new_gc_thread_global_workspaces (gc_thread *t)
+{
+    nat g;
+    gen_global_workspace *ws;
+
+    for (g = 0; g < RtsFlags.GcFlags.generations; g++)
+    {
+        ws = &t->gens[g];
+        ws->gen = &generations[g];
+        ASSERT(g == ws->gen->no);
+        ws->my_gct = t;
+
+        ws->todo_q = newWSDeque(128);
+        ws->todo_overflow = NULL;
+        ws->n_todo_overflow = 0;
+        ws->todo_large_objects = NULL;
+
+        ws->scavd_list = NULL;
+        ws->n_scavd_blocks = 0;
+
+        ws->scan_stack = NULL;
+        ws->scan_sp = NULL;
+    }
+}
+
+void
+initContainerGcThreads(ResourceContainer *rc, nat from USED_IF_THREADS, nat to USED_IF_THREADS) {
+    nat i;
+    for (i = from; i < to; i++) {
+        rc->threads[i].workspaces =
+            stgMallocBytes (RtsFlags.GcFlags.generations * sizeof(gen_workspace),
+                            "alloc_gc_threads");
+        new_gc_thread_workspaces(rc, rc->threads[i].workspaces, gc_threads[i]);
+    }
+}
+
+static void
+new_gc_thread (nat n, gc_thread *t)
+{
     t->cap = capabilities[n];
 
 #ifdef THREADED_RTS
@@ -817,41 +958,8 @@ new_gc_thread (nat n, gc_thread *t)
     t->papi_events = -1;
 #endif
 
-    for (g = 0; g < RtsFlags.GcFlags.generations; g++)
-    {
-        ws = &t->gens[g];
-        ws->gen = &generations[g];
-        ASSERT(g == ws->gen->no);
-        ws->my_gct = t;
-
-        // We want to call
-        //   alloc_todo_block(ws,0);
-        // but can't, because it uses gct which isn't set up at this point.
-        // Hence, allocate a block for todo_bd manually:
-        {
-            bdescr *bd = allocBlock(); // no lock, locks aren't initialised yet
-            initBdescr(bd, ws->gen, ws->gen->to);
-            bd->flags = BF_EVACUATED;
-            bd->u.scan = bd->free = bd->start;
-
-            ws->todo_bd = bd;
-            ws->todo_free = bd->free;
-            ws->todo_lim = bd->start + BLOCK_SIZE_W;
-        }
-
-        ws->todo_q = newWSDeque(128);
-        ws->todo_overflow = NULL;
-        ws->n_todo_overflow = 0;
-        ws->todo_large_objects = NULL;
-
-        ws->part_list = NULL;
-        ws->n_part_blocks = 0;
-
-        ws->scavd_list = NULL;
-        ws->n_scavd_blocks = 0;
-    }
+    new_gc_thread_global_workspaces(t);
 }
-
 
 void
 initGcThreads (nat from USED_IF_THREADS, nat to USED_IF_THREADS)
@@ -870,7 +978,7 @@ initGcThreads (nat from USED_IF_THREADS, nat to USED_IF_THREADS)
     for (i = from; i < to; i++) {
         gc_threads[i] =
             stgMallocBytes(sizeof(gc_thread) +
-                           RtsFlags.GcFlags.generations * sizeof(gen_workspace),
+                           RtsFlags.GcFlags.generations * sizeof(gen_global_workspace),
                            "alloc_gc_threads");
 
         new_gc_thread(i, gc_threads[i]);
@@ -881,6 +989,14 @@ initGcThreads (nat from USED_IF_THREADS, nat to USED_IF_THREADS)
     gc_threads[0] = gct;
     new_gc_thread(0,gc_threads[0]);
 #endif
+
+    // setup per-RC gc threads
+    // NB: must allocate generation workspaces, even in unithreaded case
+
+    ResourceContainer *rc = RC_LIST;
+    for (; rc != NULL; rc = rc->link) {
+        initContainerGcThreads(rc, from, to);
+    }
 }
 
 void
@@ -906,6 +1022,15 @@ freeGcThreads (void)
         stgFree (gc_threads);
 #endif
         gc_threads = NULL;
+    }
+
+    ResourceContainer *rc = RC_LIST;
+    for (; rc != NULL; rc = rc->link) {
+        nat i;
+        for (i = 0; i < n_capabilities; i++) {
+            stgFree(rc->threads[i].workspaces);
+            rc->threads[i].workspaces = NULL;
+        }
     }
 }
 
@@ -935,7 +1060,7 @@ static rtsBool
 any_work (void)
 {
     int g;
-    gen_workspace *ws;
+    gen_global_workspace *ws;
 
     gct->any_work++;
 
@@ -1071,7 +1196,10 @@ gcWorkerThread (Capability *cap)
     scavenge_until_all_done();
 
     if (!DEBUG_IS_ON) {
-        clearNursery(cap);
+      ResourceContainer *rc;
+      for (rc = RC_LIST; rc != NULL; rc = rc->link) {
+        clearNursery(rc, cap);
+      }
     }
 
 #ifdef THREADED_RTS
@@ -1217,6 +1345,7 @@ static void
 prepare_collected_gen (generation *gen)
 {
     nat i, g, n;
+    ResourceContainer *rc;
     gen_workspace *ws;
     bdescr *bd, *next;
 
@@ -1253,8 +1382,25 @@ prepare_collected_gen (generation *gen)
 
     // grab all the partial blocks stashed in the gc_thread workspaces and
     // move them to the old_blocks list of this gen.
+
+#ifdef DEBUG
     for (n = 0; n < n_capabilities; n++) {
-        ws = &gc_threads[n]->gens[gen->no];
+        gen_global_workspace *gws = &gc_threads[n]->gens[gen->no];
+        ASSERT(gws->scavd_list == NULL);
+        ASSERT(gws->n_scavd_blocks == 0);
+    }
+#endif
+
+    for (rc = RC_LIST; rc != NULL; rc = rc->link) {
+      // clear out n_words
+      rc->n_words = 0;
+      // liberate (killed) all pinned object blocks
+      if (rc->pinned_object_block != NULL) {
+          dbl_link_onto(rc->pinned_object_block, &g0->large_objects);
+          rc->pinned_object_block = NULL;
+      }
+    for (n = 0; n < n_capabilities; n++) {
+        ws = &rc->threads[n].workspaces[gen->no];
 
         for (bd = ws->part_list; bd != NULL; bd = next) {
             next = bd->link;
@@ -1264,17 +1410,14 @@ prepare_collected_gen (generation *gen)
         }
         ws->part_list = NULL;
         ws->n_part_blocks = 0;
-
-        ASSERT(ws->scavd_list == NULL);
-        ASSERT(ws->n_scavd_blocks == 0);
-
         if (ws->todo_free != ws->todo_bd->start) {
             ws->todo_bd->free = ws->todo_free;
             ws->todo_bd->link = gen->old_blocks;
             gen->old_blocks = ws->todo_bd;
             gen->n_old_blocks += ws->todo_bd->blocks;
-            alloc_todo_block(ws,0); // always has one block.
+            alloc_todo_block(ws,0,rc); // always has one block.
         }
+    }
     }
 
     // mark the small objects as from-space
@@ -1374,7 +1517,7 @@ static void
 collect_gct_blocks (void)
 {
     nat g;
-    gen_workspace *ws;
+    gen_global_workspace *ws;
     bdescr *bd, *prev;
 
     for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
@@ -1392,6 +1535,8 @@ collect_gct_blocks (void)
             prev = NULL;
             for (bd = ws->scavd_list; bd != NULL; bd = bd->link) {
                 ws->gen->n_words += bd->free - bd->start;
+                bd->rc->n_words += bd->free - bd->start;
+                ASSERT(bd->free - bd->start != 0);
                 prev = bd;
             }
             if (prev != NULL) {
@@ -1610,8 +1755,8 @@ resize_generations (void)
    Calculate the new size of the nursery, and resize it.
    -------------------------------------------------------------------------- */
 
-static void
-resize_nursery (void)
+static W_
+calculate_resize_nursery (void)
 {
     const StgWord min_nursery = RtsFlags.GcFlags.minAllocAreaSize * n_capabilities;
 
@@ -1662,7 +1807,7 @@ resize_nursery (void)
 		blocks = min_nursery;
 	    }
 	}
-	resizeNurseries(blocks);
+        return blocks / n_capabilities;
     }
     else  // Generational collector
     {
@@ -1712,13 +1857,13 @@ resize_nursery (void)
 		blocks = min_nursery;
 	    }
 
-            resizeNurseries((W_)blocks);
+            return ((W_)blocks) / n_capabilities;
 	}
 	else
 	{
 	    // we might have added extra large blocks to the nursery, so
 	    // resize back to minAllocAreaSize again.
-	    resizeNurseriesFixed(RtsFlags.GcFlags.minAllocAreaSize);
+            return RtsFlags.GcFlags.minAllocAreaSize;
 	}
     }
 }
