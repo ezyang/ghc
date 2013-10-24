@@ -115,26 +115,17 @@ stg_gc_noregs
         }
     } else {
         // XXX alternate strategy, check if RC is tagged
-        if (RC != bdescr_rc(CurrentNursery)) {
-            // we need to have enough stack space to push
-            // the restore frame
-            if (Sp - WDS(2) >= SpLim) {
-                Sp_adj(-2);
-                Sp(1) = bdescr_rc(CurrentNursery);
-                Sp(0) = stg_restore_container_info;
-                CLOSE_NURSERY();
-                CurrentNursery = RC_CURRENT_NURSERY;
-                Nursery = RC_NURSERY;
-                CurrentAlloc = NULL; // XXX fixme
-                ASSERT(RC == bdescr_rc(CurrentNursery));
-                OPEN_NURSERY();
-                // XXX not sure if we have to check the capability again
-                jump %ENTRY_CODE(Sp(0)) [];
-            } else {
-                // revert the RC so we try this path again
-                RC = bdescr_rc(CurrentNursery);
-                ret = StackOverflow;
-            }
+        if (RC != OldRC) {
+            // for the update frame
+            ASSERT(OldRC == bdescr_rc(CurrentNursery));
+            CLOSE_NURSERY();
+            CurrentNursery = RC_CURRENT_NURSERY;
+            Nursery = RC_NURSERY;
+            CurrentAlloc = NULL; // XXX fixme
+            ASSERT(RC == bdescr_rc(CurrentNursery));
+            OPEN_NURSERY();
+            // XXX not sure if we have to check the capability again
+            jump %ENTRY_CODE(Sp(0)) [];
         }
         if (CHECK_GC()) {
             ret = HeapOverflow;
@@ -257,7 +248,7 @@ stg_gc_prim_p_ll
 /* The stg_enter_checkbh frame has the same shape as an update frame: */
 
 INFO_TABLE_RET ( stg_enter_checkbh, RET_SMALL,
-                 UPDATE_FRAME_FIELDS(W_,P_,info_ptr,ccs,p2,updatee))
+                 UPDATE_FRAME_FIELDS(W_,P_,info_ptr,ccs,p2,updatee,rc))
     return (P_ ret)
 {
     foreign "C" checkBlockingQueues(MyCapability() "ptr",

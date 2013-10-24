@@ -62,6 +62,7 @@ INFO_TABLE_RET (stg_restore_container, RET_SMALL, W_ info_ptr, W_ rc)
 {
     CLOSE_NURSERY();
     RC = Sp(1);
+    OldRC = RC;
     CurrentNursery = RC_CURRENT_NURSERY;
     Nursery = RC_NURSERY;
     CurrentAlloc = NULL;

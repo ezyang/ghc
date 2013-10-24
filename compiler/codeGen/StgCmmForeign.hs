@@ -315,6 +315,7 @@ loadThreadState dflags tso stack rc_reg = do
         mkAssign (CmmLocal rc_reg) (CmmLoad (cmmOffset dflags (CmmReg (CmmLocal tso)) (tso_RC dflags)) (rcType dflags)),
         -- RC = rc
         mkAssign rc (CmmReg (CmmLocal rc_reg)),
+        mkAssign oldRc (CmmReg (CmmLocal rc_reg)),
         -- XXX Properly use a new register rather than reusing rc
         -- rcthread = rc->threads[(I_)MyCapability()->no]
         let myCapability = cmmSubWord dflags (CmmReg baseReg) (mkIntExpr dflags (oFFSET_Capability_r dflags))
@@ -400,7 +401,7 @@ stgCurrentTSO     = CmmReg currentTSO
 stgCurrentNursery = CmmReg currentNursery
 stgRC             = CmmReg rc
 
-sp, spLim, hp, hpLim, currentTSO, currentAlloc, nursery, currentNursery, hpAlloc, rc :: CmmReg
+sp, spLim, hp, hpLim, currentTSO, currentAlloc, nursery, currentNursery, hpAlloc, rc, oldRc :: CmmReg
 sp                = CmmGlobal Sp
 spLim             = CmmGlobal SpLim
 hp                = CmmGlobal Hp
@@ -411,6 +412,7 @@ currentAlloc      = CmmGlobal CurrentAlloc
 nursery           = CmmGlobal Nursery
 hpAlloc           = CmmGlobal HpAlloc
 rc                = CmmGlobal RC
+oldRc             = CmmGlobal OldRC
 
 -- -----------------------------------------------------------------------------
 -- For certain types passed to foreign calls, we adjust the actual

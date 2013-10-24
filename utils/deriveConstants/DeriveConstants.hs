@@ -439,6 +439,7 @@ wanteds = concat
           ,structSize C "StgTSOProfInfo"
 
           ,closureField Both "StgUpdateFrame" "updatee"
+          ,closureField Both "StgUpdateFrame" "rc"
 
           ,closureField C "StgCatchFrame" "handler"
           ,closureField C "StgCatchFrame" "exceptions_blocked"

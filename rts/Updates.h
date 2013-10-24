@@ -35,10 +35,11 @@
  */
 #ifdef CMINUSMINUS
 
-#define UPDATE_FRAME_FIELDS(w_,p_,info_ptr,ccs,p2,updatee)      \
+#define UPDATE_FRAME_FIELDS(w_,p_,info_ptr,ccs,p2,updatee,rc)      \
                  w_ info_ptr,                           \
                  PROF_HDR_FIELDS(w_,ccs,p2)              \
-                 p_ updatee
+                 p_ updatee, \
+                 w_ rc
 
 
 #define updateWithIndirection(p1, p2, and_then) \

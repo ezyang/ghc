@@ -639,6 +639,7 @@ do_checks mb_rc mb_stk_hwm checkYield mb_alloc_lit do_gc = do
     Nothing -> return ()
     Just rc -> do
         let rc_neq = cmmNeWord dflags (CmmReg (CmmLocal rc)) (CmmReg (CmmGlobal RC))
+        -- NB: OldRC is not updated here
         -- XXX alternate implementation strategy: tag RC, so we save
         -- a memory deref to calculate RC of CurrentNursery
         -- XXX other alternate implementation strategy: do the
