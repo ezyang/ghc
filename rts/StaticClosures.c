@@ -10,6 +10,8 @@
 #include "Rts.h"
 #include "Prelude.h"
 #include "StaticClosures.h"
+#include "ResourceLimits.h"
+#include "sm/Storage.h"
 
 #include <string.h>
 
@@ -115,9 +117,12 @@ ensureFreeSpace(bdescr **current_block_p, int size_w)
         // still has enough space, no-op
         return current_block;
     }
+    ASSERT(RC_MAIN != NULL);
     W_ n_blocks = (W_)BLOCK_ROUND_UP(size_w*sizeof(W_)) / BLOCK_SIZE;
     ASSERT(n_blocks < BLOCKS_PER_MBLOCK);
-    bdescr *new_block = allocGroup_lock(n_blocks);
+    ACQUIRE_SM_LOCK;
+    bdescr *new_block = forceAllocGroupFor(n_blocks, RC_MAIN);
+    RELEASE_SM_LOCK;
     new_block->flags |= BF_STATIC;
     // to handle closure tables, mark all other blocks as BF_STATIC too
     bdescr *bd;

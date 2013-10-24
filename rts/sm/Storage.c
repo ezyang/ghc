@@ -32,6 +32,7 @@
 #if defined(ios_HOST_OS)
 #include "Hash.h"
 #endif
+#include "ResourceLimits.h"
 
 #include <string.h>
 
@@ -53,8 +54,6 @@ bdescr *exec_block;
 generation *generations = NULL; /* all the generations */
 generation *g0          = NULL; /* generation 0, for convenience */
 generation *oldest_gen  = NULL; /* oldest generation, for convenience */
-
-nursery *nurseries = NULL;     /* array of nurseries, size == n_capabilities */
 
 #ifdef THREADED_RTS
 /*
@@ -204,18 +203,14 @@ void storageAddCapabilities (nat from, nat to)
 {
     nat n, g, i;
 
-    if (from > 0) {
-        nurseries = stgReallocBytes(nurseries, to * sizeof(struct nursery_),
-                                    "storageAddCapabilities");
-    } else {
-        nurseries = stgMallocBytes(to * sizeof(struct nursery_),
-                                   "storageAddCapabilities");
-    }
+    ASSERT(from == 0);
+
+    // XXX some fiddling here omitted
 
     // we've moved the nurseries, so we have to update the rNursery
     // pointers from the Capabilities.
     for (i = 0; i < to; i++) {
-        capabilities[i]->r.rNursery = &nurseries[i];
+        capabilities[i]->r.rNursery = &capabilities[i]->r.rRC->threads[i].nursery;
     }
 
     /* The allocation area.  Policy: keep the allocation area
@@ -256,7 +251,6 @@ freeStorage (rtsBool free_heap)
 #if defined(THREADED_RTS)
     closeMutex(&sm_mutex);
 #endif
-    stgFree(nurseries);
 #if defined(THREADED_RTS) && defined(llvm_CC_FLAVOR) && (CC_SUPPORTS_TLS == 0)
     freeThreadLocalKey(&gctKey);
 #endif
@@ -470,32 +464,61 @@ newDynCAF (StgRegTable *reg, StgIndStatic *caf)
    Nursery management.
    -------------------------------------------------------------------------- */
 
-static bdescr *
-allocNursery (bdescr *tail, W_ blocks)
+bdescr *
+allocNursery (bdescr *tail, W_ *pblocks, ResourceContainer *rc)
 {
     bdescr *bd = NULL;
     W_ i, n;
+    W_ blocks = *pblocks;
 
     // We allocate the nursery as a single contiguous block and then
     // divide it into single blocks manually.  This way we guarantee
     // that the nursery blocks are adjacent, so that the processor's
     // automatic prefetching works across nursery blocks.  This is a
     // tiny optimisation (~0.5%), but it's free.
+    //
+    // Containers: allocLargeChunk is responsible for charging the
+    // blocks to the resource container
 
     while (blocks > 0) {
         n = stg_min(BLOCKS_PER_MBLOCK, blocks);
         // allocLargeChunk will prefer large chunks, but will pick up
         // small chunks if there are any available.  We must allow
         // single blocks here to avoid fragmentation (#7257)
-        bd = allocLargeChunk(1, n);
+        if (!allocLargeChunkFor(&bd, 1, n, rc)) {
+            // Oops, ran out of memory.  Bail out. Nursery might be smaller
+            // than requested.
+            if (bd == NULL) {
+                if (tail != NULL) {
+                    bd = tail;
+                    *pblocks = 0;
+                } else {
+                    // Always have one block in nursery
+                    bd = forceAllocBlockFor(rc);
+                    initBdescr(bd, g0, g0);
+                    *pblocks = 1;
+                }
+            } else {
+                *pblocks = *pblocks - blocks;
+            }
+            break;
+        }
         n = bd->blocks;
         blocks -= n;
+
+        // these will be *proper* blocks, so we need to undo RC
+        // notification
+        freeNotifyRC(rc, bd);
 
         for (i = 0; i < n; i++) {
             initBdescr(&bd[i], g0, g0);
 
+            // Need to do this here, because allocLargeChunk
+            // will only cover the head
             bd[i].blocks = 1;
             bd[i].flags = 0;
+
+            allocNotifyRC(rc, &bd[i]); // do this after blocks is fixed up!
 
             if (i > 0) {
                 bd[i].u.back = &bd[i-1];
@@ -525,9 +548,11 @@ static void
 assignNurseriesToCapabilities (nat from, nat to)
 {
     nat i;
+    ASSERT(from == 0);
 
     for (i = from; i < to; i++) {
-        capabilities[i]->r.rCurrentNursery = nurseries[i].blocks;
+        bdescr *currentNursery = capabilities[i]->r.rRC->threads[i].nursery.blocks;
+        capabilities[i]->r.rCurrentNursery = currentNursery;
         capabilities[i]->r.rCurrentAlloc   = NULL;
     }
 }
@@ -536,27 +561,39 @@ static void
 allocNurseries (nat from, nat to)
 { 
     nat i;
+    ResourceContainer *rc;
 
+    ASSERT(from == 0);
+
+    for (rc = RC_LIST; rc != NULL; rc = rc->link) {
     for (i = from; i < to; i++) {
-        nurseries[i].blocks =
-            allocNursery(NULL, RtsFlags.GcFlags.minAllocAreaSize);
-        nurseries[i].n_blocks =
+        rc->threads[i].nursery.n_blocks =
             RtsFlags.GcFlags.minAllocAreaSize;
+      bdescr *currentNursery = allocNursery(NULL, &rc->threads[i].nursery.n_blocks, rc);
+      rc->threads[i].nursery.blocks = currentNursery;
+      rc->threads[i].currentNursery = currentNursery;
+    }
+
     }
     assignNurseriesToCapabilities(from, to);
 }
       
 void
-clearNursery (Capability *cap)
+clearNursery (ResourceContainer *rc, Capability *cap)
 {
     bdescr *bd;
 
-    for (bd = nurseries[cap->no].blocks; bd; bd = bd->link) {
+    for (bd = rc->threads[cap->no].nursery.blocks; bd; bd = bd->link) {
         cap->total_allocated += (W_)(bd->free - bd->start);
         bd->free = bd->start;
         ASSERT(bd->gen_no == 0);
         ASSERT(bd->gen == g0);
         IF_DEBUG(sanity,memset(bd->start, 0xaa, BLOCK_SIZE));
+        if (bd == rc->threads[cap->no].currentNursery) {
+            IF_DEBUG(sanity, for (bd = bd->link; bd; bd = bd->link)
+                                ASSERT(bd->free == bd->start));
+            break;
+        }
     }
 }
 
@@ -570,19 +607,22 @@ W_
 countNurseryBlocks (void)
 {
     nat i;
+    ResourceContainer *rc;
     W_ blocks = 0;
 
+    for (rc = RC_LIST; rc != NULL; rc = rc->link) {
     for (i = 0; i < n_capabilities; i++) {
-        blocks += nurseries[i].n_blocks;
+        blocks += rc->threads[i].nursery.n_blocks;
+    }
     }
     return blocks;
 }
 
 static void
-resizeNursery (nursery *nursery, W_ blocks)
+resizeNursery (nursery *nursery, W_ blocks, ResourceContainer *rc)
 {
   bdescr *bd;
-  W_ nursery_blocks;
+  W_ nursery_blocks, delta_blocks;
 
   nursery_blocks = nursery->n_blocks;
   if (nursery_blocks == blocks) return;
@@ -590,7 +630,9 @@ resizeNursery (nursery *nursery, W_ blocks)
   if (nursery_blocks < blocks) {
       debugTrace(DEBUG_gc, "increasing size of nursery to %d blocks", 
                  blocks);
-    nursery->blocks = allocNursery(nursery->blocks, blocks-nursery_blocks);
+    delta_blocks = blocks - nursery_blocks;
+    nursery->blocks = allocNursery(nursery->blocks, &delta_blocks, rc);
+    blocks = nursery_blocks + delta_blocks;
   } 
   else {
     bdescr *next_bd;
@@ -610,7 +652,9 @@ resizeNursery (nursery *nursery, W_ blocks)
     // might have gone just under, by freeing a large block, so make
     // up the difference.
     if (nursery_blocks < blocks) {
-        nursery->blocks = allocNursery(nursery->blocks, blocks-nursery_blocks);
+        delta_blocks = blocks - nursery_blocks;
+        nursery->blocks = allocNursery(nursery->blocks, &delta_blocks, rc);
+        blocks = nursery_blocks + delta_blocks;
     }
   }
   
@@ -622,23 +666,30 @@ resizeNursery (nursery *nursery, W_ blocks)
 // Resize each of the nurseries to the specified size.
 //
 void
-resizeNurseriesFixed (W_ blocks)
+resizeNurseriesFixed (ResourceContainer *rc, W_ blocks)
 {
     nat i;
-    for (i = 0; i < n_capabilities; i++) {
-        resizeNursery(&nurseries[i], blocks);
-    }
+        for (i = 0; i < n_capabilities; i++) {
+            if (rc->status == RC_KILLED) {
+                // truncate the nursery
+                // XXX maybe just reduce it down to get the block count
+                // correct
+                resizeNursery(&rc->threads[i].nursery, 1, rc);
+            } else {
+                resizeNursery(&rc->threads[i].nursery, blocks, rc);
+            }
+        }
 }
 
 // 
 // Resize the nurseries to the total specified size.
 //
 void
-resizeNurseries (W_ blocks)
+resizeNurseries (ResourceContainer *rc, W_ blocks)
 {
     // If there are multiple nurseries, then we just divide the number
     // of available blocks between them.
-    resizeNurseriesFixed(blocks / n_capabilities);
+    resizeNurseriesFixed(rc, blocks / n_capabilities);
 }
 
 
@@ -657,6 +708,141 @@ move_STACK (StgStack *src, StgStack *dest)
     dest->sp = (StgPtr)dest->sp + diff;
 }
 
+static inline rtsBool
+allocateLargeFor(StgPtr *pp, rtsBool force, Capability *cap, W_ n, ResourceContainer *rc)
+{
+    bdescr *bd;
+
+    // The largest number of bytes such that
+    // the computation of req_blocks will not overflow.
+    W_ max_bytes = (HS_WORD_MAX & ~(BLOCK_SIZE-1)) / sizeof(W_);
+    W_ req_blocks;
+
+    if (n > max_bytes)
+        req_blocks = HS_WORD_MAX; // signal overflow below
+    else
+        req_blocks = (W_)BLOCK_ROUND_UP(n*sizeof(W_)) / BLOCK_SIZE;
+
+    // Attempting to allocate an object larger than maxHeapSize
+    // should definitely be disallowed.  (bug #1791)
+    if ((RtsFlags.GcFlags.maxHeapSize > 0 &&
+         req_blocks >= RtsFlags.GcFlags.maxHeapSize) ||
+        req_blocks >= HS_INT32_MAX)   // avoid overflow when
+                                      // calling allocGroup() below
+    {
+        if (force) {
+            heapOverflow();
+            // heapOverflow() doesn't exit (see #2592), but we aren't
+            // in a position to do a clean shutdown here: we
+            // either have to allocate the memory or exit now.
+            // Allocating the memory would be bad, because the user
+            // has requested that we not exceed maxHeapSize, so we
+            // just exit.
+            stg_exit(EXIT_HEAPOVERFLOW);
+        } else {
+            return rtsFalse;
+        }
+    }
+
+    ACQUIRE_SM_LOCK
+    if (force) {
+        bd = forceAllocGroupFor(req_blocks, rc);
+        // ToDo: clients of forced allocation should somehow check when they
+        // are able to see if they can raise an exception.  Alternately,
+        // we might be able to raise a true asynchronous exception (not
+        // just a throw to self); but have to be careful about *which*
+        // allocate is used, since the allocation for the message must
+        // not fail.  Furthermore, if exceptions are not actually
+        // masked, we still need the blocked queue to be checked in a
+        // timely fashion.
+    } else {
+        if (!allocGroupFor(&bd, req_blocks, rc)) {
+            RELEASE_SM_LOCK;
+            return rtsFalse;
+        }
+    }
+    dbl_link_onto(bd, &g0->large_objects);
+    g0->n_large_blocks += bd->blocks; // might be larger than req_blocks
+    g0->n_new_large_words += n;
+    RELEASE_SM_LOCK;
+    initBdescr(bd, g0, g0);
+    // NB: linked onto large_objects so it'll get special handling
+    bd->flags = BF_LARGE;
+    bd->free = bd->start + n;
+    cap->total_allocated += n;
+    *pp = bd->start;
+    return rtsTrue;
+}
+
+static inline StgPtr
+forceAllocateLargeFor(Capability *cap, W_ n, ResourceContainer *rc)
+{
+    StgPtr p;
+    // ToDo: fixup
+#ifdef DEBUG
+    rtsBool r =
+#endif
+        allocateLargeFor(&p, rtsTrue, cap, n, rc);
+    ASSERT(r);
+    return p;
+}
+
+/* Allocates memory in the current thread for a resource container
+ * other than the one stored in RC.  If it is for the current RC,
+ * we defer to allocate().  When we are not the current RC, the relevant
+ * nursery is guaranteed to be closed, so we don't need to consult
+ * the CurrentAlloc block; just allocate straight out of the top nursery
+ * block.
+ */
+StgPtr
+forceAllocateFor (Capability *cap, ResourceContainer *rc, W_ n)
+{
+    if (rc == cap->r.rRC) {
+        return allocate(cap, n);
+    }
+
+    bdescr *bd;
+    StgPtr p;
+
+    TICK_ALLOC_HEAP_NOCTR(WDS(n));
+    CCS_ALLOC(cap->r.rCCCS,n);
+    
+    if (n >= LARGE_OBJECT_THRESHOLD/sizeof(W_)) {
+        return forceAllocateLargeFor(cap, n, rc);
+    }
+
+    rcthread *rct = &rc->threads[cap->no];
+    bd = rct->currentNursery;
+    ASSERT(bd != NULL);
+    if (bd->free + n > bd->start + BLOCK_SIZE_W) {
+        // It's full, try the next block off the nursery
+        bd = bd->link;
+        // ToDo: advance currentNursery?
+        if (bd == NULL || bd->free + n > bd->start + BLOCK_SIZE_W) {
+            // The nursery is empty, or the next block is already
+            // full: allocate a fresh block (we can't fail here).
+            ACQUIRE_SM_LOCK;
+            bd = forceAllocBlockFor(rc);
+            rct->nursery.n_blocks++;
+            RELEASE_SM_LOCK;
+            initBdescr(bd, g0, g0);
+            bd->flags = 0;
+            // NB: putting it in front could be pessimal if a lot of
+            // forced allocation happens, but we don't want to paper up
+            // a normal GC by putting it in the CurrentNursery path
+            dbl_link_onto(bd, &rct->nursery.blocks);
+            IF_DEBUG(sanity, checkNurserySanity(&rct->nursery));
+        }
+    }
+
+    p = bd->free;
+    bd->free += n;
+
+    IF_DEBUG(sanity, ASSERT(*((StgWord8*)p) == 0xaa));
+    return p;
+
+}
+
 /* -----------------------------------------------------------------------------
    StgPtr allocate (Capability *cap, W_ n)
 
@@ -671,9 +857,14 @@ move_STACK (StgStack *src, StgStack *dest)
    the nursery is already full, then another block is allocated from
    the global block pool.  If we need to get memory from the OS and
    that operation fails, then the whole process will be killed.
+
+   NB: This function is not allowed to fail, which means it will bust
+   past resource limits at the speed of light.  ToDo: rename this to
+   forceAllocate and have a gentler version.
    -------------------------------------------------------------------------- */
 
-StgPtr allocate (Capability *cap, W_ n)
+static inline rtsBool
+allocate0 (StgPtr *pp, rtsBool force, Capability *cap, W_ n)
 {
     bdescr *bd;
     StgPtr p;
@@ -682,44 +873,7 @@ StgPtr allocate (Capability *cap, W_ n)
     CCS_ALLOC(cap->r.rCCCS,n);
     
     if (n >= LARGE_OBJECT_THRESHOLD/sizeof(W_)) {
-        // The largest number of bytes such that
-        // the computation of req_blocks will not overflow.
-        W_ max_bytes = (HS_WORD_MAX & ~(BLOCK_SIZE-1)) / sizeof(W_);
-        W_ req_blocks;
-
-        if (n > max_bytes)
-            req_blocks = HS_WORD_MAX; // signal overflow below
-        else
-            req_blocks = (W_)BLOCK_ROUND_UP(n*sizeof(W_)) / BLOCK_SIZE;
-
-        // Attempting to allocate an object larger than maxHeapSize
-        // should definitely be disallowed.  (bug #1791)
-        if ((RtsFlags.GcFlags.maxHeapSize > 0 &&
-             req_blocks >= RtsFlags.GcFlags.maxHeapSize) ||
-            req_blocks >= HS_INT32_MAX)   // avoid overflow when
-                                          // calling allocGroup() below
-        {
-            heapOverflow();
-            // heapOverflow() doesn't exit (see #2592), but we aren't
-            // in a position to do a clean shutdown here: we
-            // either have to allocate the memory or exit now.
-            // Allocating the memory would be bad, because the user
-            // has requested that we not exceed maxHeapSize, so we
-            // just exit.
-            stg_exit(EXIT_HEAPOVERFLOW);
-        }
-
-        ACQUIRE_SM_LOCK
-        bd = allocGroup(req_blocks);
-        dbl_link_onto(bd, &g0->large_objects);
-        g0->n_large_blocks += bd->blocks; // might be larger than req_blocks
-        g0->n_new_large_words += n;
-        RELEASE_SM_LOCK;
-        initBdescr(bd, g0, g0);
-        bd->flags = BF_LARGE;
-        bd->free = bd->start + n;
-        cap->total_allocated += n;
-        return bd->start;
+        return allocateLargeFor(pp, force, cap, n, cap->r.rRC);
     }
 
     /* small allocation (<LARGE_OBJECT_THRESHOLD) */
@@ -736,7 +890,16 @@ StgPtr allocate (Capability *cap, W_ n)
             // The nursery is empty, or the next block is already
             // full: allocate a fresh block (we can't fail here).
             ACQUIRE_SM_LOCK;
-            bd = allocBlock();
+            if (force) {
+                bd = forceAllocBlockFor(cap->r.rRC);
+            } else {
+                if (!allocBlockFor(&bd, cap->r.rRC)) {
+                    // NB: don't force an allocation, because the caller
+                    // has indicated they can deal.
+                    RELEASE_SM_LOCK;
+                    return rtsFalse;
+                }
+            }
             cap->r.rNursery->n_blocks++;
             RELEASE_SM_LOCK;
             initBdescr(bd, g0, g0);
@@ -783,7 +946,37 @@ StgPtr allocate (Capability *cap, W_ n)
     bd->free += n;
 
     IF_DEBUG(sanity, ASSERT(*((StgWord8*)p) == 0xaa));
+    *pp = p;
+    return rtsTrue;
+}
+
+StgPtr
+allocate (Capability *cap, W_ n)
+{
+    StgPtr p;
+    // ToDo: fixup
+#ifdef DEBUG
+    rtsBool r =
+#endif
+        allocate0(&p, rtsTrue, cap, n);
+    ASSERT(r);
     return p;
+}
+
+rtsBool
+allocateFor (StgPtr *pp, Capability *cap, W_ n)
+{
+    return allocate0(pp, rtsFalse, cap, n);
+}
+
+// Returns a NULL pointer, which is easier for C-- to check,
+// but a moderately less safe interface
+StgPtr
+cmmMaybeAllocate (Capability *cap, W_ n)
+{
+    StgPtr p;
+    rtsBool r = allocate0(&p, rtsFalse, cap, n);
+    return r ? p : NULL;
 }
 
 /* ---------------------------------------------------------------------------
@@ -864,7 +1057,8 @@ allocatePinned (Capability *cap, W_ n)
             // our pinned obects as allocation in
             // collect_pinned_object_blocks in the GC.
             ACQUIRE_SM_LOCK;
-            bd = allocBlock();
+            // XXX for now these go to RC_MAIN
+            bd = forceAllocBlockFor(RC_MAIN);
             RELEASE_SM_LOCK;
             initBdescr(bd, g0, g0);
         } else {
@@ -1003,9 +1197,12 @@ dirty_MVAR(StgRegTable *reg, StgClosure *p)
 void updateNurseriesStats (void)
 {
     nat i;
+    ResourceContainer *rc;
 
+    for (rc = RC_LIST; rc != NULL; rc = rc->link) {
     for (i = 0; i < n_capabilities; i++) {
-        capabilities[i]->total_allocated += countOccupied(nurseries[i].blocks);
+        capabilities[i]->total_allocated += countOccupied(rc->threads[i].nursery.blocks);
+    }
     }
 }
 
@@ -1033,10 +1230,14 @@ W_ genLiveBlocks (generation *gen)
 
 W_ gcThreadLiveWords (nat i, nat g)
 {
-    W_ words;
+    W_ words = 0;
+    ResourceContainer *rc;
 
-    words   = countOccupied(gc_threads[i]->gens[g].todo_bd);
-    words  += countOccupied(gc_threads[i]->gens[g].part_list);
+    for (rc = RC_LIST; rc != NULL; rc = rc->link) {
+        gen_workspace *ws = &rc->threads[i].workspaces[g];
+        words  += countOccupied(ws->todo_bd);
+        words  += countOccupied(ws->part_list);
+    }
     words  += countOccupied(gc_threads[i]->gens[g].scavd_list);
 
     return words;
@@ -1044,10 +1245,14 @@ W_ gcThreadLiveWords (nat i, nat g)
 
 W_ gcThreadLiveBlocks (nat i, nat g)
 {
-    W_ blocks;
+    W_ blocks = 0;
+    ResourceContainer *rc;
 
-    blocks  = countBlocks(gc_threads[i]->gens[g].todo_bd);
-    blocks += gc_threads[i]->gens[g].n_part_blocks;
+    for (rc = RC_LIST; rc != NULL; rc = rc->link) {
+        gen_workspace *ws = &rc->threads[i].workspaces[g];
+        blocks += countBlocks(ws->todo_bd);
+        blocks += ws->n_part_blocks;
+    }
     blocks += gc_threads[i]->gens[g].n_scavd_blocks;
 
     return blocks;

@@ -98,6 +98,9 @@ stg_gc_noregs
             HpAlloc = 0;
             CLOSE_NURSERY();
             CurrentNursery = bdescr_link(CurrentNursery);
+            RC_CURRENT_NURSERY = CurrentNursery;
+            // NB: not necessary nor possible to set RC_NURSERY
+            ASSERT(RC == bdescr_rc(CurrentNursery));
             OPEN_NURSERY();
             if (Capability_context_switch(MyCapability()) != 0 :: CInt ||
                 Capability_interrupt(MyCapability())      != 0 :: CInt) {
@@ -111,6 +114,19 @@ stg_gc_noregs
             goto sched;
         }
     } else {
+        // XXX alternate strategy, check if RC is tagged
+        if (RC != OldRC) {
+            // for the update frame
+            ASSERT(OldRC == bdescr_rc(CurrentNursery));
+            CLOSE_NURSERY();
+            CurrentNursery = RC_CURRENT_NURSERY;
+            Nursery = RC_NURSERY;
+            CurrentAlloc = NULL; // XXX fixme
+            ASSERT(RC == bdescr_rc(CurrentNursery));
+            OPEN_NURSERY();
+            // XXX not sure if we have to check the capability again
+            jump %ENTRY_CODE(Sp(0)) [];
+        }
         if (CHECK_GC()) {
             ret = HeapOverflow;
         } else {
@@ -233,7 +249,7 @@ stg_gc_prim_p_ll
 /* The stg_enter_checkbh frame has the same shape as an update frame: */
 
 INFO_TABLE_RET ( stg_enter_checkbh, RET_SMALL,
-                 UPDATE_FRAME_FIELDS(W_,P_,info_ptr,ccs,p2,updatee))
+                 UPDATE_FRAME_FIELDS(W_,P_,info_ptr,ccs,p2,updatee,rc))
     return (P_ ret)
 {
     foreign "C" checkBlockingQueues(MyCapability() "ptr",

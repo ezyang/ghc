@@ -16,6 +16,18 @@
 
 #include "Updates.h"
 
+#define CHECK_RC(rc) \
+    if (rc != RC) { \
+        CLOSE_NURSERY(); \
+        RC = rc; \
+        OldRC = rc; \
+        CurrentNursery = RC_CURRENT_NURSERY; \
+        Nursery = RC_NURSERY; \
+        CurrentAlloc = NULL; \
+        ASSERT(bdescr_rc(CurrentNursery) == RC); \
+        OPEN_NURSERY(); \
+    }
+
 /*
  * The update code is PERFORMANCE CRITICAL, if you make any changes
  * here make sure you eyeball the assembly and check that the fast
@@ -26,13 +38,15 @@
  * we don't mind duplicating this jump.
  */
 INFO_TABLE_RET ( stg_upd_frame, UPDATE_FRAME,
-                 UPDATE_FRAME_FIELDS(W_,P_,info_ptr,_ccs,_unused,updatee) )
+                 UPDATE_FRAME_FIELDS(W_,P_,info_ptr,_ccs,_unused,updatee,rc) )
     return (P_ ret) /* the closure being returned */
 {
     ASSERT(HpAlloc == 0); // Note [HpAlloc]
 
     /* ToDo: it might be a PAP, so we should check... */
     TICK_UPD_CON_IN_NEW(sizeW_fromITBL(%GET_STD_INFO(updatee)));
+
+    CHECK_RC(rc);
 
     updateWithIndirection(updatee, ret, return (ret));
 }
@@ -44,12 +58,14 @@ INFO_TABLE_RET ( stg_upd_frame, UPDATE_FRAME,
  * another thread in the meantime.
  */
 INFO_TABLE_RET ( stg_marked_upd_frame, UPDATE_FRAME,
-                 UPDATE_FRAME_FIELDS(W_,P_,info_ptr,_ccs,_unused,updatee) )
+                 UPDATE_FRAME_FIELDS(W_,P_,info_ptr,_ccs,_unused,updatee,rc) )
     return (P_ ret) /* the closure being returned */
 {
     W_ v;
 
     ASSERT(HpAlloc == 0); // Note [HpAlloc]
+
+    CHECK_RC(rc);
 
     // we know the closure is a BLACKHOLE
     v = StgInd_indirectee(updatee);
@@ -81,12 +97,12 @@ INFO_TABLE_RET ( stg_marked_upd_frame, UPDATE_FRAME,
  * high watermark.
  */
 INFO_TABLE_RET ( stg_bh_upd_frame, UPDATE_FRAME,
-                 UPDATE_FRAME_FIELDS(W_,P_,info_ptr,ccs,_unused,updatee) )
+                 UPDATE_FRAME_FIELDS(W_,P_,info_ptr,ccs,_unused,updatee,rc) )
     return (P_ ret) /* the closure being returned */
 {
     // This all compiles away to a single jump instruction (sigh)
     jump RET_LBL(stg_marked_upd_frame)
-        ( UPDATE_FRAME_FIELDS(,,info_ptr,ccs,_unused,updatee) )
+        ( UPDATE_FRAME_FIELDS(,,info_ptr,ccs,_unused,updatee,rc) )
         (ret);
 }
 

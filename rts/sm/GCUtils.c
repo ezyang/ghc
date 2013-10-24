@@ -15,6 +15,7 @@
 #include "Rts.h"
 
 #include "BlockAlloc.h"
+#include "ResourceLimits.h"
 #include "Storage.h"
 #include "GC.h"
 #include "GCThread.h"
@@ -36,16 +37,6 @@ allocBlock_sync(void)
     bdescr *bd;
     ACQUIRE_SPIN_LOCK(&gc_alloc_block_sync);
     bd = allocBlock();
-    RELEASE_SPIN_LOCK(&gc_alloc_block_sync);
-    return bd;
-}
-
-static bdescr *
-allocGroup_sync(nat n)
-{
-    bdescr *bd;
-    ACQUIRE_SPIN_LOCK(&gc_alloc_block_sync);
-    bd = allocGroup(n);
     RELEASE_SPIN_LOCK(&gc_alloc_block_sync);
     return bd;
 }
@@ -88,7 +79,7 @@ freeChain_sync(bdescr *bd)
    -------------------------------------------------------------------------- */
 
 bdescr *
-grab_local_todo_block (gen_workspace *ws)
+grab_local_todo_block (gen_global_workspace *ws)
 {
     bdescr *bd;
 
@@ -126,12 +117,13 @@ steal_todo_block (nat g)
             return bd;
         }
     }
+
     return NULL;
 }
 #endif
 
 void
-push_scanned_block (bdescr *bd, gen_workspace *ws)
+push_scanned_block (bdescr *bd, gen_workspace *ws, gen_global_workspace *gws)
 {
     ASSERT(bd != NULL);
     ASSERT(bd->link == NULL);
@@ -150,16 +142,16 @@ push_scanned_block (bdescr *bd, gen_workspace *ws)
     else
     {
         // put the scan block on the ws->scavd_list.
-        bd->link = ws->scavd_list;
-        ws->scavd_list = bd;
-        ws->n_scavd_blocks += bd->blocks;
+        bd->link = gws->scavd_list;
+        gws->scavd_list = bd;
+        gws->n_scavd_blocks += bd->blocks;
         IF_DEBUG(sanity, 
-                 ASSERT(countBlocks(ws->scavd_list) == ws->n_scavd_blocks));
+                 ASSERT(countBlocks(gws->scavd_list) == gws->n_scavd_blocks));
     }
 }
 
 StgPtr
-todo_block_full (nat size, gen_workspace *ws)
+todo_block_full (nat size, gen_workspace *ws, gen_global_workspace *gws)
 {
     rtsBool urgent_to_push, can_extend;
     StgPtr p;
@@ -170,6 +162,7 @@ todo_block_full (nat size, gen_workspace *ws)
     ws->todo_free -= size;
 
     bd = ws->todo_bd;
+    ResourceContainer *rc = bd->rc;
 
     ASSERT(bd != NULL);
     ASSERT(bd->link == NULL);
@@ -188,7 +181,7 @@ todo_block_full (nat size, gen_workspace *ws)
     // to make it worth pushing.
     //
     urgent_to_push =
-        looksEmptyWSDeque(ws->todo_q) &&
+        looksEmptyWSDeque(gws->todo_q) &&
         (ws->todo_free - bd->u.scan >= WORK_UNIT_WORDS / 2);
 
     // We can extend the limit for the current block if there's enough
@@ -242,7 +235,7 @@ todo_block_full (nat size, gen_workspace *ws)
                 // block here.
                 freeGroup(bd);
             } else {
-                push_scanned_block(bd, ws);
+                push_scanned_block(bd, ws, gws);
             }
         }
         // Otherwise, push this block out to the global list.
@@ -252,12 +245,12 @@ todo_block_full (nat size, gen_workspace *ws)
             DEBUG_ONLY( gen = ws->gen );
             debugTrace(DEBUG_gc, "push todo block %p (%ld words), step %d, todo_q: %ld", 
                   bd->start, (unsigned long)(bd->free - bd->u.scan),
-                  gen->no, dequeElements(ws->todo_q));
+                  gen->no, dequeElements(gws->todo_q));
 
-            if (!pushWSDeque(ws->todo_q, bd)) {
-                bd->link = ws->todo_overflow;
-                ws->todo_overflow = bd;
-                ws->n_todo_overflow++;
+            if (!pushWSDeque(gws->todo_q, bd)) {
+                bd->link = gws->todo_overflow;
+                gws->todo_overflow = bd;
+                gws->n_todo_overflow++;
             }
         }
     }
@@ -266,7 +259,7 @@ todo_block_full (nat size, gen_workspace *ws)
     ws->todo_free = NULL;
     ws->todo_lim  = NULL;
 
-    alloc_todo_block(ws, size);
+    alloc_todo_block(ws, size, rc);
 
     p = ws->todo_free;
     ws->todo_free += size;
@@ -274,7 +267,7 @@ todo_block_full (nat size, gen_workspace *ws)
 }
 
 StgPtr
-alloc_todo_block (gen_workspace *ws, nat size)
+alloc_todo_block (gen_workspace *ws, nat size, ResourceContainer *rc)
 {
     bdescr *bd/*, *hd, *tl */;
 
@@ -300,10 +293,14 @@ alloc_todo_block (gen_workspace *ws, nat size)
 //        bd = hd;
 
         if (size > BLOCK_SIZE_W) {
-            bd = allocGroup_sync((W_)BLOCK_ROUND_UP(size*sizeof(W_))
-                                 / BLOCK_SIZE);
+            ACQUIRE_SPIN_LOCK(&gc_alloc_block_sync);
+            bd = forceAllocGroupFor((W_)BLOCK_ROUND_UP(size*sizeof(W_))
+                                     / BLOCK_SIZE, rc);
+            RELEASE_SPIN_LOCK(&gc_alloc_block_sync);
         } else {
-            bd = allocBlock_sync();
+            ACQUIRE_SPIN_LOCK(&gc_alloc_block_sync);
+            bd = forceAllocBlockFor(rc);
+            RELEASE_SPIN_LOCK(&gc_alloc_block_sync);
         }
         initBdescr(bd, ws->gen, ws->gen->to);
         bd->flags = BF_EVACUATED;

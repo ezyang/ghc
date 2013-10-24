@@ -597,6 +597,7 @@ push( StgClosure *c, retainer c_child_r, StgClosure **first_child )
     case CONSTR_NOCAF_STATIC:
 	// stack objects
     case UPDATE_FRAME:
+    case RC_FRAME:
     case CATCH_FRAME:
     case UNDERFLOW_FRAME:
     case STOP_FRAME:
@@ -927,6 +928,7 @@ pop( StgClosure **c, StgClosure **cp, retainer *r )
 	case CONSTR_NOCAF_STATIC:
 	    // stack objects
         case UPDATE_FRAME:
+        case RC_FRAME:
 	case CATCH_FRAME:
         case UNDERFLOW_FRAME:
         case STOP_FRAME:
@@ -1080,6 +1082,7 @@ isRetainer( StgClosure *c )
 	// Stack objects are invalid because they are never treated as
 	// legal objects during retainer profiling.
     case UPDATE_FRAME:
+    case RC_FRAME:
     case CATCH_FRAME:
     case UNDERFLOW_FRAME:
     case STOP_FRAME:
@@ -1303,6 +1306,7 @@ retainStack( StgClosure *c, retainer c_child_r,
 	case CATCH_RETRY_FRAME:
 	case ATOMICALLY_FRAME:
 	case RET_SMALL:
+        case RC_FRAME:
 	    bitmap = BITMAP_BITS(info->i.layout.bitmap);
 	    size   = BITMAP_SIZE(info->i.layout.bitmap);
 	    p++;

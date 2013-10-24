@@ -27,6 +27,7 @@
 #include "Sanity.h"
 #include "Capability.h"
 #include "LdvProfile.h"
+#include "ResourceLimits.h"
 
 static void scavenge_stack (StgPtr p, StgPtr stack_end);
 
@@ -37,7 +38,7 @@ static void scavenge_large_bitmap (StgPtr p,
 #if defined(THREADED_RTS) && !defined(PARALLEL_GC)
 # define evacuate(a) evacuate1(a)
 # define scavenge_loop(a) scavenge_loop1(a)
-# define scavenge_block(a) scavenge_block1(a)
+# define scavenge_block(a,b) scavenge_block1(a,b)
 # define scavenge_mutable_list(bd,g) scavenge_mutable_list1(bd,g)
 # define scavenge_capability_mut_lists(cap) scavenge_capability_mut_Lists1(cap)
 #endif
@@ -377,12 +378,12 @@ scavenge_fun_srt(const StgInfoTable *info)
    -------------------------------------------------------------------------- */
 
 static GNUC_ATTR_HOT void
-scavenge_block (bdescr *bd)
+scavenge_block (gen_workspace *ws, bdescr *bd)
 {
   StgPtr p, q;
   StgInfoTable *info;
   rtsBool saved_eager_promotion;
-  gen_workspace *ws;
+  gen_global_workspace *gws;
 
   debugTrace(DEBUG_gc, "scavenging block %p (gen %d) @ %p",
 	     bd->start, bd->gen_no, bd->u.scan);
@@ -392,7 +393,7 @@ scavenge_block (bdescr *bd)
   saved_eager_promotion = gct->eager_promotion;
   gct->failed_to_evac = rtsFalse;
 
-  ws = &gct->gens[bd->gen->no];
+  gws = &gct->gens[bd->gen->no];
 
   p = bd->u.scan;
   
@@ -756,7 +757,7 @@ scavenge_block (bdescr *bd)
   if (bd != ws->todo_bd) {
       // we're not going to evac any more objects into
       // this block, so push it now.
-      push_scanned_block(bd, ws);
+      push_scanned_block(bd, ws, gws);
   }
 
   gct->scan_bd = NULL;
@@ -1508,7 +1509,7 @@ scavenge_capability_mut_lists (Capability *cap)
    remove non-mutable objects from the mutable list at this point.
    -------------------------------------------------------------------------- */
 
-static void
+static rtsBool
 scavenge_static(void)
 {
   StgClosure* p;
@@ -1519,6 +1520,10 @@ scavenge_static(void)
   /* Always evacuate straight to the oldest generation for static
    * objects */
   gct->evac_gen_no = oldest_gen->no;
+
+  if (gct->static_objects == END_OF_STATIC_LIST) {
+      return rtsFalse;
+  }
 
   /* keep going until we've scavenged all the objects on the linked
      list... */
@@ -1594,6 +1599,7 @@ scavenge_static(void)
 
     ASSERT(gct->failed_to_evac == rtsFalse);
   }
+  return rtsTrue;
 }
 
 /* -----------------------------------------------------------------------------
@@ -1716,6 +1722,7 @@ scavenge_stack(StgPtr p, StgPtr stack_end)
     case STOP_FRAME:
     case CATCH_FRAME:
     case RET_SMALL:
+    case RC_FRAME:
 	bitmap = BITMAP_BITS(info->i.layout.bitmap);
 	size   = BITMAP_SIZE(info->i.layout.bitmap);
 	// NOTE: the payload starts immediately after the info-ptr, we
@@ -1782,7 +1789,7 @@ scavenge_stack(StgPtr p, StgPtr stack_end)
   --------------------------------------------------------------------------- */
 
 static void
-scavenge_large (gen_workspace *ws)
+scavenge_large (gen_global_workspace *ws)
 {
     bdescr *bd;
     StgPtr p;
@@ -1840,6 +1847,7 @@ scavenge_find_work (void)
 {
     int g;
     gen_workspace *ws;
+    gen_global_workspace *gws;
     rtsBool did_something, did_anything;
     bdescr *bd;
 
@@ -1850,33 +1858,47 @@ scavenge_find_work (void)
 loop:
     did_something = rtsFalse;
     for (g = RtsFlags.GcFlags.generations-1; g >= 0; g--) {
-        ws = &gct->gens[g];
-        
         gct->scan_bd = NULL;
+        gws = &gct->gens[g];
 
-        // If we have a scan block with some work to do,
-        // scavenge everything up to the free pointer.
-        if (ws->todo_bd->u.scan < ws->todo_free)
-        {
-            scavenge_block(ws->todo_bd);
+        if (gws->scan_sp > gws->scan_stack) {
+            gws->scan_sp--;
+            ws = *(gws->scan_sp);
+            ASSERT(ws->todo_bd->u.scan < ws->todo_free);
+            bdescr *todo_bd;
+            do {
+                todo_bd = ws->todo_bd;
+                scavenge_block(ws, todo_bd);
+            } while (todo_bd != ws->todo_bd);
+            // Note: if we defer resetting pushed_scan until the end, we
+            // have to be *certain* that scavenge_block has handled any
+            // new work we may have generated for its own workspace. In
+            // particular, if we allocate a fresh todo block, we need to
+            // loop and handle it too.  This trades off wanting to take
+            // work from the oldest generation possible, but hopefully
+            // not by too much.
+            ws->pushed_scan = 0;
             did_something = rtsTrue;
             break;
         }
+        ASSERT(gws->scan_sp == gws->scan_stack);
 
         // If we have any large objects to scavenge, do them now.
-        if (ws->todo_large_objects) {
-            scavenge_large(ws);
+        if (gws->todo_large_objects) {
+            // guess that the next thing we'll have to scavenge is the
+            // same one
+            scavenge_large(gws);
             did_something = rtsTrue;
             break;
         }
 
-        if ((bd = grab_local_todo_block(ws)) != NULL) {
-            scavenge_block(bd);
+        if ((bd = grab_local_todo_block(gws)) != NULL) {
+            ws = &bd->rc->threads[gct->thread_index].workspaces[g];
+            scavenge_block(ws, bd);
             did_something = rtsTrue;
             break;
         }
     }
-
     if (did_something) {
         did_anything = rtsTrue;
         goto loop;
@@ -1887,7 +1909,7 @@ loop:
         // look for work to steal
         for (g = RtsFlags.GcFlags.generations-1; g >= 0; g--) {
             if ((bd = steal_todo_block(g)) != NULL) {
-                scavenge_block(bd);
+                scavenge_block(&bd->rc->threads[gct->thread_index].workspaces[g], bd);
                 did_something = rtsTrue;
                 break;
             }
@@ -1925,6 +1947,7 @@ loop:
     
     // scavenge objects in compacted generation
     if (mark_stack_bd != NULL && !mark_stack_empty()) {
+        ASSERT(0);
 	scavenge_mark_stack();
 	work_to_do = rtsTrue;
     }
