@@ -15,6 +15,7 @@ module StgCmmBind (
 
 #include "HsVersions.h"
 
+import StgCmmContainer
 import StgCmmExpr
 import StgCmmMonad
 import StgCmmEnv
@@ -484,7 +485,7 @@ closureCodeBody top_lvl bndr cl_info cc args arity body fv_details
                 ; withSelfLoop (bndr, loop_header_id, arg_regs) $ do
                 {
                 -- Main payload
-                ; entryHeapCheck cl_info node' arity arg_regs $ do
+                ; entryHeapCheck Nothing cl_info node' arity arg_regs $ do
                 { -- ticky after heap check to avoid double counting
                   tickyEnterFun cl_info
                 ; enterCostCentreFun cc
@@ -559,21 +560,24 @@ thunkCode cl_info fv_details _cc node arity body
              node'       = if node_points then Just node else Nothing
         ; ldvEnterClosure cl_info (CmmLocal node) -- NB: Node always points when profiling
 
+        ; rc <- assignTemp (rcFrom dflags (CmmReg nodeReg))
         -- Heap overflow check
-        ; entryHeapCheck cl_info node' arity [] $ do
+        ; entryHeapCheck (Just rc) cl_info node' arity [] $ do
         { -- Overwrite with black hole if necessary
           -- but *after* the heap-overflow check
         ; tickyEnterThunk cl_info
         ; when (blackHoleOnEntry cl_info && node_points)
                 (blackHoleIt node)
 
-          -- Push update frame
+          -- Push update frame / restore container frame
         ; setupUpdate cl_info node $
             -- We only enter cc after setting up update so
             -- that cc of enclosing scope will be recorded
             -- in update frame CAF/DICT functions will be
             -- subsumed by this enclosing cc
             do { tickyEnterThunk cl_info
+                 -- Finally update lagging OldRC register!
+               ; emit $ mkAssign (CmmGlobal OldRC) (rcCurrent dflags)
                ; enterCostCentreThunk (CmmReg nodeReg)
                ; let lf_info = closureLFInfo cl_info
                ; fv_bindings <- mapM bind_fv fv_details
@@ -683,9 +687,11 @@ emitUpdateFrame dflags frame lbl updatee = do
   let
            hdr         = fixedHdrSize dflags * wORD_SIZE dflags
            off_updatee = hdr + oFFSET_StgUpdateFrame_updatee dflags
+           off_rc      = hdr + oFFSET_StgUpdateFrame_rc dflags
   --
   emitStore frame (mkLblExpr lbl)
   emitStore (cmmOffset dflags frame off_updatee) updatee
+  emitStore (cmmOffset dflags frame off_rc) (CmmReg (CmmGlobal OldRC))
   initUpdFrameProf frame
 
 -----------------------------------------------------------------------------

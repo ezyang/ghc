@@ -13,6 +13,7 @@
 #include "sm/Storage.h"
 #include "Printer.h"
 #include "RtsUtils.h"
+#include "ResourceLimits.h"
 
 #include <string.h>
 
@@ -267,6 +268,19 @@ printClosure( StgClosure *obj )
             printPtr((StgPtr)GET_INFO((StgClosure *)u));
             debugBelch(",");
             printPtr((StgPtr)u->updatee);
+            debugBelch(",");
+            printPtr((StgPtr)u->rc);
+            debugBelch(")\n"); 
+            break;
+        }
+
+    case RC_FRAME:
+        {
+            StgRCFrame *u = (StgRCFrame*)obj;
+            debugBelch("RC_FRAME(");
+            printPtr((StgPtr)GET_INFO((StgClosure *)u));
+            debugBelch(",");
+            printPtr((StgPtr)u->rc);
             debugBelch(")\n"); 
             break;
         }
@@ -502,6 +516,7 @@ printStackChunk( StgPtr sp, StgPtr spBottom )
 	switch (info->type) {
 	    
 	case UPDATE_FRAME:
+        case RC_FRAME:
 	case CATCH_FRAME:
         case UNDERFLOW_FRAME:
         case STOP_FRAME:
@@ -944,15 +959,18 @@ findPtr(P_ p, int follow)
 {
   nat g, n;
   bdescr *bd;
+  ResourceContainer *rc;
   const int arr_size = 1024;
   StgPtr arr[arr_size];
   int i = 0;
   searched = 0;
 
+  for (rc = RC_LIST; rc != NULL; rc = rc->link) {
   for (n = 0; n < n_capabilities; n++) {
-      bd = nurseries[i].blocks;
+      bd = rc->threads[n].nursery.blocks;
       i = findPtrBlocks(p,bd,arr,arr_size,i);
       if (i >= arr_size) return;
+  }
   }
 
   for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
@@ -1137,7 +1155,8 @@ char *closure_type_names[] = {
  [ATOMICALLY_FRAME]      = "ATOMICALLY_FRAME",
  [CATCH_RETRY_FRAME]     = "CATCH_RETRY_FRAME",
  [CATCH_STM_FRAME]       = "CATCH_STM_FRAME",
- [WHITEHOLE]             = "WHITEHOLE"
+ [WHITEHOLE]             = "WHITEHOLE",
+ [RC_FRAME]              = "RC_FRAME"
 };
 
 char *

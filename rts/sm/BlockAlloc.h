@@ -11,12 +11,16 @@
 
 #include "BeginPrivate.h"
 
-bdescr *allocLargeChunk (W_ min, W_ max);
+bdescr *allocLargeChunk (W_ min, W_ max, ResourceContainer *rc);
 
 /* Debugging  -------------------------------------------------------------- */
 
 extern W_ countBlocks       (bdescr *bd);
 extern W_ countAllocdBlocks (bdescr *bd);
+extern W_ countBlocksWithoutRC       (bdescr *bd);
+extern W_ countAllocdBlocksWithoutRC (bdescr *bd);
+extern W_ inventoryBlocks       (bdescr *bd, ResourceContainer *rc);
+extern W_ inventoryAllocdBlocks (bdescr *bd, ResourceContainer *rc);
 extern void returnMemoryToOS(nat n);
 
 W_ neededBlocks(W_ n);
