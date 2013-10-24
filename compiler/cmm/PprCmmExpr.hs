@@ -263,6 +263,8 @@ pprGlobalReg gr
         Hp             -> ptext (sLit "Hp")
         HpLim          -> ptext (sLit "HpLim")
         CCCS           -> ptext (sLit "CCCS")
+        RC             -> ptext (sLit "RC")
+        OldRC          -> ptext (sLit "OldRC")
         CurrentTSO     -> ptext (sLit "CurrentTSO")
         CurrentNursery -> ptext (sLit "CurrentNursery")
         CurrentAlloc   -> ptext (sLit "CurrentAlloc")
