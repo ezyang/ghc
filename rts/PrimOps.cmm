@@ -57,7 +57,10 @@ stg_newByteArrayzh ( W_ n )
 
     payload_words = ROUNDUP_BYTES_TO_WDS(n);
     words = BYTES_TO_WDS(SIZEOF_StgArrWords) + payload_words;
-    ("ptr" p) = ccall allocate(MyCapability() "ptr",words);
+    ("ptr" p) = ccall cmmMaybeAllocate(MyCapability() "ptr",words);
+    if (p == NULL) {
+        jump stg_raisezh(STATIC_CLOSURE(base_GHCziIOziException_heapOverflow));
+    }
     TICK_ALLOC_PRIM(SIZEOF_StgArrWords,WDS(payload_words),0);
     SET_HDR(p, stg_ARR_WORDS_info, CCCS);
     StgArrWords_bytes(p) = n;
@@ -177,7 +180,11 @@ stg_newArrayzh ( W_ n /* words */, gcptr init )
     // number of words.
     size = n + mutArrPtrsCardWords(n);
     words = BYTES_TO_WDS(SIZEOF_StgMutArrPtrs) + size;
-    ("ptr" arr) = ccall allocate(MyCapability() "ptr",words);
+    ("ptr" arr) = ccall cmmMaybeAllocate(MyCapability() "ptr",words);
+    if (arr == NULL) {
+        jump stg_raisezh(STATIC_CLOSURE(base_GHCziIOziException_heapOverflow));
+    }
+
     TICK_ALLOC_PRIM(SIZEOF_StgMutArrPtrs, WDS(n), 0);
 
     SET_HDR(arr, stg_MUT_ARR_PTRS_DIRTY_info, CCCS);
@@ -269,7 +276,10 @@ stg_newArrayArrayzh ( W_ n /* words */ )
     // number of words.
     size = n + mutArrPtrsCardWords(n);
     words = BYTES_TO_WDS(SIZEOF_StgMutArrPtrs) + size;
-    ("ptr" arr) = ccall allocate(MyCapability() "ptr",words);
+    ("ptr" arr) = ccall cmmMaybeAllocate(MyCapability() "ptr",words);
+    if (arr == NULL) {
+        jump stg_raisezh(STATIC_CLOSURE(base_GHCziIOziException_heapOverflow));
+    }
     TICK_ALLOC_PRIM(SIZEOF_StgMutArrPtrs, WDS(n), 0);
 
     SET_HDR(arr, stg_MUT_ARR_PTRS_DIRTY_info, W_[CCCS]);
