@@ -310,6 +310,16 @@ alloc_mega_group (StgWord mblocks)
     return bd;
 }
 
+W_
+neededBlocks(W_ n)
+{
+    if (n >= BLOCKS_PER_MBLOCK) {
+        return BLOCKS_TO_MBLOCKS(n) * BLOCKS_PER_MBLOCK;
+    } else {
+        return n;
+    }
+}
+
 bdescr *
 allocGroup (W_ n)
 {
