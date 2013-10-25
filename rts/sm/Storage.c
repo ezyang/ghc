@@ -465,10 +465,11 @@ newDynCAF (StgRegTable *reg, StgIndStatic *caf)
    -------------------------------------------------------------------------- */
 
 bdescr *
-allocNursery (bdescr *tail, W_ blocks, ResourceContainer *rc)
+allocNursery (bdescr *tail, W_ *pblocks, ResourceContainer *rc)
 {
     bdescr *bd = NULL;
     W_ i, n;
+    W_ blocks = *pblocks;
 
     // We allocate the nursery as a single contiguous block and then
     // divide it into single blocks manually.  This way we guarantee
@@ -484,7 +485,24 @@ allocNursery (bdescr *tail, W_ blocks, ResourceContainer *rc)
         // allocLargeChunk will prefer large chunks, but will pick up
         // small chunks if there are any available.  We must allow
         // single blocks here to avoid fragmentation (#7257)
-        bd = allocLargeChunk(1, n, rc);
+        if (!allocLargeChunkFor(&bd, 1, n, rc)) {
+            // Oops, ran out of memory.  Bail out. Nursery might be smaller
+            // than requested.
+            if (bd == NULL) {
+                if (tail != NULL) {
+                    bd = tail;
+                    *pblocks = 0;
+                } else {
+                    // Always have one block in nursery
+                    bd = forceAllocBlockFor(rc);
+                    initBdescr(bd, g0, g0);
+                    *pblocks = 1;
+                }
+            } else {
+                *pblocks = *pblocks - blocks;
+            }
+            break;
+        }
         n = bd->blocks;
         blocks -= n;
 
@@ -558,10 +576,10 @@ allocNurseries (nat from, nat to)
 
     for (rc = RC_LIST; rc != NULL; rc = rc->link) {
     for (i = from; i < to; i++) {
-        rc->threads[i].nursery.blocks =
-            allocNursery(NULL, RtsFlags.GcFlags.minAllocAreaSize, rc);
         rc->threads[i].nursery.n_blocks =
             RtsFlags.GcFlags.minAllocAreaSize;
+        rc->threads[i].nursery.blocks =
+            allocNursery(NULL, &rc->threads[i].nursery.n_blocks, rc);
     }
     }
     assignNurseriesToCapabilities(from, to);
@@ -609,7 +627,7 @@ static void
 resizeNursery (nursery *nursery, W_ blocks, ResourceContainer *rc)
 {
   bdescr *bd;
-  W_ nursery_blocks;
+  W_ nursery_blocks, delta_blocks;
 
   nursery_blocks = nursery->n_blocks;
   if (nursery_blocks == blocks) return;
@@ -617,7 +635,9 @@ resizeNursery (nursery *nursery, W_ blocks, ResourceContainer *rc)
   if (nursery_blocks < blocks) {
       debugTrace(DEBUG_gc, "increasing size of nursery to %d blocks", 
                  blocks);
-    nursery->blocks = allocNursery(nursery->blocks, blocks-nursery_blocks, rc);
+    delta_blocks = blocks - nursery_blocks;
+    nursery->blocks = allocNursery(nursery->blocks, &delta_blocks, rc);
+    blocks = nursery_blocks + delta_blocks;
   } 
   else {
     bdescr *next_bd;
@@ -637,7 +657,9 @@ resizeNursery (nursery *nursery, W_ blocks, ResourceContainer *rc)
     // might have gone just under, by freeing a large block, so make
     // up the difference.
     if (nursery_blocks < blocks) {
-        nursery->blocks = allocNursery(nursery->blocks, blocks-nursery_blocks, rc);
+        delta_blocks = blocks - nursery_blocks;
+        nursery->blocks = allocNursery(nursery->blocks, &delta_blocks, rc);
+        blocks = nursery_blocks + delta_blocks;
     }
   }
   
