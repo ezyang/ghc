@@ -443,7 +443,7 @@ allocLargeChunk (W_ min, W_ max, ResourceContainer *rc)
     StgWord ln, lnmax;
 
     if (min >= BLOCKS_PER_MBLOCK) {
-        return allocGroup(max);
+        return forceAllocGroupFor(max, rc);
     }
 
     ln = log_2_ceil(min);
