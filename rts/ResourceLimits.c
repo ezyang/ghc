@@ -122,6 +122,7 @@ initResourceLimits(void)
         stgMallocBytes(sizeof(ResourceContainer) + n * sizeof(rcthread),
                        "initResourceLimits: RC_MAIN");
     RC_MAIN->label = "RC_MAIN";
+    RC_MAIN->status = RC_NORMAL;
     RC_MAIN->link = NULL;
     RC_MAIN->parent = NULL;
     RC_MAIN->max_blocks = 0; // unlimited
@@ -130,4 +131,34 @@ initResourceLimits(void)
     IF_DEBUG(sanity, memset(RC_MAIN->threads, 0xDD, n * sizeof(rcthread)));
 
     RC_LIST = RC_MAIN;
+}
+
+ResourceContainer *
+newResourceContainer(nat max_blocks, ResourceContainer *parent)
+{
+    nat i;
+    // XXX leaky; need to do something like unloadObj
+    ResourceContainer *rc = stgMallocBytes(sizeof(ResourceContainer) + n_capabilities * sizeof(rcthread),
+                                           "newResourceContainer");
+    rc->status = RC_NORMAL;
+    rc->label = "DYNAMIC(*)";
+    rc->max_blocks = max_blocks;
+    rc->used_blocks = 0; // will be bumped shortly
+    rc->parent = parent;
+    rc->block_record = allocHashTable();
+    // initialize the workspaces
+    IF_DEBUG(sanity, memset(rc->threads, 0xDD, n_capabilities * sizeof(rcthread)));
+    initContainerGcThreads(rc, 0, n_capabilities);
+    for (i = 0; i < n_capabilities; i++) {
+        // ToDo: copied from allocNurseries
+        rc->threads[i].nursery.blocks =
+            allocNursery(NULL, RtsFlags.GcFlags.minAllocAreaSize, rc);
+        rc->threads[i].nursery.n_blocks =
+            RtsFlags.GcFlags.minAllocAreaSize;
+        rc->threads[i].currentNursery = rc->threads[i].nursery.blocks;
+    }
+    // XXX add a lock here
+    rc->link = RC_LIST;
+    RC_LIST = rc;
+    return rc;
 }

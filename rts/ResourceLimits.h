@@ -40,6 +40,7 @@ bdescr *forceAllocGroupFor(W_ n, ResourceContainer *rc);
 bdescr *forceAllocBlockFor(ResourceContainer *rc);
 
 void initResourceLimits(void);
+ResourceContainer *newResourceContainer(nat max_blocks, ResourceContainer *parent);
 
 const char *rc_status(ResourceContainer *rc);
 
