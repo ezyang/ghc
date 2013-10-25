@@ -1150,7 +1150,7 @@ scheduleHandleHeapOverflow( Capability *cap, StgTSO *t )
 	    cap->r.rCurrentNursery->u.back = bd;
 	    
 	    // initialise it as a nursery block.  We initialise the
-	    // step, gen_no, and flags field of *every* sub-block in
+	    // step, gen_no, rc and flags field of *every* sub-block in
 	    // this large block, because this is easier than making
 	    // sure that we always find the block head of a large
 	    // block whenever we call Bdescr() (eg. evacuate() and

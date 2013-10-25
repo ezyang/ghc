@@ -849,10 +849,26 @@ void findSlop(bdescr *bd)
 static W_
 genBlocks (generation *gen)
 {
-    ASSERT(countBlocks(gen->blocks) == gen->n_blocks);
-    ASSERT(countBlocks(gen->large_objects) == gen->n_large_blocks);
+    W_ n_blocks = inventoryBlocks(gen->blocks, NULL);
+    ASSERT(n_blocks == gen->n_blocks);
+    W_ n_old_blocks = inventoryBlocks(gen->old_blocks, NULL);
+    ASSERT(n_old_blocks == gen->n_old_blocks);
     return gen->n_blocks + gen->n_old_blocks + 
-	    countAllocdBlocks(gen->large_objects);
+	    inventoryAllocdBlocks(gen->large_objects, NULL);
+}
+
+// Assume that there aren't any leaks proper
+static void
+assertTableMarked(void *user, StgWord key, void *data)
+{
+    bdescr *bd = (bdescr*)key;
+    StgWord count = (StgWord)data;
+    ResourceContainer *rc = (ResourceContainer*)user;
+    // We're looking for block descriptors which the marked
+    // table thinks belong to a resource container, but
+    // we disagree about
+    ASSERT(bd->rc == rc);
+    ASSERT(bd->blocks == count);
 }
 
 void
@@ -866,12 +882,18 @@ memInventory (rtsBool show)
   W_ live_blocks = 0, free_blocks = 0;
   rtsBool leak;
 
+  // reset RC counters
+
+  for (rc = RC_LIST; rc != NULL; rc = rc->link) {
+      rc->u.count = 0;
+  }
+
   // count the blocks we current have
 
   for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
       gen_blocks[g] = 0;
       for (i = 0; i < n_capabilities; i++) {
-          gen_blocks[g] += countBlocks(capabilities[i]->mut_lists[g]);
+          gen_blocks[g] += countBlocksWithoutRC(capabilities[i]->mut_lists[g]);
       }
       gen_blocks[g] += genBlocks(&generations[g]);
   }
@@ -880,26 +902,30 @@ memInventory (rtsBool show)
       for (i = 0; i < n_capabilities; i++) {
           for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
               gen_workspace *ws = &rc->threads[i].workspaces[g];
-              gen_blocks[g] += countBlocks(ws->part_list);
-              gen_blocks[g] += countBlocks(ws->scavd_list);
-              gen_blocks[g] += countBlocks(ws->todo_bd);
+              // ToDo: tighten this up?
+              gen_blocks[g] += inventoryBlocks(ws->part_list, NULL);
+              gen_blocks[g] += inventoryBlocks(ws->scavd_list, NULL);
+              gen_blocks[g] += inventoryBlocks(ws->todo_bd, NULL);
           }
       }
   }
 
   nursery_blocks = 0;
   for (rc = RC_LIST; rc != NULL; rc = rc->link) {
-  for (i = 0; i < n_capabilities; i++) {
-      ASSERT(countBlocks(rc->threads[i].nursery.blocks) == rc->threads[i].nursery.n_blocks);
-      nursery_blocks += rc->threads[i].nursery.n_blocks;
-  }
+      for (i = 0; i < n_capabilities; i++) {
+          W_ cnt = inventoryBlocks(rc->threads[i].nursery.blocks, rc);
+          ASSERT(cnt == rc->threads[i].nursery.n_blocks);
+          nursery_blocks += cnt;
+      }
   }
 
   for (i = 0; i < n_capabilities; i++) {
       if (capabilities[i]->pinned_object_block != NULL) {
+          // XXX looks dodgy
           nursery_blocks += capabilities[i]->pinned_object_block->blocks;
+          capabilities[i]->pinned_object_block->rc->u.count += capabilities[i]->pinned_object_block->blocks;
       }
-      nursery_blocks += countBlocks(capabilities[i]->pinned_object_blocks);
+      nursery_blocks += inventoryBlocks(capabilities[i]->pinned_object_blocks, NULL);
   }
 
   retainer_blocks = 0;
@@ -913,10 +939,11 @@ memInventory (rtsBool show)
   arena_blocks = arenaBlocks();
 
   // count the blocks containing executable memory
-  exec_blocks = countAllocdBlocks(exec_block);
+  exec_blocks = countAllocdBlocksWithoutRC(exec_block);
 
   // count the blocks allocated to hold static closures
   static_blocks = countStaticBlocks();
+  RC_MAIN->u.count += static_blocks; // special cased
 
   /* count the blocks on the free list */
   free_blocks = countFreeList();
@@ -957,6 +984,13 @@ memInventory (rtsBool show)
                  free_blocks, MB(free_blocks));
       debugBelch("  total        : %5" FMT_Word " blocks (%6.1lf MB)\n",
                  live_blocks + free_blocks, MB(live_blocks+free_blocks));
+      debugBelch("\n");
+      debugBelch("Containers:\n");
+      for (rc = RC_LIST; rc != NULL; rc = rc->link) {
+          debugBelch("  %-13s: %5" FMT_Word " blocks (%6.1lf MB) [%p] %s\n",
+                  rc->label,
+                  rc->used_blocks, MB(rc->used_blocks), rc, rc_status(rc));
+      }
       if (leak) {
           debugBelch("\n  in system    : %5" FMT_Word " blocks (%" FMT_Word " MB)\n", 
                      (W_)(mblocks_allocated * BLOCKS_PER_MBLOCK), mblocks_allocated);
@@ -969,6 +1003,16 @@ memInventory (rtsBool show)
   }
   ASSERT(n_alloc_blocks == live_blocks);
   ASSERT(!leak);
+
+  // check RC counts (do this after checking for leaks, because a leak
+  // is a more serious matter and basically ~guarantees this check will
+  // fail)
+  for (rc = RC_LIST; rc != NULL; rc = rc->link) {
+      if (rc->u.count != rc->used_blocks) {
+          iterateHashTable(rc->block_record, assertTableMarked, rc);
+          ASSERT(0);
+      }
+  }
 }
 
 

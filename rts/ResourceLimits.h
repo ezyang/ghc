@@ -2,6 +2,7 @@
 #define RESOURCE_LIMITS_H
 
 #include "sm/GCThread.h"
+#include "Hash.h"
 
 #include "BeginPrivate.h"
 
@@ -23,7 +24,8 @@ typedef struct ResourceContainer_ {
     } u;
     memcount used_blocks;
     StgWord status;
-    StgWord padding[9]; // make it a nice multiple, don't know if this actually helps
+    HashTable *block_record;
+    StgWord padding[8]; // make it a nice multiple, don't know if this actually helps
     rcthread threads[FLEXIBLE_ARRAY];
 } ResourceContainer;
 

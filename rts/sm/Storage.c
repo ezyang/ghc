@@ -452,12 +452,19 @@ allocNursery (bdescr *tail, W_ blocks, ResourceContainer *rc)
         n = bd->blocks;
         blocks -= n;
 
+        // these will be *proper* blocks, so we need to undo RC
+        // notification
+        freeNotifyRC(rc, bd);
+
         for (i = 0; i < n; i++) {
             initBdescr(&bd[i], g0, g0);
 
-            bd[i].rc = rc;
+            // Need to do this here, because allocLargeChunk
+            // will only cover the head
             bd[i].blocks = 1;
             bd[i].flags = 0;
+
+            allocNotifyRC(rc, &bd[i]); // do this after blocks is fixed up!
 
             if (i > 0) {
                 bd[i].u.back = &bd[i-1];
