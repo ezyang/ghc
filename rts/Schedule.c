@@ -1090,6 +1090,9 @@ schedulePostRunThread (Capability *cap, StgTSO *t)
 static rtsBool
 scheduleHandleHeapOverflow( Capability *cap, StgTSO *t )
 {
+    rtsBool doGc = rtsFalse;
+    ResourceContainer *rc = cap->r.rRC;
+
     // did the task ask for a large block?
     if (cap->r.rHpAlloc > BLOCK_SIZE) {
 	// if so, get one and push it on the front of the nursery.
@@ -1112,16 +1115,15 @@ scheduleHandleHeapOverflow( Capability *cap, StgTSO *t )
 	                                       // if the nursery has only one block.
 	    
             ACQUIRE_SM_LOCK;
-            ResourceContainer *rc = cap->r.rRC;
             if(!allocGroupFor(&bd, blocks, rc)) {
                 if ((t->flags & TSO_BLOCKEX) == 0) {
+                    RELEASE_SM_LOCK;
                     throwToSingleThreaded(cap, t, (StgClosure *)heapOverflow_closure);
-                    // the next allocation by user-supplied recovering handler
-                    // will succeed if it was soft, or we'll hit a TCB
-                    // recovering handler which will allocate somewhere
-                    // else
-                    goto gc;
+                    doGc = rtsFalse;
+                    goto reschedule;
                 } else {
+                    bd = forceAllocGroupFor(blocks, rc);
+                    RELEASE_SM_LOCK;
                     // See note [Throw to self when masked]
                     // NB: This really ought not to happen; bad things
                     // can happen if untrusted code gets its grubby
@@ -1133,10 +1135,10 @@ scheduleHandleHeapOverflow( Capability *cap, StgTSO *t )
                     msg->target = t;
                     msg->exception = (StgClosure *)heapOverflow_closure;
                     blockedThrowTo(cap, t, msg);
-                    bd = forceAllocGroupFor(blocks, rc);
                 }
+            } else {
+                RELEASE_SM_LOCK;
             }
-            RELEASE_SM_LOCK;
             cap->r.rNursery->n_blocks += blocks;
 
             checkListenersRC(cap, rc);
@@ -1178,6 +1180,8 @@ scheduleHandleHeapOverflow( Capability *cap, StgTSO *t )
 	    cap->r.rCurrentNursery = bd;
             cap->r.rRC->threads[cap->no].currentNursery = bd;
 	    
+            // NB: don't check for a preemption, we need the thread
+            // to use this block.
 	    // we might be unlucky and have another thread get on the
 	    // run queue before us and steal the large block, but in that
 	    // case the thread will just end up requesting another large
@@ -1187,7 +1191,66 @@ scheduleHandleHeapOverflow( Capability *cap, StgTSO *t )
 	}
     }
 
-gc:
+    if (cap->r.rRC->status == RC_KILLED && cap->r.rCurrentNursery->link == NULL) {
+        // thread wants to induce a GC (ran out of nursery blocks
+        // or have allocated a bunch of large objects), but it has no more resource
+        // budget left. No go!
+        if ((t->flags & TSO_BLOCKEX) == 0) {
+            throwToSingleThreaded(cap, t, (StgClosure *)heapOverflow_closure);
+            doGc = rtsFalse;
+            goto reschedule;
+        } else {
+            // Uh oh, we're not allowed to fail this allocation.
+            // Allocate *as little* memory as possible to the nursery,
+            // so that if we get preempted, anyone else running in the
+            // container will discover the problem in a timely fashion.
+            bdescr *bd;
+            ACQUIRE_SM_LOCK;
+            bd = forceAllocBlockFor(rc);
+            RELEASE_SM_LOCK;
+
+            // XXX large duplication
+
+            // See note [Throw to self when masked]
+            MessageThrowTo *msg = (MessageThrowTo*)allocate(cap, sizeofW(MessageThrowTo));
+            SET_HDR(msg, &stg_MSG_THROWTO_info, CCS_SYSTEM);
+            msg->source = t;
+            msg->target = t;
+            msg->exception = (StgClosure *)heapOverflow_closure;
+            blockedThrowTo(cap, t, msg);
+
+            // link the new group into the list (duplicate!)
+            cap->r.rNursery->n_blocks++;
+            bd->link = cap->r.rCurrentNursery;
+            bd->u.back = cap->r.rCurrentNursery->u.back;
+            if (cap->r.rCurrentNursery->u.back != NULL) {
+                cap->r.rCurrentNursery->u.back->link = bd;
+            } else {
+                cap->r.rNursery->blocks = bd;
+            }
+            cap->r.rCurrentNursery->u.back = bd;
+
+            initBdescr(bd,g0,g0);
+            bd->free = bd->start;
+            bd->flags = 0;
+
+            IF_DEBUG(sanity, checkNurserySanity(cap->r.rNursery));
+            cap->r.rCurrentNursery = bd;
+            cap->r.rRC->threads[cap->no].currentNursery = bd;
+
+            // Push on the queue because we want to get the thread out
+            // of the masked region ASAP.
+            pushOnRunQueue(cap,t);
+
+            // Don't GC, because it would make a bad situation (masked
+            // untrusted code) even worse (masked untrusted code that
+            // repeatedly GCs).
+            return rtsFalse;
+        }
+    }
+
+    doGc = rtsTrue;
+reschedule:
     
     if (cap->r.rHpLim == NULL || cap->context_switch) {
         // Sometimes we miss a context switch, e.g. when calling
@@ -1199,7 +1262,7 @@ gc:
     } else {
         pushOnRunQueue(cap,t);
     }
-    return rtsTrue;
+    return doGc;
     /* actual GC is done at the end of the while loop in schedule() */
 }
 

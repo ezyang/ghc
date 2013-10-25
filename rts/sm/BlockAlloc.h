@@ -11,7 +11,7 @@
 
 #include "BeginPrivate.h"
 
-bdescr *allocLargeChunk (W_ min, W_ max, ResourceContainer *rc);
+rtsBool allocLargeChunkFor (bdescr **pbd, W_ min, W_ max, ResourceContainer *rc);
 
 /* Debugging  -------------------------------------------------------------- */
 

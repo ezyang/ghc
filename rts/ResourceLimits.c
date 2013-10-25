@@ -250,10 +250,10 @@ newResourceContainer(nat max_blocks, ResourceContainer *parent)
     initContainerGcThreads(rc, 0, n_capabilities);
     for (i = 0; i < n_capabilities; i++) {
         // ToDo: copied from allocNurseries
-        rc->threads[i].nursery.blocks =
-            allocNursery(NULL, RtsFlags.GcFlags.minAllocAreaSize, rc);
         rc->threads[i].nursery.n_blocks =
             RtsFlags.GcFlags.minAllocAreaSize;
+        rc->threads[i].nursery.blocks =
+            allocNursery(NULL, &rc->threads[i].nursery.n_blocks, rc);
         rc->threads[i].currentNursery = rc->threads[i].nursery.blocks;
     }
     // XXX add a lock here
