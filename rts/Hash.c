@@ -397,3 +397,27 @@ int keyCountHashTable (HashTable *table)
 {
     return table->kcount;
 }
+
+// similar to freeHashTable
+void
+iterateHashTable(HashTable *table, void (*f)(void * /* user */, StgWord, void *), void *user)
+{
+    long segment;
+    long index;
+    HashList *hl;
+    HashList *next;
+
+    segment = (table->max + table->split - 1) / HSEGSIZE;
+    index = (table->max + table->split - 1) % HSEGSIZE;
+    while (segment >= 0) {
+        while (index >= 0) {
+            for (hl = table->dir[segment][index]; hl != NULL; hl = next) {
+                next = hl->next;
+                (*f)(user, hl->key, hl->data);
+            }
+            index--;
+        }
+        segment--;
+        index = HSEGSIZE - 1;
+    }
+}
