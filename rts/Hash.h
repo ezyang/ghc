@@ -43,6 +43,8 @@ HashTable * allocHashTable_(HashFunction *hash, CompareFunction *compare);
 int hashWord(HashTable *table, StgWord key);
 int hashStr(HashTable *table, char *key);
 
+void iterateHashTable(HashTable *table, void (*f)(void * /* user */, StgWord, void*), void* user);
+
 /* Freeing hash tables
  */
 void freeHashTable ( HashTable *table, void (*freeDataFun)(void *) );
