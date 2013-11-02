@@ -434,4 +434,9 @@ typedef struct StgRCRef_ {
     struct ResourceContainer_ *rc;
 } StgRCRef;
 
+typedef struct {
+    StgHeader  header;
+    struct ResourceContainer_ *rc;
+} StgRCFrame;
+
 #endif /* RTS_STORAGE_CLOSURES_H */

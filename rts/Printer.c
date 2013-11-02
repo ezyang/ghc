@@ -268,6 +268,19 @@ printClosure( StgClosure *obj )
             printPtr((StgPtr)GET_INFO((StgClosure *)u));
             debugBelch(",");
             printPtr((StgPtr)u->updatee);
+            debugBelch(",");
+            printPtr((StgPtr)u->rc);
+            debugBelch(")\n"); 
+            break;
+        }
+
+    case RC_FRAME:
+        {
+            StgRCFrame *u = (StgRCFrame*)obj;
+            debugBelch("RC_FRAME(");
+            printPtr((StgPtr)GET_INFO((StgClosure *)u));
+            debugBelch(",");
+            printPtr((StgPtr)u->rc);
             debugBelch(")\n"); 
             break;
         }
@@ -494,6 +507,7 @@ printStackChunk( StgPtr sp, StgPtr spBottom )
 	switch (info->type) {
 	    
 	case UPDATE_FRAME:
+        case RC_FRAME:
 	case CATCH_FRAME:
         case UNDERFLOW_FRAME:
         case STOP_FRAME:
@@ -1133,7 +1147,8 @@ char *closure_type_names[] = {
  [CATCH_RETRY_FRAME]     = "CATCH_RETRY_FRAME",
  [CATCH_STM_FRAME]       = "CATCH_STM_FRAME",
  [WHITEHOLE]             = "WHITEHOLE",
- [RCREF]                 = "RCREF"
+ [RCREF]                 = "RCREF",
+ [RC_FRAME]              = "RC_FRAME"
 };
 
 char *

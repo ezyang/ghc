@@ -118,6 +118,7 @@ checkStackFrame( StgPtr c )
     case UNDERFLOW_FRAME:
     case STOP_FRAME:
     case RET_SMALL:
+    case RC_FRAME:
 	size = BITMAP_SIZE(info->i.layout.bitmap);
 	checkSmallBitmap((StgPtr)c + 1, 
 			 BITMAP_BITS(info->i.layout.bitmap), size);
@@ -366,6 +367,7 @@ checkClosure( StgClosure* p )
     case ATOMICALLY_FRAME:
     case CATCH_RETRY_FRAME:
     case CATCH_STM_FRAME:
+    case RC_FRAME:
 	    barf("checkClosure: stack frame");
 
     case AP:

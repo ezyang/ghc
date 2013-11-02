@@ -58,7 +58,7 @@ INFO_TABLE_RET (stg_restore_cccs, RET_SMALL, W_ info_ptr, W_ cccs)
    Restore a saved resource container
    ------------------------------------------------------------------------- */
 
-INFO_TABLE_RET (stg_restore_container, RET_SMALL, W_ info_ptr, W_ rc)
+INFO_TABLE_RET (stg_restore_container, RC_FRAME, W_ info_ptr, W_ rc)
 {
     CLOSE_NURSERY();
     RC = Sp(1);

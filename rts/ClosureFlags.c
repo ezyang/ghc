@@ -82,9 +82,10 @@ StgWord16 closure_flags[] = {
  [CATCH_RETRY_FRAME]    =  (     _BTM                                  ),
  [CATCH_STM_FRAME]      =  (     _BTM                                  ),
  [WHITEHOLE]		=  ( 0                                         ),
- [RCREF]                =  (_HNF|     _NS|              _UPT           )
+ [RCREF]                =  (_HNF|     _NS|              _UPT           ),
+ [RC_FRAME]             =  (     _BTM                                  )
 };
 
-#if N_CLOSURE_TYPES != 62
+#if N_CLOSURE_TYPES != 63
 #error Closure types changed: update ClosureFlags.c!
 #endif

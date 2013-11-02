@@ -80,6 +80,7 @@
 #define CATCH_STM_FRAME         59
 #define WHITEHOLE               60
 #define RCREF                   61
-#define N_CLOSURE_TYPES         62
+#define RC_FRAME                62
+#define N_CLOSURE_TYPES         63
 
 #endif /* RTS_STORAGE_CLOSURETYPES_H */

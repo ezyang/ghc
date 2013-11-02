@@ -2778,8 +2778,14 @@ raiseExceptionHelper (StgRegTable *reg, StgTSO *tso, StgClosure *exception)
 	    }
             updateThunk(cap, tso, ((StgUpdateFrame *)p)->updatee,
                         (StgClosure *)raise_closure);
+            tso->rc = ((StgUpdateFrame *)p)->rc; // LOAD_THREAD_STATE will take care of the rest
 	    p = next;
 	    continue;
+
+        case RC_FRAME:
+            tso->rc = ((StgRCFrame*)p)->rc;
+            p = next;
+            continue;
 
         case ATOMICALLY_FRAME:
 	    debugTrace(DEBUG_stm, "found ATOMICALLY_FRAME at %p", p);
