@@ -428,4 +428,10 @@ typedef struct StgListener_ {
     StgWord          limit;
 } StgListener;
 
+typedef struct StgRCRef_ {
+    StgHeader        header;
+    StgClosure      *var;
+    struct ResourceContainer_ *rc;
+} StgRCRef;
+
 #endif /* RTS_STORAGE_CLOSURES_H */

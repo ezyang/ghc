@@ -118,8 +118,9 @@ checkListenersRC(Capability *cap, ResourceContainer *rc)
             StgTSO *t = createIOThread(cap, RtsFlags.GcFlags.initialStkSize, l->callback);
             pushOnRunQueue(cap, t); // bump to the front
             triggered = rtsTrue;
-            l = l->link;
+            StgListener *next = l->link;
             l->link = END_LISTENER_LIST;
+            l = next;
         }
         rc->listeners = l;
         rc->trigger_blocks = l == END_LISTENER_LIST ? 0 : l->limit;

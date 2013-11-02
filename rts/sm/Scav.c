@@ -533,6 +533,7 @@ scavenge_block (gen_workspace *ws, bdescr *bd)
     case CONSTR:
     case WEAK:
     case PRIM:
+    case RCREF:
     {
 	StgPtr end;
 
@@ -887,6 +888,7 @@ scavenge_mark_stack(void)
 	case CONSTR:
 	case WEAK:
 	case PRIM:
+        case RCREF:
 	{
 	    StgPtr end;
 	    
