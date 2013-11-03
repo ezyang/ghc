@@ -9,6 +9,7 @@
 #include "PosixSource.h"
 #include "Rts.h"
 
+#include "Prelude.h"
 #include "sm/Storage.h"
 #include "Threads.h"
 #include "Trace.h"
@@ -730,6 +731,7 @@ raiseAsync(Capability *cap, StgTSO *tso, StgClosure *exception,
     StgRetInfoTable *info;
     StgPtr sp, frame;
     StgClosure *updatee;
+    StgThunk *raise_closure = NULL;
     nat i;
     StgStack *stack;
 
@@ -817,8 +819,41 @@ raiseAsync(Capability *cap, StgTSO *tso, StgClosure *exception,
 	    // fun field.
 	    //
 	    words = frame - sp - 1;
-	    ap = (StgAP_STACK *)allocate(cap,AP_STACK_sizeW(words));
-	    
+
+            if (!allocateFor((StgPtr*)&ap, cap, AP_STACK_sizeW(words))) {
+                // Note [AP_STACK fail]
+                // We can't pay for the AP_STACK.  But neither can we
+                // revert the blackhole (if this was always possible,
+                // that'd be a space leak!).  Best thing is to assume the
+                // value is some permanent error condition; this doesn't
+                // break anything either because we never observed the
+                // result.  We only want to create one raise closure,
+                // since the stack could be big.
+                if (raise_closure == NULL) {
+                    raise_closure =
+                        (StgThunk *)forceAllocateFor(cap,RC_MAIN,sizeofW(StgThunk)+1);
+                    SET_HDR(raise_closure, &stg_raise_info, cap->r.rCCCS);
+                    raise_closure->payload[0] = (StgClosure *)heapOverflow_closure;
+                }
+                updateThunk(cap, tso, ((StgUpdateFrame *)frame)->updatee,
+                            (StgClosure *)raise_closure);
+
+                tso->rc = ((StgUpdateFrame*)frame)->rc;
+                cap->r.rRC = tso->rc;
+
+                // throw away the stack from Sp up to the update frame.
+                frame += sizeofW(StgUpdateFrame) - 2;
+                sp = frame + 1;
+                stack->sp = sp - 1;
+
+                // place an exception on the stack for successful
+                // AP_STACKs
+                frame[1] = (StgWord)raise_closure;
+                frame[0] = (W_)&stg_enter_info;
+
+                break;
+            }
+
 	    ap->size = words;
 	    ap->fun  = (StgClosure *)sp[0];
 	    sp++;
@@ -854,6 +889,8 @@ raiseAsync(Capability *cap, StgTSO *tso, StgClosure *exception,
             }
 
             // XXX manage AP_STACK RC restoration properly
+            // XXX this is probably not right because the 'allocate'
+            // calls lag
             tso->rc = ((StgUpdateFrame*)frame)->rc;
 
 	    sp += sizeofW(StgUpdateFrame) - 1;
