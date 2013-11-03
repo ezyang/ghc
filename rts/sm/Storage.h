@@ -89,6 +89,7 @@ bdescr * allocNursery         ( bdescr *tail, W_ *blocks, ResourceContainer *rc 
 // RC related things
 
 StgPtr cmmMaybeAllocate (Capability *cap, W_ n);
+rtsBool allocateFor(StgPtr *pp, Capability *cap, W_ n);
 StgPtr forceAllocateFor (Capability *cap, ResourceContainer *rc, W_ n);
 
 /* -----------------------------------------------------------------------------

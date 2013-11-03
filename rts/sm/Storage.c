@@ -929,6 +929,12 @@ allocate (Capability *cap, W_ n)
     return p;
 }
 
+rtsBool
+allocateFor (StgPtr *pp, Capability *cap, W_ n)
+{
+    return allocate0(pp, rtsFalse, cap, n);
+}
+
 // Returns a NULL pointer, which is easier for C-- to check,
 // but a moderately less safe interface
 StgPtr
