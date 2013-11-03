@@ -436,14 +436,14 @@ finish:
 // fragmentation, but we make sure that we allocate large blocks
 // preferably if there are any.
 //
-bdescr *
-allocLargeChunk (W_ min, W_ max, ResourceContainer *rc)
+rtsBool
+allocLargeChunkFor (bdescr **pbd, W_ min, W_ max, ResourceContainer *rc)
 {
     bdescr *bd;
     StgWord ln, lnmax;
 
     if (min >= BLOCKS_PER_MBLOCK) {
-        return forceAllocGroupFor(max, rc);
+        return allocGroupFor(pbd, max, rc);
     }
 
     ln = log_2_ceil(min);
@@ -453,20 +453,24 @@ allocLargeChunk (W_ min, W_ max, ResourceContainer *rc)
         ln++;
     }
     if (ln == lnmax) {
-        // ToDo: proper strategy here is to allocate the *min* amount
-        // that doesn't go over the resource limit, and flip the
-        // killed flag. But I need to refactor that first.
-        return forceAllocGroupFor(max, rc);
+        return allocGroupFor(pbd, max, rc);
     }
     bd = free_list[ln];
 
     if (bd->blocks <= max)              // exactly the right size!
     {
+        if (rc->max_blocks != 0 && rc->used_blocks + bd->blocks > rc->max_blocks) {
+            return rtsFalse;
+        }
         dbl_link_remove(bd, &free_list[ln]);
         initGroup(bd);
     }
     else   // block too big...
     {                              
+        // XXX derp. But bd->blocks is not right
+        if (rc->max_blocks != 0 && rc->used_blocks + max > rc->max_blocks) {
+            return rtsFalse;
+        }
         bd = split_free_block(bd, max, ln);
         ASSERT(bd->blocks == max);
         initGroup(bd);
@@ -478,7 +482,8 @@ allocLargeChunk (W_ min, W_ max, ResourceContainer *rc)
 
     IF_DEBUG(sanity, memset(bd->start, 0xaa, bd->blocks * BLOCK_SIZE));
     IF_DEBUG(sanity, checkFreeListSanity());
-    return bd;
+    *pbd = bd;
+    return rtsTrue;
 }
 
 bdescr *

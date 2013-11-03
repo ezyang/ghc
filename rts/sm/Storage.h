@@ -84,7 +84,7 @@ void     clearNursery         ( Capability *cap );
 void     resizeNurseries      ( W_ blocks );
 void     resizeNurseriesFixed ( W_ blocks );
 W_       countNurseryBlocks   ( void );
-bdescr * allocNursery         ( bdescr *tail, W_ blocks, ResourceContainer *rc );
+bdescr * allocNursery         ( bdescr *tail, W_ *blocks, ResourceContainer *rc );
 
 // RC related things
 
