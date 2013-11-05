@@ -52,8 +52,8 @@ void
 checkStaticClosures(StgClosure **section_start, StgClosure **section_end) {
     StgClosure **pp;
     for (pp = section_start; pp < section_end; pp++) {
-        StgClosure *p = *pp;
-        ASSERT(GET_CLOSURE_TAG(p) == 0);
+        StgClosure *p = UNTAG_CLOSURE(*pp);
+        // TODO: sanity check tagging
         const StgInfoTable *info = get_itbl(p);
         switch (info->type) {
         case FUN_STATIC:
