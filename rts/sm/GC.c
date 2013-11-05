@@ -1589,10 +1589,10 @@ resize_generations (void)
 
 	// Auto-enable compaction when the residency reaches a
 	// certain percentage of the maximum heap size (default: 30%).
-	if (RtsFlags.GcFlags.compact ||
+	if (0 && (RtsFlags.GcFlags.compact ||
             (max > 0 &&
              oldest_gen->n_blocks >
-             (RtsFlags.GcFlags.compactThreshold * max) / 100)) {
+             (RtsFlags.GcFlags.compactThreshold * max) / 100))) {
 	    oldest_gen->mark = 1;
 	    oldest_gen->compact = 1;
 //	  debugBelch("compaction: on\n", live);
