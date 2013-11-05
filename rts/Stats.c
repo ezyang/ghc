@@ -449,7 +449,6 @@ stat_endGC (Capability *cap, gc_thread *gct,
 	                   CAPSET_HEAP_DEFAULT,
 			   mblocks_allocated * MBLOCK_SIZE_W * sizeof(W_));
 
-	if (gen == RtsFlags.GcFlags.generations-1) { /* major GC? */
 	    if (live > max_residency) {
 		max_residency = live;
 	    }
@@ -459,7 +458,6 @@ stat_endGC (Capability *cap, gc_thread *gct,
 	    traceEventHeapLive(cap, 
     	    	    	       CAPSET_HEAP_DEFAULT,
 	                       live * sizeof(W_));
-	}
 
         if (slop > max_slop) max_slop = slop;
     }
