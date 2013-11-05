@@ -640,9 +640,16 @@ resizeNurseriesFixed (W_ blocks)
     nat i;
     ResourceContainer *rc;
     for (rc = RC_LIST; rc != NULL; rc = rc->link) {
-    for (i = 0; i < n_capabilities; i++) {
-        resizeNursery(&rc->threads[i].nursery, blocks, rc);
-    }
+        for (i = 0; i < n_capabilities; i++) {
+            if (rc->status == RC_KILLED) {
+                // truncate the nursery
+                // XXX maybe just reduce it down to get the block count
+                // correct
+                resizeNursery(&rc->threads[i].nursery, 1, rc);
+            } else {
+                resizeNursery(&rc->threads[i].nursery, blocks, rc);
+            }
+        }
     }
 }
 
