@@ -34,8 +34,10 @@ allocNotifyRC(ResourceContainer *rc, bdescr *bd)
     // we cannot distinguish zero blocks from NULL, fortunately zero
     // block bdescr is impossible
     ASSERT(bd->blocks != 0);
+#ifdef DEBUG
     ASSERT(lookupHashTable(rc->block_record, (StgWord)bd) == NULL);
     insertHashTable(rc->block_record, (StgWord)bd, (void*)(StgWord)bd->blocks);
+#endif
 }
 
 void
@@ -45,8 +47,8 @@ freeNotifyRC(ResourceContainer *rc, bdescr *bd)
     rc->used_blocks -= bd->blocks;
 #ifdef DEBUG
     void *r =
-#endif
         removeHashTable(rc->block_record, (StgWord)bd, NULL);
+#endif
     // cast to the larger size
     ASSERT(r != NULL);
     ASSERT(r == (void*)bd->blocks);
@@ -127,7 +129,11 @@ initResourceLimits(void)
     RC_MAIN->parent = NULL;
     RC_MAIN->max_blocks = 0; // unlimited
     RC_MAIN->used_blocks = 0;
+#ifdef DEBUG
     RC_MAIN->block_record = allocHashTable();
+#else
+    RC_MAIN->block_record = NULL;
+#endif
     IF_DEBUG(sanity, memset(RC_MAIN->threads, 0xDD, n * sizeof(rcthread)));
 
     RC_LIST = RC_MAIN;
@@ -145,7 +151,11 @@ newResourceContainer(nat max_blocks, ResourceContainer *parent)
     rc->max_blocks = max_blocks;
     rc->used_blocks = 0; // will be bumped shortly
     rc->parent = parent;
+#ifdef DEBUG
     rc->block_record = allocHashTable();
+#else
+    rc->block_record = NULL;
+#endif
     // initialize the workspaces
     IF_DEBUG(sanity, memset(rc->threads, 0xDD, n_capabilities * sizeof(rcthread)));
     initContainerGcThreads(rc, 0, n_capabilities);
