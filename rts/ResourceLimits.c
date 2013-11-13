@@ -16,15 +16,18 @@ rc_status(ResourceContainer *rc)
 {
     if (rc->status == RC_NORMAL) {
         return "NORMAL";
-    } else {
-        ASSERT(rc->status == RC_KILLED);
+    } else if (rc->status == RC_KILLED) {
         return "KILLED";
+    } else {
+        ASSERT(rc->status == RC_DEAD);
+        return "DEAD";
     }
 }
 
 void
 allocNotifyRC(ResourceContainer *rc, bdescr *bd)
 {
+    ASSERT(rc->status != RC_DEAD);
     rc->used_blocks += bd->blocks;
     if (rc->max_blocks != 0 && rc->used_blocks > rc->max_blocks) {
         IF_DEBUG(gc, debugBelch("rc %s (%p) forced %d block allocation (to %ld/%ld)\n", rc->label, rc, bd->blocks, (long)rc->used_blocks, (long)rc->max_blocks));
@@ -41,6 +44,7 @@ allocNotifyRC(ResourceContainer *rc, bdescr *bd)
 void
 freeNotifyRC(ResourceContainer *rc, bdescr *bd)
 {
+    ASSERT(rc->status != RC_DEAD);
 #ifdef DEBUG
     void *r;
 #endif
@@ -171,5 +175,79 @@ newResourceContainer(nat max_blocks, ResourceContainer *parent)
 
 void killRC(ResourceContainer *rc)
 {
+    if (rc->status == RC_DEAD) return;
     rc->status = RC_KILLED;
+}
+
+#ifdef DEBUG
+static void
+sanityCheckFreeRC(ResourceContainer *rc)
+{
+    nat g;
+    bdescr *bd;
+    for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
+        generation *gen = &generations[g];
+        for (bd = gen->blocks; bd != NULL; bd = bd->link) {
+            ASSERT(bd->rc != rc);
+        }
+        for (bd = gen->old_blocks; bd != NULL; bd = bd->link) {
+            ASSERT(bd->rc != rc);
+        }
+        for (bd = gen->large_objects; bd != NULL; bd = bd->link) {
+            ASSERT(bd->rc != rc);
+        }
+    }
+}
+#endif
+
+void
+freeResourceContainer(ResourceContainer *rc)
+{
+    nat i, g;
+    ASSERT(rc->status != RC_DEAD);
+    IF_DEBUG(sanity, sanityCheckFreeRC(rc));
+    rc->parent = NULL;
+    for (i = 0; i < n_capabilities; i++) {
+        for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
+            gen_workspace *ws = &rc->threads[i].workspaces[g];
+            freeWSDeque(ws->todo_q);
+            ws->todo_q = NULL;
+            ASSERT(countOccupied(ws->part_list) == 0);
+            ASSERT(countOccupied(ws->todo_bd) == 0);
+            freeChain(ws->part_list);
+            freeChain(ws->scavd_list);
+            freeChain(ws->todo_bd);
+        }
+        stgFree(rc->threads[i].workspaces);
+        rc->threads[i].workspaces = NULL;
+        freeChain(rc->threads[i].nursery.blocks);
+    }
+    ASSERT(rc->used_blocks == 0);
+    IF_DEBUG(sanity, ASSERT(keyCountHashTable(rc->block_record) == 0));
+    IF_DEBUG(sanity, freeHashTable(rc->block_record, NULL));
+    IF_DEBUG(sanity, memset(rc->threads, 0xDD, n_capabilities * sizeof(rcthread)));
+    rc->status = RC_DEAD;
+}
+
+rtsBool
+isDeadResourceContainer(ResourceContainer *rc)
+{
+    nat i, g;
+    if (rc->status != RC_KILLED) return rtsFalse;
+    if (rc->n_words != 0) return rtsFalse;
+    for (i = 0; i < n_capabilities; i++) {
+        for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
+            gen_workspace *ws = &rc->threads[i].workspaces[g];
+            if (ws->part_list != NULL) {
+                ASSERT(ws->part_list->start != ws->part_list->free);
+                return rtsFalse;
+            }
+            if (ws->todo_bd != NULL) {
+                if (ws->todo_bd->start != ws->todo_bd->free) {
+                    return rtsFalse;
+                }
+            }
+        }
+    }
+    return rtsTrue;
 }
