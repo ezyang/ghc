@@ -905,10 +905,9 @@ memInventory (rtsBool show)
       for (i = 0; i < n_capabilities; i++) {
           for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
               gen_workspace *ws = &rc->threads[i].workspaces[g];
-              // ToDo: tighten this up?
-              gen_blocks[g] += inventoryBlocks(ws->part_list, NULL);
-              gen_blocks[g] += inventoryBlocks(ws->scavd_list, NULL);
-              gen_blocks[g] += inventoryBlocks(ws->todo_bd, NULL);
+              gen_blocks[g] += inventoryBlocks(ws->part_list, rc);
+              gen_blocks[g] += inventoryBlocks(ws->scavd_list, rc);
+              gen_blocks[g] += inventoryBlocks(ws->todo_bd, rc);
           }
       }
   }

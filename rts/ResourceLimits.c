@@ -45,15 +45,18 @@ rc_status(ResourceContainer *rc)
 {
     if (rc->status == RC_NORMAL) {
         return "NORMAL";
-    } else {
-        ASSERT(rc->status == RC_KILLED);
+    } else if (rc->status == RC_KILLED) {
         return "KILLED";
+    } else {
+        ASSERT(rc->status == RC_DEAD);
+        return "DEAD";
     }
 }
 
 void
 allocNotifyRC(ResourceContainer *rc, bdescr *bd)
 {
+    ASSERT(rc->status != RC_DEAD);
     rc->used_blocks += bd->blocks;
     if (rc->max_blocks != 0 && rc->used_blocks > rc->max_blocks) {
         IF_DEBUG(gc, debugBelch("rc %s (%p) forced %d block allocation (to %ld/%ld)\n", rc->label, rc, bd->blocks, (long)rc->used_blocks, (long)rc->max_blocks));
@@ -72,14 +75,15 @@ allocNotifyRC(ResourceContainer *rc, bdescr *bd)
 void
 freeNotifyRC(ResourceContainer *rc, bdescr *bd)
 {
-    ASSERT(rc->used_blocks >= bd->blocks);
-    rc->used_blocks -= bd->blocks;
+    ASSERT(rc->status != RC_DEAD);
 #ifdef DEBUG
     void *r =
         removeHashTable(rc->block_record, (StgWord)bd, NULL);
 #endif
     // cast to the larger size
     ASSERT(r != NULL);
+    ASSERT(rc->used_blocks >= bd->blocks);
+    rc->used_blocks -= bd->blocks;
     ASSERT(r == (void*)bd->blocks);
     ASSERT(rc == bd->rc); // should be trivially true
     bd->rc = NULL;
@@ -95,6 +99,7 @@ freeNotifyRC(ResourceContainer *rc, bdescr *bd)
 rtsBool
 checkListenersRC(Capability *cap, ResourceContainer *rc)
 {
+    ASSERT(rc->status != RC_DEAD);
     rtsBool triggered = rtsFalse;
     // Only perform trigger_blocks check if hard limits are not
     // exceeded.  One consequence is that listeners for things
@@ -251,11 +256,57 @@ newResourceContainer(nat max_blocks, ResourceContainer *parent)
     return rc;
 }
 
+void
+freeResourceContainer(ResourceContainer *rc)
+{
+    ASSERT(rc->status != RC_DEAD);
+    nat i, g;
+    rc->parent = NULL;
+#ifdef DEBUG
+    for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
+        generation *gen = &generations[g];
+        bdescr *bd;
+        for (bd = gen->blocks; bd != NULL; bd = bd->link) {
+            ASSERT(bd->rc != rc);
+        }
+        for (bd = gen->old_blocks; bd != NULL; bd = bd->link) {
+            ASSERT(bd->rc != rc);
+        }
+        for (bd = gen->large_objects; bd != NULL; bd = bd->link) {
+            ASSERT(bd->rc != rc);
+        }
+    }
+#endif
+    // TODO: maybe properly run all of them at the end
+    rc->listeners = END_LISTENER_LIST;
+    for (i = 0; i < n_capabilities; i++) {
+        for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
+            gen_workspace *ws = &rc->threads[i].workspaces[g];
+            freeWSDeque(ws->todo_q);
+            ws->todo_q = NULL;
+            freeChain(ws->part_list);
+            freeChain(ws->scavd_list);
+            freeChain(ws->todo_bd);
+        }
+        stgFree(rc->threads[i].workspaces);
+        rc->threads[i].workspaces = NULL;
+        freeChain(rc->threads[i].nursery.blocks);
+    }
+    ASSERT(rc->used_blocks == 0);
+#ifdef DEBUG
+    ASSERT(keyCountHashTable(rc->block_record) == 0);
+    freeHashTable(rc->block_record, NULL);
+#endif
+    IF_DEBUG(sanity, memset(rc->threads, 0xDD, n_capabilities * sizeof(rcthread)));
+    rc->status = RC_DEAD;
+}
+
 // NB: We don't need to add any of these to the mutable list,
 // as resource containers are considered roots, so everyone involved
 // is guaranteed to get walked upon GC.
 void listenRC(Capability *cap, ResourceContainer *rc, StgListener *listener)
 {
+    ASSERT(rc->status != RC_DEAD);
     ASSERT(listener->rc == rc);
     // XXX not synchronized
     W_ limit = listener->limit;

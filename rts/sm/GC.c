@@ -190,6 +190,7 @@ GarbageCollect (nat collect_gen,
   gc_thread *saved_gct;
 #endif
   nat g, n;
+  ResourceContainer *rc;
 
   // necessary if we stole a callee-saves register for gct:
 #if defined(THREADED_RTS)
@@ -301,6 +302,11 @@ GarbageCollect (nat collect_gen,
   // Initialise all the generations/steps that we're *not* collecting.
   for (g = N+1; g < RtsFlags.GcFlags.generations; g++) {
       prepare_uncollected_gen(&generations[g]);
+  }
+
+  /* Initialise all resource containers */
+  for (rc = RC_LIST; rc != NULL; rc = rc->link) {
+      rc->n_words = 0;
   }
 
   // Prepare this gc_thread
@@ -546,6 +552,9 @@ GarbageCollect (nat collect_gen,
                     else
                     {
                         gen->n_words += bd->free - bd->start;
+                        bd->rc->n_words += bd->free - bd->start;
+                        ASSERT(bd->free != bd->start);
+                        // XXX probably didn't do this right
 
                         // NB. this step might not be compacted next
                         // time, so reset the BF_MARKED flags.
@@ -587,7 +596,13 @@ GarbageCollect (nat collect_gen,
         freeChain(gen->large_objects);
         gen->large_objects  = gen->scavenged_large_objects;
         gen->n_large_blocks = gen->n_scavenged_large_blocks;
-        gen->n_large_words  = countOccupied(gen->large_objects);
+        gen->n_large_words = 0;
+        for (bd = gen->large_objects; bd != NULL; bd = bd->link) {
+            ASSERT(bd->free <= bd->start + bd->blocks * BLOCK_SIZE_W);
+            ASSERT(bd->free != bd->start);
+            gen->n_large_words += bd->free - bd->start;
+            bd->rc->n_words += bd->free - bd->start;
+        }
         gen->n_new_large_words = 0;
     }
     else // for generations > N
@@ -600,6 +615,7 @@ GarbageCollect (nat collect_gen,
             next = bd->link;
             dbl_link_onto(bd, &gen->large_objects);
             gen->n_large_words += bd->free - bd->start;
+            bd->rc->n_words += bd->free - bd->start;
         }
 
 	// add the new blocks we promoted during this GC
@@ -643,6 +659,28 @@ GarbageCollect (nat collect_gen,
       if (gen->bitmap != NULL) {
           freeGroup(gen->bitmap);
           gen->bitmap = NULL;
+      }
+  }
+
+  // Check for free resource containers
+  ResourceContainer *prev;
+  if (major_gc) {
+      for (rc = RC_LIST, prev = NULL; rc != NULL; prev = rc, rc = rc->link) {
+          if (rc->status == RC_KILLED && rc->n_words == 0) {
+              freeResourceContainer(rc);
+              // everything in the resource container has to be dead
+              if (prev == NULL) {
+                  RC_LIST = rc->link;
+                  rc->link = NULL;
+              } else {
+                  prev->link = rc->link;
+                  rc->link = NULL;
+                  rc = prev;
+              }
+#ifdef DEBUG
+              memInventory(DEBUG_gc);
+#endif
+          }
       }
   }
 
@@ -737,7 +775,6 @@ GarbageCollect (nat collect_gen,
   // It should be something like "whichever capability was doing the
   // most allocation for this resource limit", but for now, we just
   // shove it in capabilities[0]
-  ResourceContainer *rc;
   for (rc = RC_LIST; rc != NULL; rc = rc->link) {
       checkListenersRC(capabilities[0], rc);
       // no need to check result, since nothing is running at this point
@@ -1430,6 +1467,8 @@ collect_gct_blocks (void)
             prev = NULL;
             for (bd = ws->scavd_list; bd != NULL; bd = bd->link) {
                 ws->gen->n_words += bd->free - bd->start;
+                bd->rc->n_words += bd->free - bd->start;
+                ASSERT(bd->free - bd->start != 0);
                 prev = bd;
             }
             if (prev != NULL) {

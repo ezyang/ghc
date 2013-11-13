@@ -36,13 +36,15 @@ typedef struct ResourceContainer_ {
     memcount used_blocks;
     StgWord status;
     HashTable *block_record;
-    StgWord padding[6]; // make it a nice multiple, don't know if this actually helps
+    memcount n_words;
+    StgWord padding[5]; // make it a nice multiple, don't know if this actually helps
     rcthread threads[FLEXIBLE_ARRAY];
 } ResourceContainer;
 
 #define RC_NORMAL       0
 #define RC_RECOVERING   1
 #define RC_KILLED       2
+#define RC_DEAD         3
 
 rtsBool allocGroupFor(bdescr **pbd, W_ n, ResourceContainer *rc);
 rtsBool allocBlockFor(bdescr **pbd, ResourceContainer *rc);
@@ -55,6 +57,7 @@ void freeNotifyRC(ResourceContainer *rc, bdescr *bd);
 
 void initResourceLimits(void);
 ResourceContainer *newResourceContainer(nat max_blocks, ResourceContainer *parent);
+void freeResourceContainer(ResourceContainer *rc);
 
 rtsBool checkListenersRC(Capability *cap, ResourceContainer *rc);
 void listenRC(Capability *cap, ResourceContainer *rc, StgListener *listener);
