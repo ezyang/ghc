@@ -975,6 +975,9 @@ cmmMaybeAllocate (Capability *cap, W_ n)
    fills the allocated memory with a MutableByteArray#.
    ------------------------------------------------------------------------- */
 
+// XXX make the API more safe; fortunately it's only called from a few
+// places. NULL if the request was denied!
+
 StgPtr
 allocatePinned (Capability *cap, W_ n)
 {
@@ -984,7 +987,9 @@ allocatePinned (Capability *cap, W_ n)
     // If the request is for a large object, then allocate()
     // will give us a pinned object anyway.
     if (n >= LARGE_OBJECT_THRESHOLD/sizeof(W_)) {
-        p = allocate(cap, n);
+        if (!allocateFor(&p, cap, n)) {
+            return NULL;
+        }
         Bdescr(p)->flags |= BF_PINNED;
         return p;
     }
@@ -992,7 +997,15 @@ allocatePinned (Capability *cap, W_ n)
     TICK_ALLOC_HEAP_NOCTR(WDS(n));
     CCS_ALLOC(cap->r.rCCCS,n);
 
-    bd = cap->pinned_object_block;
+    if (cap->r.rRC == RC_MAIN) {
+        bd = cap->pinned_object_block;
+    } else {
+        // XXX whoopsie, should avoid the lock here
+#if THREADED_RTS
+        ACQUIRE_SPIN_LOCK(&cap->r.rRC->lock);
+#endif
+        bd = cap->r.rRC->pinned_object_block;
+    }
     
     // If we don't have a block of pinned objects yet, or the current
     // one isn't large enough to hold the new object, get a new one.
@@ -1030,8 +1043,13 @@ allocatePinned (Capability *cap, W_ n)
             // our pinned obects as allocation in
             // collect_pinned_object_blocks in the GC.
             ACQUIRE_SM_LOCK;
-            // XXX for now these go to RC_MAIN
-            bd = forceAllocBlockFor(RC_MAIN);
+            if (!allocBlockFor(&bd, cap->r.rRC)) {
+                RELEASE_SM_LOCK;
+#if THREADED_RTS
+                RELEASE_SPIN_LOCK(&cap->r.rRC->lock);
+#endif
+                return NULL;
+            }
             RELEASE_SM_LOCK;
             initBdescr(bd, g0, g0);
         } else {
@@ -1043,7 +1061,11 @@ allocatePinned (Capability *cap, W_ n)
             cap->r.rNursery->n_blocks -= bd->blocks;
         }
 
-        cap->pinned_object_block = bd;
+        if (cap->r.rRC == RC_MAIN) {
+            cap->pinned_object_block = bd;
+        } else {
+            cap->r.rRC->pinned_object_block = bd;
+        }
         bd->flags  = BF_PINNED | BF_LARGE | BF_EVACUATED;
 
         // The pinned_object_block remains attached to the capability
@@ -1063,6 +1085,11 @@ allocatePinned (Capability *cap, W_ n)
 
     p = bd->free;
     bd->free += n;
+#if THREADED_RTS
+    if (cap->r.rRC != RC_MAIN) {
+        RELEASE_SPIN_LOCK(&cap->r.rRC->lock);
+    }
+#endif
     return p;
 }
 

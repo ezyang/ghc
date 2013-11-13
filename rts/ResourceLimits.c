@@ -60,7 +60,7 @@ allocNotifyRC(ResourceContainer *rc, bdescr *bd)
     rc->used_blocks += bd->blocks;
     if (rc->max_blocks != 0 && rc->used_blocks > rc->max_blocks) {
         IF_DEBUG(gc, debugBelch("rc %s (%p) forced %d block allocation (to %ld/%ld)\n", rc->label, rc, bd->blocks, (long)rc->used_blocks, (long)rc->max_blocks));
-        rc->status = RC_KILLED;
+        killRC(rc);
     }
     bd->rc = rc;
     // we cannot distinguish zero blocks from NULL, fortunately zero
@@ -147,8 +147,8 @@ allocGroupFor(bdescr **pbd, W_ n, ResourceContainer *rc)
             real = neededBlocks(n);
             if (rc->used_blocks + real > rc->max_blocks) {
                 // alternative: don't flip the status KILLED
-                rc->status = RC_KILLED;
                 IF_DEBUG(gc, debugBelch("rc %s (%p) out of memory (requested %ld at %ld/%ld)\n", rc->label, rc, (long)real, (long)rc->used_blocks, (long)rc->max_blocks));
+                killRC(rc);
                 return rtsFalse;
             }
         }
@@ -213,6 +213,10 @@ initResourceLimits(void)
     RC_MAIN->block_record = NULL;
 #endif
     RC_MAIN->trigger_blocks = 0;
+    RC_MAIN->pinned_object_block = NULL;
+#ifdef THREADED_RTS
+    // do not initialize RC_MAIN->lock; should not be used!
+#endif
     IF_DEBUG(sanity, memset(RC_MAIN->threads, 0xDD, n * sizeof(rcthread)));
     // cannot initialize listeners yet because we don't have static
     // closures
@@ -239,6 +243,10 @@ newResourceContainer(nat max_blocks, ResourceContainer *parent)
     rc->block_record = NULL;
 #endif
     rc->listeners = END_LISTENER_LIST;
+    rc->pinned_object_block = NULL;
+#ifdef THREADED_RTS
+    initSpinLock(&rc->lock);
+#endif
     // initialize the workspaces
     IF_DEBUG(sanity, memset(rc->threads, 0xDD, n_capabilities * sizeof(rcthread)));
     initContainerGcThreads(rc, 0, n_capabilities);
@@ -261,11 +269,11 @@ freeResourceContainer(ResourceContainer *rc)
 {
     ASSERT(rc->status != RC_DEAD);
     nat i, g;
+    bdescr *bd;
     rc->parent = NULL;
 #ifdef DEBUG
     for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
         generation *gen = &generations[g];
-        bdescr *bd;
         for (bd = gen->blocks; bd != NULL; bd = bd->link) {
             ASSERT(bd->rc != rc);
         }
@@ -276,6 +284,7 @@ freeResourceContainer(ResourceContainer *rc)
             ASSERT(bd->rc != rc);
         }
     }
+    ASSERT(rc->pinned_object_block == NULL);
 #endif
     // TODO: maybe properly run all of them at the end
     rc->listeners = END_LISTENER_LIST;
@@ -292,6 +301,7 @@ freeResourceContainer(ResourceContainer *rc)
         rc->threads[i].workspaces = NULL;
         freeChain(rc->threads[i].nursery.blocks);
     }
+    ASSERT(rc->pinned_object_block == NULL);
     ASSERT(rc->used_blocks == 0);
 #ifdef DEBUG
     ASSERT(keyCountHashTable(rc->block_record) == 0);
@@ -357,4 +367,10 @@ void markResourceContainers(evac_fn evac, void *user)
     for (rc = RC_LIST; rc != NULL; rc = rc->link) {
         evac(user, (StgClosure **)&rc->listeners);
     }
+}
+
+void killRC(ResourceContainer *rc)
+{
+    if (rc->status == RC_DEAD) return;
+    rc->status = RC_KILLED;
 }
