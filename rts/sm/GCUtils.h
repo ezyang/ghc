@@ -21,11 +21,11 @@
 bdescr *allocBlock_sync(void);
 void    freeChain_sync(bdescr *bd);
 
-void    push_scanned_block   (bdescr *bd, gen_workspace *ws);
-StgPtr  todo_block_full      (nat size, gen_workspace *ws);
+void    push_scanned_block   (bdescr *bd, gen_workspace *ws, gen_global_workspace *gws);
+StgPtr  todo_block_full      (nat size, gen_workspace *ws, gen_global_workspace *gws);
 StgPtr  alloc_todo_block     (gen_workspace *ws, nat size, ResourceContainer *rc);
 
-bdescr *grab_local_todo_block  (gen_workspace *ws);
+bdescr *grab_local_todo_block  (gen_global_workspace *ws);
 #if defined(THREADED_RTS)
 bdescr *steal_todo_block       (nat s);
 #endif

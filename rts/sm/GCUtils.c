@@ -79,7 +79,7 @@ freeChain_sync(bdescr *bd)
    -------------------------------------------------------------------------- */
 
 bdescr *
-grab_local_todo_block (gen_workspace *ws)
+grab_local_todo_block (gen_global_workspace *ws)
 {
     bdescr *bd;
 
@@ -109,13 +109,21 @@ steal_todo_block (nat g)
     nat n;
     bdescr *bd;
 
-    // XXX don't try to steal from other resource containers
+    // look for work to steal
+    for (n = 0; n < n_gc_threads; n++) {
+        if (n == gct->thread_index) continue;
+        bd = stealWSDeque(gc_threads[n]->gens[g].todo_q);
+        if (bd) {
+            return bd;
+        }
+    }
+
     return NULL;
 }
 #endif
 
 void
-push_scanned_block (bdescr *bd, gen_workspace *ws)
+push_scanned_block (bdescr *bd, gen_workspace *ws, gen_global_workspace *gws)
 {
     ASSERT(bd != NULL);
     ASSERT(bd->link == NULL);
@@ -134,16 +142,16 @@ push_scanned_block (bdescr *bd, gen_workspace *ws)
     else
     {
         // put the scan block on the ws->scavd_list.
-        bd->link = ws->scavd_list;
-        ws->scavd_list = bd;
-        ws->n_scavd_blocks += bd->blocks;
+        bd->link = gws->scavd_list;
+        gws->scavd_list = bd;
+        gws->n_scavd_blocks += bd->blocks;
         IF_DEBUG(sanity, 
-                 ASSERT(countBlocks(ws->scavd_list) == ws->n_scavd_blocks));
+                 ASSERT(countBlocks(gws->scavd_list) == gws->n_scavd_blocks));
     }
 }
 
 StgPtr
-todo_block_full (nat size, gen_workspace *ws)
+todo_block_full (nat size, gen_workspace *ws, gen_global_workspace *gws)
 {
     rtsBool urgent_to_push, can_extend;
     StgPtr p;
@@ -173,7 +181,7 @@ todo_block_full (nat size, gen_workspace *ws)
     // to make it worth pushing.
     //
     urgent_to_push =
-        looksEmptyWSDeque(ws->todo_q) &&
+        looksEmptyWSDeque(gws->todo_q) &&
         (ws->todo_free - bd->u.scan >= WORK_UNIT_WORDS / 2);
 
     // We can extend the limit for the current block if there's enough
@@ -227,7 +235,7 @@ todo_block_full (nat size, gen_workspace *ws)
                 // block here.
                 freeGroup(bd);
             } else {
-                push_scanned_block(bd, ws);
+                push_scanned_block(bd, ws, gws);
             }
         }
         // Otherwise, push this block out to the global list.
@@ -235,14 +243,15 @@ todo_block_full (nat size, gen_workspace *ws)
         {
             DEBUG_ONLY( generation *gen );
             DEBUG_ONLY( gen = ws->gen );
+            DEBUG_ONLY( gen = gws->gen );
             //debugTrace(DEBUG_gc, "push todo block %p (%ld words), step %d, todo_q: %ld", 
             //      bd->start, (unsigned long)(bd->free - bd->u.scan),
             //      gen->no, dequeElements(ws->todo_q));
 
-            if (!pushWSDeque(ws->todo_q, bd)) {
-                bd->link = ws->todo_overflow;
-                ws->todo_overflow = bd;
-                ws->n_todo_overflow++;
+            if (!pushWSDeque(gws->todo_q, bd)) {
+                bd->link = gws->todo_overflow;
+                gws->todo_overflow = bd;
+                gws->n_todo_overflow++;
             }
         }
     }

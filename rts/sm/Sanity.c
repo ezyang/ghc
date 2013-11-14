@@ -716,8 +716,10 @@ static void checkGeneration (generation *gen,
             ws = &rc->threads[n].workspaces[gen->no];
             checkHeapChain(ws->todo_bd);
             checkHeapChain(ws->part_list);
-            checkHeapChain(ws->scavd_list);
         }
+    }
+    for (n = 0; n < n_capabilities; n++) {
+        checkHeapChain(gc_threads[n]->gens[gen->no].scavd_list);
     }
 
     checkLargeObjects(gen->large_objects);
@@ -778,9 +780,13 @@ findMemoryLeak (void)
             for (i = 0; i < n_capabilities; i++) {
                 gen_workspace *ws = &rc->threads[i].workspaces[g];
                 markBlocks(ws->part_list);
-                markBlocks(ws->scavd_list);
                 markBlocks(ws->todo_bd);
             }
+        }
+    }
+    for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
+        for (i = 0; i < n_capabilities; i++) {
+            markBlocks(gc_threads[i]->gens[g].scavd_list);
         }
     }
 
@@ -905,9 +911,13 @@ memInventory (rtsBool show)
           for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
               gen_workspace *ws = &rc->threads[i].workspaces[g];
               gen_blocks[g] += inventoryBlocks(ws->part_list, rc);
-              gen_blocks[g] += inventoryBlocks(ws->scavd_list, rc);
               gen_blocks[g] += inventoryBlocks(ws->todo_bd, rc);
           }
+      }
+  }
+  for (i = 0; i < n_capabilities; i++) {
+      for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
+          gen_blocks[g] += inventoryBlocks(gc_threads[i]->gens[g].scavd_list, NULL);
       }
   }
 

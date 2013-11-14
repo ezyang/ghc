@@ -1080,6 +1080,7 @@ void heapCensus (Time t)
   nat g, n;
   Census *census;
   gen_workspace *ws;
+  gen_global_workspace *gws;
   ResourceContainer *rc;
 
   census = &censuses[era];
@@ -1108,8 +1109,12 @@ void heapCensus (Time t)
           ws = &rc->threads[n].workspaces[g];
           heapCensusChain(census, ws->todo_bd);
           heapCensusChain(census, ws->part_list);
-          heapCensusChain(census, ws->scavd_list);
       }
+      }
+
+      for (n = 0; n < n_capabilities; n++) {
+          gws = &gc_threads[n]->gens[g];
+          heapCensusChain(census, gws->scavd_list);
       }
   }
 

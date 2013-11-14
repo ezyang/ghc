@@ -85,6 +85,20 @@ typedef struct gen_workspace_ {
     StgPtr       todo_free;            // free ptr for todo_bd
     StgPtr       todo_lim;             // lim for todo_bd
 
+    // Partially-full, scavenged, blocks
+    bdescr *     part_list;
+    unsigned int n_part_blocks;      // count of above
+
+    StgWord pad[9];
+
+} gen_workspace ATTRIBUTE_ALIGNED(64);
+// align so that computing gct->gens[n] is a shift, not a multiply
+// fails if the size is <64, which is why we need the pad above
+
+typedef struct gen_global_workspace_ {
+    generation * gen;		// the gen for this workspace 
+    struct gc_thread_ * my_gct; // the gc_thread that contains this workspace
+
     WSDeque *    todo_q;
     bdescr *     todo_overflow;
     nat          n_todo_overflow;
@@ -96,15 +110,9 @@ typedef struct gen_workspace_ {
     bdescr *     scavd_list;
     nat          n_scavd_blocks;     // count of blocks in this list
 
-    // Partially-full, scavenged, blocks
-    bdescr *     part_list;
-    unsigned int n_part_blocks;      // count of above
+    StgWord pad[8];
 
-    StgWord pad[3];
-
-} gen_workspace ATTRIBUTE_ALIGNED(64);
-// align so that computing gct->gens[n] is a shift, not a multiply
-// fails if the size is <64, which is why we need the pad above
+} gen_global_workspace ATTRIBUTE_ALIGNED(64);
 
 /* ----------------------------------------------------------------------------
    GC thread object
@@ -186,6 +194,8 @@ typedef struct gc_thread_ {
     Time gc_start_elapsed;  // process elapsed time
     Time gc_start_thread_cpu; // thread CPU time
     W_ gc_start_faults;
+
+    gen_global_workspace gens[];
 } gc_thread;
 
 
