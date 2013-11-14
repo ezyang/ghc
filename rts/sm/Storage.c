@@ -562,6 +562,11 @@ clearNursery (Capability *cap)
         ASSERT(bd->gen_no == 0);
         ASSERT(bd->gen == g0);
         IF_DEBUG(sanity,memset(bd->start, 0xaa, BLOCK_SIZE));
+        if (bd == rc->threads[cap->no].currentNursery) {
+            IF_DEBUG(sanity, for (bd = bd->link; bd; bd = bd->link)
+                                ASSERT(bd->free == bd->start));
+            break;
+        }
     }
     }
 }
