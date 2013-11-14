@@ -628,19 +628,6 @@ GarbageCollect (nat collect_gen,
     gen->scavenged_large_objects = NULL;
     gen->n_scavenged_large_blocks = 0;
 
-    // Count "live" data
-    live_words  += genLiveWords(gen);
-    live_blocks += genLiveBlocks(gen);
-
-    // add in the partial blocks in the gen_workspaces, but ignore gen 0
-    // if this is a local GC (we can't count another capability's part_list)
-    {
-        nat i;
-        for (i = 0; i < n_capabilities; i++) {
-            live_words  += gcThreadLiveWords(i, gen->no);
-            live_blocks += gcThreadLiveBlocks(i, gen->no);
-        }
-    }
   } // for all generations
 
   // update the max size of older generations after a major GC
@@ -815,8 +802,8 @@ GarbageCollect (nat collect_gen,
 #endif
 
   // ok, GC over: tell the stats department what happened.
-  stat_endGC(cap, gct, live_words, copied,
-             live_blocks * BLOCK_SIZE_W - live_words /* slop */,
+  stat_endGC(cap, gct, 0, copied,
+             0 /* slop */,
              N, n_gc_threads, par_max_copied, par_tot_copied);
 
 #if defined(RTS_USER_SIGNALS)
