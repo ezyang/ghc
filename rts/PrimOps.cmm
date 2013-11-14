@@ -2288,6 +2288,9 @@ stg_withRCzh ( W_ rc, P_ io )
 stg_usedBlocksRCzh (W_ rc) {
     W_ r;
     r = ResourceContainer_used_blocks(rc);
+    if (ResourceContainer_status(rc) != 3) {
+        ResourceContainer_status(rc) = 2;
+    }
     return (r);
 }
 
