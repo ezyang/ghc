@@ -1874,8 +1874,8 @@ loop:
                 finger = rc;
                 break;
             }
-            rc = rc->link ? rc->link : RC_LIST;
-        } while (rc != finger);
+            rc = rc->parent;
+        } while (rc);
 
         // If we have any large objects to scavenge, do them now.
         if (gws->todo_large_objects) {
@@ -1898,6 +1898,16 @@ loop:
     if (did_something) {
         did_anything = rtsTrue;
         goto loop;
+    }
+    // look for local work stragglers
+    for (rc = RC_LIST; rc != NULL; rc = rc->link) {
+        for (g = RtsFlags.GcFlags.generations-1; g >= 0; g--) {
+            ws = &rc->threads[gct->thread_index].workspaces[g];
+            if (ws->todo_bd->u.scan < ws->todo_free) {
+                finger = rc;
+                goto loop;
+            }
+        }
     }
 
 #if defined(THREADED_RTS)
