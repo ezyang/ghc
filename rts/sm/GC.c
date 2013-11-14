@@ -123,7 +123,7 @@ nat mutlist_MUTVARS,
 gc_thread **gc_threads = NULL;
 
 #if !defined(THREADED_RTS)
-StgWord8 the_gc_thread[sizeof(gc_thread)];
+StgWord8 the_gc_thread[sizeof(gc_thread) + 64 * sizeof(gen_global_workspace)];
 #endif
 
 // Number of threads running in *this* GC.  Affects how many
@@ -872,13 +872,28 @@ new_gc_thread_workspaces (ResourceContainer *rc, gen_workspace *gens, gc_thread 
             ws->todo_lim = bd->start + BLOCK_SIZE_W;
         }
 
+        ws->part_list = NULL;
+        ws->n_part_blocks = 0;
+    }
+}
+
+static void
+new_gc_thread_global_workspaces (gc_thread *t)
+{
+    nat g;
+    gen_global_workspace *ws;
+
+    for (g = 0; g < RtsFlags.GcFlags.generations; g++)
+    {
+        ws = &t->gens[g];
+        ws->gen = &generations[g];
+        ASSERT(g == ws->gen->no);
+        ws->my_gct = t;
+
         ws->todo_q = newWSDeque(128);
         ws->todo_overflow = NULL;
         ws->n_todo_overflow = 0;
         ws->todo_large_objects = NULL;
-
-        ws->part_list = NULL;
-        ws->n_part_blocks = 0;
 
         ws->scavd_list = NULL;
         ws->n_scavd_blocks = 0;
@@ -921,6 +936,8 @@ new_gc_thread (nat n, gc_thread *t)
 #ifdef USE_PAPI
     t->papi_events = -1;
 #endif
+
+    new_gc_thread_global_workspaces(t);
 }
 
 void
@@ -939,7 +956,9 @@ initGcThreads (nat from USED_IF_THREADS, nat to USED_IF_THREADS)
 
     for (i = from; i < to; i++) {
         gc_threads[i] =
-            stgMallocBytes(sizeof(gc_thread), "alloc_gc_threads");
+            stgMallocBytes(sizeof(gc_thread) +
+                           RtsFlags.GcFlags.generations * sizeof(gen_global_workspace),
+                           "alloc_gc_threads");
 
         new_gc_thread(i, gc_threads[i]);
     }
@@ -967,10 +986,18 @@ freeGcThreads (void)
 #if defined(THREADED_RTS)
         nat i;
 	for (i = 0; i < n_capabilities; i++) {
+            for (g = 0; g < RtsFlags.GcFlags.generations; g++)
+            {
+                freeWSDeque(gc_threads[i]->gens[g].todo_q);
+            }
             stgFree (gc_threads[i]);
 	}
         stgFree (gc_threads);
 #else
+        for (g = 0; g < RtsFlags.GcFlags.generations; g++)
+        {
+            freeWSDeque(gc_threads[0]->gens[g].todo_q);
+        }
         stgFree (gc_threads);
 #endif
         gc_threads = NULL;
@@ -980,9 +1007,6 @@ freeGcThreads (void)
     for (; rc != NULL; rc = rc->link) {
         nat i;
         for (i = 0; i < n_capabilities; i++) {
-            for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
-                freeWSDeque(rc->threads[i].workspaces[g].todo_q);
-            }
             stgFree(rc->threads[i].workspaces);
             rc->threads[i].workspaces = NULL;
         }
@@ -1015,8 +1039,7 @@ static rtsBool
 any_work (void)
 {
     int g;
-    ResourceContainer *rc;
-    gen_workspace *ws;
+    gen_global_workspace *ws;
 
     gct->any_work++;
 
@@ -1030,17 +1053,25 @@ any_work (void)
     // Check for global work in any step.  We don't need to check for
     // local work, because we have already exited scavenge_loop(),
     // which means there is no local work for this thread.
-    for (rc = RC_LIST; rc != NULL; rc = rc->link) { // XXX linear could be bad!
     for (g = 0; g < (int)RtsFlags.GcFlags.generations; g++) {
-        ws = &rc->threads[gct->thread_index].workspaces[g];
+        ws = &gct->gens[g];
         if (ws->todo_large_objects) return rtsTrue;
         if (!looksEmptyWSDeque(ws->todo_q)) return rtsTrue;
         if (ws->todo_overflow) return rtsTrue;
     }
-    }
 
 #if defined(THREADED_RTS)
-    // XXX for now don't bother looking for work to steal
+    if (work_stealing) {
+        nat n;
+        // look for work to steal
+        for (n = 0; n < n_gc_threads; n++) {
+            if (n == gct->thread_index) continue;
+            for (g = RtsFlags.GcFlags.generations-1; g >= 0; g--) {
+                ws = &gc_threads[n]->gens[g];
+                if (!looksEmptyWSDeque(ws->todo_q)) return rtsTrue;
+            }
+        }
+    }
 #endif
 
     gct->no_work++;
@@ -1324,6 +1355,15 @@ prepare_collected_gen (generation *gen)
 
     // grab all the partial blocks stashed in the gc_thread workspaces and
     // move them to the old_blocks list of this gen.
+
+#ifdef DEBUG
+    for (n = 0; n < n_capabilities; n++) {
+        gen_global_workspace *gws = &gc_threads[n]->gens[gen->no];
+        ASSERT(gws->scavd_list == NULL);
+        ASSERT(gws->n_scavd_blocks == 0);
+    }
+#endif
+
     for (rc = RC_LIST; rc != NULL; rc = rc->link) {
     for (n = 0; n < n_capabilities; n++) {
         ws = &rc->threads[n].workspaces[gen->no];
@@ -1336,10 +1376,6 @@ prepare_collected_gen (generation *gen)
         }
         ws->part_list = NULL;
         ws->n_part_blocks = 0;
-
-        ASSERT(ws->scavd_list == NULL);
-        ASSERT(ws->n_scavd_blocks == 0);
-
         if (ws->todo_free != ws->todo_bd->start) {
             ws->todo_bd->free = ws->todo_free;
             ws->todo_bd->link = gen->old_blocks;
@@ -1447,13 +1483,11 @@ static void
 collect_gct_blocks (void)
 {
     nat g;
-    gen_workspace *ws;
+    gen_global_workspace *ws;
     bdescr *bd, *prev;
-    ResourceContainer *rc;
 
-    for (rc = RC_LIST; rc != NULL; rc = rc->link) {
     for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
-        ws = &rc->threads[gct->thread_index].workspaces[g];
+        ws = &gct->gens[g];
 
         // there may still be a block attached to ws->todo_bd;
         // leave it there to use next time.
@@ -1482,7 +1516,6 @@ collect_gct_blocks (void)
 
             RELEASE_SPIN_LOCK(&ws->gen->sync);
         }
-    }
     }
 }
 

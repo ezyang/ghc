@@ -56,6 +56,7 @@ alloc_for_copy (gen_workspace *gwt, nat size, nat gen_no)
 {
     StgPtr to;
     gen_workspace *ws;
+    gen_global_workspace *gws;
 
     /* Find out where we're going, using the handy "to" pointer in 
      * the gen of the source object.  If it turns out we need to
@@ -71,6 +72,7 @@ alloc_for_copy (gen_workspace *gwt, nat size, nat gen_no)
     }
     
     ws = &gwt[gen_no];
+    gws = &gct->gens[gen_no];  // zero memory references here
 
     /* chain a new block onto the to-space for the destination gen if
      * necessary.
@@ -78,7 +80,7 @@ alloc_for_copy (gen_workspace *gwt, nat size, nat gen_no)
     to = ws->todo_free;
     ws->todo_free += size;
     if (ws->todo_free > ws->todo_lim) {
-	to = todo_block_full(size, ws);
+	to = todo_block_full(size, ws, gws);
     }
     ASSERT(ws->todo_free >= ws->todo_bd->free && ws->todo_free <= ws->todo_lim);
 
@@ -258,7 +260,7 @@ evacuate_large(gen_workspace *gwt, StgPtr p)
   bdescr *bd;
   generation *gen, *new_gen;
   nat gen_no, new_gen_no;
-  gen_workspace *ws;
+  gen_global_workspace *gws;
     
   bd = Bdescr(p);
   gen = bd->gen;
@@ -300,7 +302,7 @@ evacuate_large(gen_workspace *gwt, StgPtr p)
       }
   }
 
-  ws = &gwt[new_gen_no];
+  gws = &gct->gens[new_gen_no];  // zero memory references here
   new_gen = &generations[new_gen_no];
 
   bd->flags |= BF_EVACUATED;
@@ -318,8 +320,8 @@ evacuate_large(gen_workspace *gwt, StgPtr p)
       new_gen->n_scavenged_large_blocks += bd->blocks;
       if (new_gen != gen) { RELEASE_SPIN_LOCK(&new_gen->sync); }
   } else {
-      bd->link = ws->todo_large_objects;
-      ws->todo_large_objects = bd;
+      bd->link = gws->todo_large_objects;
+      gws->todo_large_objects = bd;
   }
 
   RELEASE_SPIN_LOCK(&gen->sync);

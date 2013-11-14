@@ -250,6 +250,7 @@ void checkUnload (StgClosure *static_objects)
   const StgInfoTable *info;
   ObjectCode *oc, *prev, *next;
   gen_workspace *ws;
+  gen_global_workspace *gws;
   StgClosure* link;
   ResourceContainer *rc;
 
@@ -279,8 +280,12 @@ void checkUnload (StgClosure *static_objects)
           ws = &rc->threads[n].workspaces[g];
           searchHeapBlocks(addrs, ws->todo_bd);
           searchHeapBlocks(addrs, ws->part_list);
-          searchHeapBlocks(addrs, ws->scavd_list);
       }
+      }
+
+      for (n = 0; n < n_capabilities; n++) {
+          gws = &gc_threads[n]->gens[g];
+          searchHeapBlocks(addrs, gws->scavd_list);
       }
   }
 

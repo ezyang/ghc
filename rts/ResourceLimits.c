@@ -294,12 +294,9 @@ freeResourceContainer(ResourceContainer *rc)
     for (i = 0; i < n_capabilities; i++) {
         for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
             gen_workspace *ws = &rc->threads[i].workspaces[g];
-            freeWSDeque(ws->todo_q);
-            ws->todo_q = NULL;
             ASSERT(countOccupied(ws->part_list) == 0);
             ASSERT(countOccupied(ws->todo_bd) == 0);
             freeChain(ws->part_list);
-            freeChain(ws->scavd_list);
             freeChain(ws->todo_bd);
         }
         stgFree(rc->threads[i].workspaces);

@@ -1242,8 +1242,8 @@ W_ gcThreadLiveWords (nat i, nat g)
         gen_workspace *ws = &rc->threads[i].workspaces[g];
         words  += countOccupied(ws->todo_bd);
         words  += countOccupied(ws->part_list);
-        words  += countOccupied(ws->scavd_list);
     }
+    words  += countOccupied(gc_threads[i]->gens[g].scavd_list);
 
     return words;
 }
@@ -1257,8 +1257,8 @@ W_ gcThreadLiveBlocks (nat i, nat g)
         gen_workspace *ws = &rc->threads[i].workspaces[g];
         blocks += countBlocks(ws->todo_bd);
         blocks += ws->n_part_blocks;
-        blocks += ws->n_scavd_blocks;
     }
+    blocks += gc_threads[i]->gens[g].n_scavd_blocks;
 
     return blocks;
 }
