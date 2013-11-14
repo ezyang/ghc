@@ -739,7 +739,7 @@ inventoryBlocks(bdescr *bd, ResourceContainer *rc)
         ASSERT(bd->rc != NULL);
         ASSERT(bd->rc->status != RC_DEAD);
         bd->rc->u.count += bd->blocks;
-        ASSERT(lookupHashTable(bd->rc->block_record, (StgWord)bd) == (void*)bd->blocks);
+        IF_DEBUG(sanity, ASSERT(lookupHashTable(bd->rc->block_record, (StgWord)bd) == (void*)bd->blocks));
     }
     return n;
 }

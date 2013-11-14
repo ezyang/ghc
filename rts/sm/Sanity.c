@@ -1020,7 +1020,7 @@ memInventory (rtsBool show)
   // fail)
   for (rc = RC_LIST; rc != NULL; rc = rc->link) {
       if (rc->u.count != rc->used_blocks) {
-          iterateHashTable(rc->block_record, assertTableMarked, rc);
+          IF_DEBUG(sanity, iterateHashTable(rc->block_record, assertTableMarked, rc));
           ASSERT(0);
       }
   }

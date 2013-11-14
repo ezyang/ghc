@@ -66,10 +66,8 @@ allocNotifyRC(ResourceContainer *rc, bdescr *bd)
     // we cannot distinguish zero blocks from NULL, fortunately zero
     // block bdescr is impossible
     ASSERT(bd->blocks != 0);
-#ifdef DEBUG
-    ASSERT(lookupHashTable(rc->block_record, (StgWord)bd) == NULL);
-    insertHashTable(rc->block_record, (StgWord)bd, (void*)(StgWord)bd->blocks);
-#endif
+    IF_DEBUG(sanity, ASSERT(lookupHashTable(rc->block_record, (StgWord)bd) == NULL));
+    IF_DEBUG(sanity, insertHashTable(rc->block_record, (StgWord)bd, (void*)(StgWord)bd->blocks));
 }
 
 void
@@ -77,14 +75,14 @@ freeNotifyRC(ResourceContainer *rc, bdescr *bd)
 {
     ASSERT(rc->status != RC_DEAD);
 #ifdef DEBUG
-    void *r =
-        removeHashTable(rc->block_record, (StgWord)bd, NULL);
+    void *r;
 #endif
+    IF_DEBUG(sanity, r = removeHashTable(rc->block_record, (StgWord)bd, NULL));
+    IF_DEBUG(sanity, ASSERT(r != NULL));
     // cast to the larger size
-    ASSERT(r != NULL);
     ASSERT(rc->used_blocks >= bd->blocks);
     rc->used_blocks -= bd->blocks;
-    ASSERT(r == (void*)bd->blocks);
+    IF_DEBUG(sanity, ASSERT(r == (void*)bd->blocks));
     ASSERT(rc == bd->rc); // should be trivially true
     bd->rc = NULL;
 }
@@ -207,10 +205,9 @@ initResourceLimits(void)
     RC_MAIN->parent = NULL;
     RC_MAIN->max_blocks = 0; // unlimited
     RC_MAIN->used_blocks = 0;
-#ifdef DEBUG
-    RC_MAIN->block_record = allocHashTable();
-#else
     RC_MAIN->block_record = NULL;
+#ifdef DEBUG
+    IF_DEBUG(sanity, RC_MAIN->block_record = allocHashTable());
 #endif
     RC_MAIN->trigger_blocks = 0;
     RC_MAIN->pinned_object_block = NULL;
@@ -237,10 +234,9 @@ newResourceContainer(nat max_blocks, ResourceContainer *parent)
     rc->used_blocks = 0; // will be bumped shortly
     rc->trigger_blocks = 0;
     rc->parent = parent;
-#ifdef DEBUG
-    rc->block_record = allocHashTable();
-#else
     rc->block_record = NULL;
+#ifdef DEBUG
+    IF_DEBUG(sanity, rc->block_record = allocHashTable());
 #endif
     rc->listeners = END_LISTENER_LIST;
     rc->pinned_object_block = NULL;
@@ -264,14 +260,12 @@ newResourceContainer(nat max_blocks, ResourceContainer *parent)
     return rc;
 }
 
-void
-freeResourceContainer(ResourceContainer *rc)
-{
-    ASSERT(rc->status != RC_DEAD);
-    nat i, g;
-    bdescr *bd;
-    rc->parent = NULL;
 #ifdef DEBUG
+static void
+sanityCheckFreeRC(ResourceContainer *rc)
+{
+    nat g;
+    bdescr *bd;
     for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
         generation *gen = &generations[g];
         for (bd = gen->blocks; bd != NULL; bd = bd->link) {
@@ -285,7 +279,16 @@ freeResourceContainer(ResourceContainer *rc)
         }
     }
     ASSERT(rc->pinned_object_block == NULL);
+}
 #endif
+
+void
+freeResourceContainer(ResourceContainer *rc)
+{
+    nat i, g;
+    ASSERT(rc->status != RC_DEAD);
+    IF_DEBUG(sanity, sanityCheckFreeRC(rc));
+    rc->parent = NULL;
     // TODO: maybe properly run all of them at the end
     rc->listeners = END_LISTENER_LIST;
     for (i = 0; i < n_capabilities; i++) {
@@ -305,10 +308,8 @@ freeResourceContainer(ResourceContainer *rc)
     }
     ASSERT(rc->pinned_object_block == NULL);
     ASSERT(rc->used_blocks == 0);
-#ifdef DEBUG
-    ASSERT(keyCountHashTable(rc->block_record) == 0);
-    freeHashTable(rc->block_record, NULL);
-#endif
+    IF_DEBUG(sanity, ASSERT(keyCountHashTable(rc->block_record) == 0));
+    IF_DEBUG(sanity, freeHashTable(rc->block_record, NULL));
     IF_DEBUG(sanity, memset(rc->threads, 0xDD, n_capabilities * sizeof(rcthread)));
     rc->status = RC_DEAD;
 }
