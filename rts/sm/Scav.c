@@ -1508,7 +1508,7 @@ scavenge_capability_mut_lists (Capability *cap)
    remove non-mutable objects from the mutable list at this point.
    -------------------------------------------------------------------------- */
 
-static void
+static rtsBool
 scavenge_static(void)
 {
   StgClosure* p;
@@ -1519,6 +1519,10 @@ scavenge_static(void)
   /* Always evacuate straight to the oldest generation for static
    * objects */
   gct->evac_gen_no = oldest_gen->no;
+
+  if (gct->static_objects == END_OF_STATIC_LIST) {
+      return rtsFalse;
+  }
 
   /* keep going until we've scavenged all the objects on the linked
      list... */
@@ -1594,6 +1598,7 @@ scavenge_static(void)
 
     ASSERT(gct->failed_to_evac == rtsFalse);
   }
+  return rtsTrue;
 }
 
 /* -----------------------------------------------------------------------------
@@ -1837,58 +1842,86 @@ scavenge_large (gen_workspace *ws)
    ------------------------------------------------------------------------- */
 
 static rtsBool
-scavenge_find_work (void)
+scavenge_find_work_rc(ResourceContainer *rc)
 {
     int g;
-    gen_workspace *ws;
+    gen_workspace *ws, *rc_ws;
     rtsBool did_something, did_anything;
     bdescr *bd;
-    ResourceContainer *rc;
-
-    gct->scav_find_work++;
-
+    rc_ws = rc->threads[gct->thread_index].workspaces;
     did_anything = rtsFalse;
-
-    // XXX a lot of possibilities of how to structure this
-    // Right now, we assume RC_LIST is not too big
 loop:
     did_something = rtsFalse;
     for (g = RtsFlags.GcFlags.generations-1; g >= 0; g--) {
 
         gct->scan_bd = NULL;
+        ws = &rc_ws[g];
 
-        for (rc = RC_LIST; rc != NULL; rc = rc->link) {
-            ws = &rc->threads[gct->thread_index].workspaces[g];
-
-            if (ws->todo_bd->u.scan < ws->todo_free) {
-                scavenge_block(ws, ws->todo_bd);
-                did_something = rtsTrue;
-            }
-
-            // If we have any large objects to scavenge, do them now.
-            if (ws->todo_large_objects) {
-                scavenge_large(ws);
-                did_something = rtsTrue;
-            }
+        // If we have a scan block with some work to do,
+        // scavenge everything up to the free pointer.
+        if (ws->todo_bd->u.scan < ws->todo_free) {
+            scavenge_block(ws, ws->todo_bd);
+            did_something = rtsTrue;
+            break;
         }
-        if (did_something) goto check;
 
-        // do the todo blocks in another pass afterwards
-        for (rc = RC_LIST; rc != NULL; rc = rc->link) {
-            ws = &rc->threads[gct->thread_index].workspaces[g];
-            if ((bd = grab_local_todo_block(ws)) != NULL) {
-                scavenge_block(ws, bd);
-                did_something = rtsTrue;
-                goto check;
-            }
+        // If we have any large objects to scavenge, do them now.
+        if (ws->todo_large_objects) {
+            scavenge_large(ws);
+            did_something = rtsTrue;
+            break;
+        }
+
+        if ((bd = grab_local_todo_block(ws)) != NULL) {
+            scavenge_block(ws, bd);
+            did_something = rtsTrue;
+            break;
         }
     }
 
-check:
     if (did_something) {
         did_anything = rtsTrue;
         goto loop;
     }
+    return did_anything;
+}
+
+static rtsBool
+scavenge_find_work_main(void)
+{
+    return scavenge_find_work_rc(RC_MAIN);
+}
+
+static rtsBool
+scavenge_find_work_others(void)
+{
+    rtsBool did_something, did_anything;
+    ResourceContainer *rc;
+    did_anything = rtsFalse;
+    for (rc = RC_LIST; rc != NULL; rc = rc->link) {
+        if (rc == RC_MAIN) continue;
+        did_something = scavenge_find_work_rc(rc);
+        if (did_something) did_anything = rtsTrue;
+    }
+    return did_anything;
+}
+
+static rtsBool
+scavenge_find_work (void)
+{
+    rtsBool did_something, did_anything;
+
+    gct->scav_find_work++;
+
+    did_anything = rtsFalse;
+
+    // First, GC the main heap as much as possible
+    did_something = scavenge_find_work_main();
+    if (did_something) did_anything = rtsTrue;
+
+    // Next, GC the resource containers as if they were their own heaps
+    did_something = scavenge_find_work_others();
+    if (did_something) did_anything = rtsTrue;
 
 #if defined(THREADED_RTS)
     /*
@@ -1935,6 +1968,7 @@ loop:
     
     // scavenge objects in compacted generation
     if (mark_stack_bd != NULL && !mark_stack_empty()) {
+        ASSERT(0);
 	scavenge_mark_stack();
 	work_to_do = rtsTrue;
     }
