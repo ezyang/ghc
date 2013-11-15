@@ -71,6 +71,7 @@ void freeNotifyRC(ResourceContainer *rc, bdescr *bd);
 void initResourceLimits(void);
 ResourceContainer *newResourceContainer(nat max_blocks, ResourceContainer *parent);
 void freeResourceContainer(ResourceContainer *rc);
+rtsBool isDeadResourceContainer(ResourceContainer *rc);
 
 rtsBool checkListenersRC(Capability *cap, ResourceContainer *rc);
 void listenRC(Capability *cap, ResourceContainer *rc, StgListener *listener);

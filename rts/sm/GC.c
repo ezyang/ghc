@@ -666,7 +666,7 @@ GarbageCollect (nat collect_gen,
   ResourceContainer *prev;
   if (major_gc) {
       for (rc = RC_LIST, prev = NULL; rc != NULL; prev = rc, rc = rc->link) {
-          if (rc->status == RC_KILLED && rc->n_words == 0 && rc->pinned_object_block == NULL) {
+          if (isDeadResourceContainer(rc)) {
               freeResourceContainer(rc);
               // everything in the resource container has to be dead
               if (prev == NULL) {

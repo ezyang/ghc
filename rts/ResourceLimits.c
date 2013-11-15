@@ -293,6 +293,8 @@ freeResourceContainer(ResourceContainer *rc)
             gen_workspace *ws = &rc->threads[i].workspaces[g];
             freeWSDeque(ws->todo_q);
             ws->todo_q = NULL;
+            ASSERT(countOccupied(ws->part_list) == 0);
+            ASSERT(countOccupied(ws->todo_bd) == 0);
             freeChain(ws->part_list);
             freeChain(ws->scavd_list);
             freeChain(ws->todo_bd);
@@ -373,4 +375,28 @@ void killRC(ResourceContainer *rc)
 {
     if (rc->status == RC_DEAD) return;
     rc->status = RC_KILLED;
+}
+
+rtsBool
+isDeadResourceContainer(ResourceContainer *rc)
+{
+    nat i, g;
+    if (rc->status != RC_KILLED) return rtsFalse;
+    if (rc->n_words != 0) return rtsFalse;
+    if (rc->pinned_object_block != NULL) return rtsFalse;
+    for (i = 0; i < n_capabilities; i++) {
+        for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
+            gen_workspace *ws = &rc->threads[i].workspaces[g];
+            if (ws->part_list != NULL) {
+                ASSERT(ws->part_list->start != ws->part_list->free);
+                return rtsFalse;
+            }
+            if (ws->todo_bd != NULL) {
+                if (ws->todo_bd->start != ws->todo_bd->free) {
+                    return rtsFalse;
+                }
+            }
+        }
+    }
+    return rtsTrue;
 }
