@@ -51,7 +51,7 @@ scavengeTSO (StgTSO *tso)
 {
     rtsBool saved_eager;
 
-    debugTrace(DEBUG_gc,"scavenging thread %d",(int)tso->id);
+    //debugTrace(DEBUG_gc,"scavenging thread %d",(int)tso->id);
 
     // update the pointer from the InCall.
     if (tso->bound != NULL) {
@@ -380,8 +380,8 @@ scavenge_block (bdescr *bd)
   rtsBool saved_eager_promotion;
   gen_workspace *ws;
 
-  debugTrace(DEBUG_gc, "scavenging block %p (gen %d) @ %p",
-	     bd->start, bd->gen_no, bd->u.scan);
+  //debugTrace(DEBUG_gc, "scavenging block %p (gen %d) @ %p",
+  //	     bd->start, bd->gen_no, bd->u.scan);
 
   gct->scan_bd = bd;
   gct->evac_gen_no = bd->gen_no;
@@ -742,8 +742,8 @@ scavenge_block (bdescr *bd)
       bd->free = p;
   }
 
-  debugTrace(DEBUG_gc, "   scavenged %ld bytes",
-             (unsigned long)((bd->free - bd->u.scan) * sizeof(W_)));
+  //debugTrace(DEBUG_gc, "   scavenged %ld bytes",
+  //           (unsigned long)((bd->free - bd->u.scan) * sizeof(W_)));
 
   // update stats: this is a block that has been scavenged
   gct->scanned += bd->free - bd->u.scan;
@@ -1510,7 +1510,7 @@ scavenge_static(void)
   StgClosure* p;
   const StgInfoTable *info;
 
-  debugTrace(DEBUG_gc, "scavenging static objects");
+  //debugTrace(DEBUG_gc, "scavenging static objects");
 
   /* Always evacuate straight to the oldest generation for static
    * objects */
