@@ -197,8 +197,8 @@ todo_block_full (nat size, gen_workspace *ws)
     {
         ws->todo_lim = stg_min(bd->start + bd->blocks * BLOCK_SIZE_W,
                                ws->todo_lim + stg_max(WORK_UNIT_WORDS,size));
-        debugTrace(DEBUG_gc, "increasing limit for %p to %p",
-                   bd->start, ws->todo_lim);
+        //debugTrace(DEBUG_gc, "increasing limit for %p to %p",
+         //          bd->start, ws->todo_lim);
         p = ws->todo_free;
         ws->todo_free += size;
 
@@ -235,9 +235,9 @@ todo_block_full (nat size, gen_workspace *ws)
         {
             DEBUG_ONLY( generation *gen );
             DEBUG_ONLY( gen = ws->gen );
-            debugTrace(DEBUG_gc, "push todo block %p (%ld words), step %d, todo_q: %ld", 
-                  bd->start, (unsigned long)(bd->free - bd->u.scan),
-                  gen->no, dequeElements(ws->todo_q));
+            //debugTrace(DEBUG_gc, "push todo block %p (%ld words), step %d, todo_q: %ld", 
+            //      bd->start, (unsigned long)(bd->free - bd->u.scan),
+            //      gen->no, dequeElements(ws->todo_q));
 
             if (!pushWSDeque(ws->todo_q, bd)) {
                 bd->link = ws->todo_overflow;
@@ -306,8 +306,8 @@ alloc_todo_block (gen_workspace *ws, nat size, ResourceContainer *rc)
     ws->todo_lim  = stg_min(bd->start + bd->blocks * BLOCK_SIZE_W,
                             bd->free + stg_max(WORK_UNIT_WORDS,size));
 
-    debugTrace(DEBUG_gc, "alloc new todo block %p for gen  %d", 
-               bd->free, ws->gen->no);
+    //debugTrace(DEBUG_gc, "alloc new todo block %p for gen  %d", 
+    //           bd->free, ws->gen->no);
 
     return ws->todo_free;
 }
