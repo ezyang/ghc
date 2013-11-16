@@ -452,6 +452,7 @@ allocNursery (bdescr *tail, W_ *pblocks, ResourceContainer *rc)
         if (!allocLargeChunkFor(&bd, 1, n, rc)) {
             // Oops, ran out of memory.  Bail out. Nursery might be smaller
             // than requested.
+            // XXX fix this up a bit
             if (bd == NULL) {
                 if (tail != NULL) {
                     bd = tail;
@@ -645,15 +646,38 @@ resizeNurseriesFixed (W_ blocks)
     nat i;
     ResourceContainer *rc;
     for (rc = RC_LIST; rc != NULL; rc = rc->link) {
-        for (i = 0; i < n_capabilities; i++) {
-            if (rc->status == RC_KILLED) {
-                // truncate the nursery
-                // XXX maybe just reduce it down to get the block count
-                // correct
+        if (rc->status == RC_KILLED) {
+            // truncate nursery (unfortunately, we assume there
+            // is one block in the nursery...; maybe set the free
+            // pointer at the end)
+            for (i = 0; i < n_capabilities; i++) {
                 resizeNursery(&rc->threads[i].nursery, 1, rc);
-            } else {
-                resizeNursery(&rc->threads[i].nursery, blocks, rc);
             }
+            continue;
+        }
+        if (rc->max_blocks != 0) {
+            // check how much it would cost to make the nursery whole
+            // (could be negative if the nurseries are too big)
+            int needed_blocks = 0;
+            for (i = 0; i < n_capabilities; i++) {
+                needed_blocks += blocks;
+                needed_blocks -= rc->threads[i].nursery.n_blocks;
+            }
+            // XXX this calculation *may* underestimate
+            // XXX if some nurseries shrink and others grow, we could
+            // temporarily go over
+            // XXX TERRIFYING unsigned/signed mishmash
+            if ((StgInt)rc->used_blocks + (StgInt)needed_blocks > (StgInt)rc->max_blocks) {
+                // table-flip /o/ -|
+                killRC(rc);
+                for (i = 0; i < n_capabilities; i++) {
+                    resizeNursery(&rc->threads[i].nursery, 1, rc);
+                }
+                continue;
+            }
+        }
+        for (i = 0; i < n_capabilities; i++) {
+            resizeNursery(&rc->threads[i].nursery, blocks, rc);
         }
     }
 }

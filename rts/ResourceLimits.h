@@ -65,6 +65,9 @@ rtsBool allocBlockFor(bdescr **pbd, ResourceContainer *rc);
 bdescr *forceAllocGroupFor(W_ n, ResourceContainer *rc);
 bdescr *forceAllocBlockFor(ResourceContainer *rc);
 
+bdescr *tempAllocGroupFor(W_ n, ResourceContainer *rc);
+bdescr *tempAllocBlockFor(ResourceContainer *rc);
+
 void allocNotifyRC(ResourceContainer *rc, bdescr *bd);
 void freeNotifyRC(ResourceContainer *rc, bdescr *bd);
 

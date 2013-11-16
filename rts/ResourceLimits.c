@@ -169,6 +169,24 @@ forceAllocGroupFor(W_ n, ResourceContainer *rc)
     return bd;
 }
 
+bdescr *
+tempAllocGroupFor(W_ n, ResourceContainer *rc)
+{
+    bdescr *bd = allocGroup(n);
+    ASSERT(rc->status != RC_DEAD);
+    rc->used_blocks += bd->blocks;
+    if (rc->max_blocks != 0 && rc->used_blocks > rc->max_blocks) {
+        IF_DEBUG(gc, debugBelch("rc %s (%p) temporarily allocating %d blocks (to %ld/%ld)\n", rc->label, rc, bd->blocks, (long)rc->used_blocks, (long)rc->max_blocks));
+    }
+    bd->rc = rc;
+    // we cannot distinguish zero blocks from NULL, fortunately zero
+    // block bdescr is impossible
+    ASSERT(bd->blocks != 0);
+    IF_DEBUG(sanity, ASSERT(lookupHashTable(rc->block_record, (StgWord)bd) == NULL));
+    IF_DEBUG(sanity, insertHashTable(rc->block_record, (StgWord)bd, (void*)(StgWord)bd->blocks));
+    return bd;
+}
+
 rtsBool
 allocBlockFor(bdescr **pbd, ResourceContainer *rc)
 {
@@ -179,6 +197,12 @@ bdescr *
 forceAllocBlockFor(ResourceContainer *rc)
 {
     return forceAllocGroupFor(1, rc);
+}
+
+bdescr *
+tempAllocBlockFor(ResourceContainer *rc)
+{
+    return tempAllocGroupFor(1, rc);
 }
 
 void

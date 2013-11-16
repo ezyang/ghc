@@ -295,12 +295,12 @@ alloc_todo_block (gen_workspace *ws, nat size, ResourceContainer *rc)
 
         if (size > BLOCK_SIZE_W) {
             ACQUIRE_SPIN_LOCK(&gc_alloc_block_sync);
-            bd = forceAllocGroupFor((W_)BLOCK_ROUND_UP(size*sizeof(W_))
+            bd = tempAllocGroupFor((W_)BLOCK_ROUND_UP(size*sizeof(W_))
                                      / BLOCK_SIZE, rc);
             RELEASE_SPIN_LOCK(&gc_alloc_block_sync);
         } else {
             ACQUIRE_SPIN_LOCK(&gc_alloc_block_sync);
-            bd = forceAllocBlockFor(rc);
+            bd = tempAllocBlockFor(rc);
             RELEASE_SPIN_LOCK(&gc_alloc_block_sync);
         }
         initBdescr(bd, ws->gen, ws->gen->to);
