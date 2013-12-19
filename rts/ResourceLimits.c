@@ -136,6 +136,10 @@ initResourceLimits(void)
 #ifdef DEBUG
     IF_DEBUG(sanity, RC_MAIN->block_record = allocHashTable());
 #endif
+    RC_MAIN->pinned_object_block = NULL;
+#ifdef THREADED_RTS
+    // do not initialize RC_MAIN->lock; should not be used!
+#endif
     IF_DEBUG(sanity, memset(RC_MAIN->threads, 0xDD, n * sizeof(rcthread)));
 
     RC_LIST = RC_MAIN;
@@ -157,6 +161,10 @@ newResourceContainer(nat max_blocks, ResourceContainer *parent)
     rc->block_record = NULL;
 #ifdef DEBUG
     IF_DEBUG(sanity, rc->block_record = allocHashTable());
+#endif
+    rc->pinned_object_block = NULL;
+#ifdef THREADED_RTS
+    initSpinLock(&rc->lock);
 #endif
     // initialize the workspaces
     IF_DEBUG(sanity, memset(rc->threads, 0xDD, n_capabilities * sizeof(rcthread)));
@@ -200,6 +208,7 @@ sanityCheckFreeRC(ResourceContainer *rc)
             ASSERT(bd->rc != rc);
         }
     }
+    ASSERT(rc->pinned_object_block == NULL);
 }
 #endif
 
@@ -222,6 +231,7 @@ freeResourceContainer(ResourceContainer *rc)
         rc->threads[i].workspaces = NULL;
         freeChain(rc->threads[i].nursery.blocks);
     }
+    ASSERT(rc->pinned_object_block == NULL);
     ASSERT(rc->used_blocks == 0);
     IF_DEBUG(sanity, ASSERT(keyCountHashTable(rc->block_record) == 0));
     IF_DEBUG(sanity, freeHashTable(rc->block_record, NULL));
@@ -235,6 +245,7 @@ isDeadResourceContainer(ResourceContainer *rc)
     nat i, g;
     if (rc->status != RC_KILLED) return rtsFalse;
     if (rc->n_words != 0) return rtsFalse;
+    if (rc->pinned_object_block != NULL) return rtsFalse;
     for (i = 0; i < n_capabilities; i++) {
         for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
             gen_workspace *ws = &rc->threads[i].workspaces[g];
