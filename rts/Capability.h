@@ -74,7 +74,7 @@ struct Capability_ {
     bdescr **mut_lists;
     bdescr **saved_mut_lists; // tmp use during GC
 
-    // block for allocating pinned objects into
+    // block for allocating pinned objects into (for RC_MAIN)
     bdescr *pinned_object_block;
     // full pinned object blocks allocated since the last GC
     bdescr *pinned_object_blocks;

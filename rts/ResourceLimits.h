@@ -26,7 +26,20 @@ typedef struct ResourceContainer_ {
     StgWord status;
     HashTable *block_record;
     memcount n_words;
-    StgWord padding[7]; // make it a nice multiple, don't know if this actually helps
+    // NB: needs lock. Do it properly: do it PER thread
+    // block for allocating pinned objects into
+    bdescr *pinned_object_block;
+#ifdef THREADED_RTS
+#if defined(PROF_SPIN)
+    SpinLock lock;
+#else
+    SpinLock lock;
+    StgWord lock_padding;
+#endif
+#else
+    StgWord lock_padding[2];
+#endif
+    StgWord padding[4]; // make it a nice multiple, don't know if this actually helps
     rcthread threads[FLEXIBLE_ARRAY];
 } ResourceContainer;
 
