@@ -1569,6 +1569,7 @@ collect_pinned_object_blocks (void)
 {
     nat n;
     bdescr *bd, *prev;
+    ResourceContainer *rc;
 
     for (n = 0; n < n_capabilities; n++) {
         prev = NULL;
@@ -1582,6 +1583,13 @@ collect_pinned_object_blocks (void)
             }
             g0->large_objects = capabilities[n]->pinned_object_blocks;
             capabilities[n]->pinned_object_blocks = 0;
+        }
+    }
+    for (rc = RC_LIST; rc != NULL; rc = rc->link) {
+        // liberate killed pinned object blocks
+        if (rc->status == RC_KILLED && rc->pinned_object_block != NULL) {
+            dbl_link_onto(rc->pinned_object_block, &g0->large_objects);
+            rc->pinned_object_block = NULL;
         }
     }
 }
