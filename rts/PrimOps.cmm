@@ -87,6 +87,9 @@ stg_newPinnedByteArrayzh ( W_ n )
     words = ROUNDUP_BYTES_TO_WDS(bytes);
 
     ("ptr" p) = ccall allocatePinned(MyCapability() "ptr", words);
+    if (p == NULL) {
+        jump stg_raisezh(STATIC_CLOSURE(base_GHCziIOziException_heapOverflow));
+    }
     TICK_ALLOC_PRIM(SIZEOF_StgArrWords,WDS(payload_words),0);
 
     /* Now we need to move p forward so that the payload is aligned
@@ -125,6 +128,9 @@ stg_newAlignedPinnedByteArrayzh ( W_ n, W_ alignment )
     words = ROUNDUP_BYTES_TO_WDS(bytes);
 
     ("ptr" p) = ccall allocatePinned(MyCapability() "ptr", words);
+    if (p == NULL) {
+        jump stg_raisezh(STATIC_CLOSURE(base_GHCziIOziException_heapOverflow));
+    }
     TICK_ALLOC_PRIM(SIZEOF_StgArrWords,WDS(payload_words),0);
 
     /* Now we need to move p forward so that the payload is aligned
