@@ -10,6 +10,7 @@
 
 ResourceContainer *RC_MAIN = NULL;
 ResourceContainer *RC_LIST = NULL;
+int RC_COUNT = 0;
 
 const char*
 rc_status(ResourceContainer *rc)
@@ -138,6 +139,7 @@ initResourceLimits(void)
     IF_DEBUG(sanity, memset(RC_MAIN->threads, 0xDD, n * sizeof(rcthread)));
 
     RC_LIST = RC_MAIN;
+    RC_COUNT = 1;
 }
 
 ResourceContainer *
@@ -170,6 +172,7 @@ newResourceContainer(nat max_blocks, ResourceContainer *parent)
     // XXX add a lock here
     rc->link = RC_LIST;
     RC_LIST = rc;
+    RC_COUNT++;
     return rc;
 }
 

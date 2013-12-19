@@ -74,6 +74,14 @@ alloc_for_copy (gen_workspace *gwt, nat size, nat gen_no)
     ws = &gwt[gen_no];
     gws = &gct->gens[gen_no];  // zero memory references here
 
+    if (!ws->pushed_scan) {
+        // push onto the stack for scavenging
+        *(gws->scan_sp) = ws;
+        IF_DEBUG(sanity, ASSERT(gws->scan_sp - gws->scan_stack < RC_COUNT));
+        gws->scan_sp++;
+        ws->pushed_scan = 1;
+    }
+
     /* chain a new block onto the to-space for the destination gen if
      * necessary.
      */

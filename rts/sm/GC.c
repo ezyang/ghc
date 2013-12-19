@@ -304,6 +304,16 @@ GarbageCollect (nat collect_gen,
       prepare_uncollected_gen(&generations[g]);
   }
 
+
+  // Setup scan stack
+  for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
+    for (n = 0; n < n_capabilities; n++) {
+        gen_global_workspace *ws = &gc_threads[n]->gens[g];
+        ws->scan_stack = stgMallocBytes(RC_COUNT * sizeof(StgPtr), "setup_scan_stack");
+        ws->scan_sp = ws->scan_stack;
+    }
+  }
+
   /* Initialise all resource containers */
   for (rc = RC_LIST; rc != NULL; rc = rc->link) {
       rc->n_words = 0;
@@ -478,6 +488,17 @@ GarbageCollect (nat collect_gen,
           par_max_copied = 0;
           par_tot_copied = 0;
       }
+  }
+
+  // Free the scan stacks
+  for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
+    for (n = 0; n < n_capabilities; n++) {
+        gen_global_workspace *ws = &gc_threads[n]->gens[g];
+        ASSERT(ws->scan_sp == ws->scan_stack);
+        stgFree(ws->scan_stack);
+        ws->scan_stack = NULL;
+        ws->scan_sp = NULL;
+    }
   }
 
   // Run through all the generations/steps and tidy up.
@@ -675,6 +696,7 @@ GarbageCollect (nat collect_gen,
                   rc->link = NULL;
                   rc = prev;
               }
+              RC_COUNT--;
 #ifdef DEBUG
               memInventory(DEBUG_gc);
 #endif
@@ -857,6 +879,8 @@ new_gc_thread_workspaces (ResourceContainer *rc, gen_workspace *gens, gc_thread 
             ws->todo_bd = bd;
             ws->todo_free = bd->free;
             ws->todo_lim = bd->start + BLOCK_SIZE_W;
+
+            ws->pushed_scan = rtsFalse;
         }
 
         ws->part_list = NULL;
@@ -884,6 +908,9 @@ new_gc_thread_global_workspaces (gc_thread *t)
 
         ws->scavd_list = NULL;
         ws->n_scavd_blocks = 0;
+
+        ws->scan_stack = NULL;
+        ws->scan_sp = NULL;
     }
 }
 
