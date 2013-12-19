@@ -18,6 +18,7 @@
 #include "sm/GC.h" // gc_alloc_block_sync, whitehole_spin
 #include "sm/GCThread.h"
 #include "sm/BlockAlloc.h"
+#include "ResourceLimits.h"
 
 #if USE_PAPI
 #include "Papi.h"
@@ -878,6 +879,7 @@ statDescribeGens(void)
   W_ gen_live, gen_blocks;
   bdescr *bd;
   generation *gen;
+  ResourceContainer *rc;
   
   debugBelch(
 "----------------------------------------------------------\n"
@@ -903,6 +905,7 @@ statDescribeGens(void)
           mut += countOccupied(capabilities[i]->mut_lists[g]);
 
           // Add the pinned object block.
+          // XXX I think this is buggy, where is the dependence on g
           bd = capabilities[i]->pinned_object_block;
           if (bd != NULL) {
               gen_live   += bd->free - bd->start;
@@ -911,6 +914,14 @@ statDescribeGens(void)
 
           gen_live   += gcThreadLiveWords(i,g);
           gen_blocks += gcThreadLiveBlocks(i,g);
+      }
+
+      for (rc = RC_LIST; rc != NULL; rc = rc->link) {
+          bd = rc->pinned_object_block;
+          if (bd != NULL) {
+              gen_live   += bd->free - bd->start;
+              gen_blocks += bd->blocks;
+          }
       }
 
       debugBelch("%5d %7" FMT_Word " %9d", g, (W_)gen->max_blocks, mut);

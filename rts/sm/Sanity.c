@@ -795,6 +795,7 @@ findMemoryLeak (void)
     for (i = 0; i < n_capabilities; i++) {
         markBlocks(rc->threads[i].nursery.blocks);
     }
+    markBlocks(rc->pinned_object_block);
     }
 
     for (i = 0; i < n_capabilities; i++) {
@@ -929,14 +930,24 @@ memInventory (rtsBool show)
           ASSERT(cnt == rc->threads[i].nursery.n_blocks);
           nursery_blocks += cnt;
       }
+      if (rc->pinned_object_block != NULL) {
+          ASSERT (rc != RC_MAIN);
+          // XXX looks dodgy
+          nursery_blocks += rc->pinned_object_block->blocks;
+          ASSERT(rc == rc->pinned_object_block->rc);
+          rc->u.count += rc->pinned_object_block->blocks;
+      }
   }
 
   for (i = 0; i < n_capabilities; i++) {
       if (capabilities[i]->pinned_object_block != NULL) {
           // XXX looks dodgy
           nursery_blocks += capabilities[i]->pinned_object_block->blocks;
-          capabilities[i]->pinned_object_block->rc->u.count += capabilities[i]->pinned_object_block->blocks;
+          ASSERT(RC_MAIN == capabilities[i]->pinned_object_block->rc);
+          RC_MAIN->u.count += capabilities[i]->pinned_object_block->blocks;
       }
+      // NB: pinned_object_blocks is mixed, since RCs which are full put
+      // their things here too!
       nursery_blocks += inventoryBlocks(capabilities[i]->pinned_object_blocks, NULL);
   }
 
