@@ -89,7 +89,9 @@ typedef struct gen_workspace_ {
     bdescr *     part_list;
     unsigned int n_part_blocks;      // count of above
 
-    StgWord pad[9];
+    StgWord      pushed_scan;
+
+    StgWord pad[8];
 
 } gen_workspace ATTRIBUTE_ALIGNED(64);
 // align so that computing gct->gens[n] is a shift, not a multiply
@@ -110,7 +112,15 @@ typedef struct gen_global_workspace_ {
     bdescr *     scavd_list;
     nat          n_scavd_blocks;     // count of blocks in this list
 
-    StgWord pad[8];
+    // scan stack records scan pointers for RCs with partially filled
+    // blocks for this generation so we can quickly find them.  To avoid
+    // an extra conditional for overflows, we allocate this to be big
+    // enough to fit scan pointers for *all* live RCs at the beginning
+    // of GC.
+    gen_workspace **scan_stack;
+    gen_workspace **scan_sp;
+
+    StgWord pad[6];
 
 } gen_global_workspace ATTRIBUTE_ALIGNED(64);
 

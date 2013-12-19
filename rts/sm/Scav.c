@@ -1850,8 +1850,6 @@ scavenge_find_work (void)
     gen_global_workspace *gws;
     rtsBool did_something, did_anything;
     bdescr *bd;
-    ResourceContainer *finger = RC_MAIN;
-    ResourceContainer *rc;
 
     gct->scav_find_work++;
 
@@ -1862,24 +1860,33 @@ loop:
     for (g = RtsFlags.GcFlags.generations-1; g >= 0; g--) {
         gct->scan_bd = NULL;
         gws = &gct->gens[g];
-        rc = finger;
-        do {
-            ws = &rc->threads[gct->thread_index].workspaces[g];
 
-            if (ws->todo_bd->u.scan < ws->todo_free) {
-                scavenge_block(ws, ws->todo_bd);
-                did_something = rtsTrue;
-                finger = rc;
-                break;
-            }
-            rc = rc->parent;
-        } while (rc);
+        if (gws->scan_sp > gws->scan_stack) {
+            gws->scan_sp--;
+            ws = *(gws->scan_sp);
+            ASSERT(ws->todo_bd->u.scan < ws->todo_free);
+            bdescr *todo_bd;
+            do {
+                todo_bd = ws->todo_bd;
+                scavenge_block(ws, todo_bd);
+            } while (todo_bd != ws->todo_bd);
+            // Note: if we defer resetting pushed_scan until the end, we
+            // have to be *certain* that scavenge_block has handled any
+            // new work we may have generated for its own workspace. In
+            // particular, if we allocate a fresh todo block, we need to
+            // loop and handle it too.  This trades off wanting to take
+            // work from the oldest generation possible, but hopefully
+            // not by too much.
+            ws->pushed_scan = 0;
+            did_something = rtsTrue;
+            break;
+        }
+        ASSERT(gws->scan_sp == gws->scan_stack);
 
         // If we have any large objects to scavenge, do them now.
         if (gws->todo_large_objects) {
             // guess that the next thing we'll have to scavenge is the
             // same one
-            finger = gws->todo_large_objects->rc;
             scavenge_large(gws);
             did_something = rtsTrue;
             break;
@@ -1888,7 +1895,6 @@ loop:
         if ((bd = grab_local_todo_block(gws)) != NULL) {
             ws = &bd->rc->threads[gct->thread_index].workspaces[g];
             scavenge_block(ws, bd);
-            finger = bd->rc;
             did_something = rtsTrue;
             break;
         }
@@ -1897,16 +1903,6 @@ loop:
         did_anything = rtsTrue;
         goto loop;
     }
-    // look for local work stragglers
-    for (rc = RC_LIST; rc != NULL; rc = rc->link) {
-        for (g = RtsFlags.GcFlags.generations-1; g >= 0; g--) {
-            ws = &rc->threads[gct->thread_index].workspaces[g];
-            if (ws->todo_bd->u.scan < ws->todo_free) {
-                finger = rc;
-                goto loop;
-            }
-        }
-    }
 
 #if defined(THREADED_RTS)
     if (work_stealing) {
@@ -1914,7 +1910,6 @@ loop:
         for (g = RtsFlags.GcFlags.generations-1; g >= 0; g--) {
             if ((bd = steal_todo_block(g)) != NULL) {
                 scavenge_block(&bd->rc->threads[gct->thread_index].workspaces[g], bd);
-                finger = bd->rc;
                 did_something = rtsTrue;
                 break;
             }
