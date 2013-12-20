@@ -1495,9 +1495,10 @@ proxyPrimTyConKey = mkPreludeTyConUnique 176
 specTyConKey :: Unique
 specTyConKey = mkPreludeTyConUnique 177
 
-resourceContainerPrimTyConKey,listenerPrimTyConKey :: Unique
+resourceContainerPrimTyConKey,listenerPrimTyConKey, rcRefPrimTyConKey :: Unique
 resourceContainerPrimTyConKey = mkPreludeTyConUnique 180
 listenerPrimTyConKey = mkPreludeTyConUnique 181
+rcRefPrimTyConKey = mkPreludeTyConUnique 182
 
 ---------------- Template Haskell -------------------
 --      USES TyConUniques 200-299

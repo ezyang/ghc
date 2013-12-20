@@ -609,6 +609,7 @@ thread_obj (StgInfoTable *info, StgPtr p)
     case TVAR:
     case BLACKHOLE:
     case BLOCKING_QUEUE:
+    case RCREF:
     {
 	StgPtr end;
 	

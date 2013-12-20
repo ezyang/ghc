@@ -385,6 +385,15 @@ printClosure( StgClosure *obj )
       debugBelch("STACK");
       break;
 
+    case RCREF:
+      {
+          StgRCRef *rcref = (StgRCRef*)obj;
+          debugBelch("RCREF(%s, ", rcref->rc->label);
+          printPtr((StgPtr)rcref->var);
+          debugBelch(")");
+          break;
+      }
+
 #if 0
       /* Symptomatic of a problem elsewhere, have it fall-through & fail */
     case EVACUATED:
@@ -1156,7 +1165,8 @@ char *closure_type_names[] = {
  [CATCH_RETRY_FRAME]     = "CATCH_RETRY_FRAME",
  [CATCH_STM_FRAME]       = "CATCH_STM_FRAME",
  [WHITEHOLE]             = "WHITEHOLE",
- [RC_FRAME]              = "RC_FRAME"
+ [RC_FRAME]              = "RC_FRAME",
+ [RCREF]                 = "RCREF"
 };
 
 char *
