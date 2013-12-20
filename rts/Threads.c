@@ -592,7 +592,22 @@ threadStackOverflow (Capability *cap, StgTSO *tso)
                   "allocating new stack chunk of size %d bytes",
                   chunk_size * sizeof(W_));
 
-    new_stack = (StgStack*) allocate(cap, chunk_size);
+    ResourceContainer *rc = cap->r.rRC;
+    if (!allocateFor((StgPtr*)&new_stack, cap, chunk_size)) {
+        if ((tso->flags & TSO_BLOCKEX) == 0) {
+            throwToSingleThreaded(cap, tso, (StgClosure *)heapOverflow_closure);
+            return;
+        } else {
+            new_stack = (StgStack*)forceAllocateFor(cap, rc, chunk_size);
+            MessageThrowTo *msg = (MessageThrowTo*)allocate(cap, sizeofW(MessageThrowTo));
+            SET_HDR(msg, &stg_MSG_THROWTO_info, CCS_SYSTEM);
+            msg->source = tso;
+            msg->target = tso;
+            msg->exception = (StgClosure *)heapOverflow_closure;
+            blockedThrowTo(cap, tso, msg);
+        }
+    }
+
     SET_HDR(new_stack, &stg_STACK_info, old_stack->header.prof.ccs);
     TICK_ALLOC_STACK(chunk_size);
 
