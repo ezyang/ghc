@@ -2774,6 +2774,26 @@ primop RCToAddrOp  "rcToAddr"  GenPrimOp RC# -> Addr#
 primop AddrToRCOp  "addrToRC"  GenPrimOp Addr# -> RC#
     with code_size = 0
 
+primtype RCRef# a
+    { A {\tt RCRef#} is a simple indirection to an object that dies when
+      its associated container is killed.  Useful for maintaining
+      cross-container references that kill themselves when the container dies.
+      NB: no ST support for now. }
+
+primop NewRCRefOp "newRCRef#" GenPrimOp
+    RC# -> a -> State# RealWorld -> (# State# RealWorld, RCRef# a #)
+    with
+    out_of_line      = True
+    has_side_effects = True
+
+primop ReadRCRefOp "readRCRef#" GenPrimOp
+    RCRef# a -> State# RealWorld -> (# State# RealWorld, Int#, a #)
+    {If the container is dead, immediately return with integer 0 and value
+    undefined.  Otherwise, return with integer 1 and contents of {\tt RCRef#}.}
+    with
+    out_of_line      = True
+    has_side_effects = True
+
 ------------------------------------------------------------------------
 ---                                                                  ---
 ------------------------------------------------------------------------

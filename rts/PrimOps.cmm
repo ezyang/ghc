@@ -2306,3 +2306,41 @@ stg_usedBlocksRCzh (W_ rc) {
     r = ResourceContainer_used_blocks(rc);
     return (r);
 }
+
+stg_newRCRefzh (W_ rc, P_ value)
+{
+    gcptr p;
+
+    ALLOC_PRIM (SIZEOF_StgRCRef);
+
+    p = Hp - SIZEOF_StgRCRef + WDS(1);
+    SET_HDR(p, stg_RCREF_info, CCCS);
+
+    StgRCRef_var(p) = value;
+    StgRCRef_rc(p) = rc;
+
+    return (p);
+}
+
+stg_readRCRefzh (P_ p)
+{
+    gcptr value;
+    W_ code, info;
+    info = GET_INFO(p);
+    if (info == stg_RCREF_info) {
+      W_ rc;
+      // This could be a problem when we want to deallocate here
+      rc = StgRCRef_rc(p);
+      if (ResourceContainer_status(rc) != 0) {
+        code = 0;
+        value = p;
+      } else {
+        code = 1;
+        value = StgRCRef_var(p);
+      }
+    } else {
+      code = 0;
+      value = p;
+    }
+    return (code, value);
+}

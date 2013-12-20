@@ -972,6 +972,7 @@ heapCensusChain( Census *census, bdescr *bd )
 	    case CONSTR_1_1:
 	    case CONSTR_0_2:
 	    case CONSTR_2_0:
+            case RCREF:
 		size = sizeW_fromITBL(info);
 		break;
 
