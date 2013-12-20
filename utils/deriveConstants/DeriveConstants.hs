@@ -360,6 +360,7 @@ wanteds = concat
 
           ,fieldOffset Both "ResourceContainer" "threads"
           ,structField C    "ResourceContainer" "used_blocks"
+          ,structField C    "ResourceContainer" "status"
 
           ,structField Both "rcthread" "workspaces"
           ,structField Both "rcthread" "nursery"
@@ -543,6 +544,10 @@ wanteds = concat
           ,closureField C "StgListener" "callback"
           ,closureField C "StgListener" "rc"
           ,closureField C "StgListener" "limit"
+
+          ,closureSize  C "StgRCRef"
+          ,closureField C "StgRCRef" "var"
+          ,closureField C "StgRCRef" "rc"
 
           ,closureSize  C "MessageBlackHole"
           ,closureField C "MessageBlackHole" "link"

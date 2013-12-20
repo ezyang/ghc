@@ -291,6 +291,7 @@ checkClosure( StgClosure* p )
     case CONSTR_NOCAF_STATIC:
     case THUNK_STATIC:
     case FUN_STATIC:
+    case RCREF: // XXX maybe check rc looks like a resource container
 	{
 	    nat i;
 	    for (i = 0; i < info->layout.payload.ptrs; i++) {

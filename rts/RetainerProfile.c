@@ -466,6 +466,9 @@ push( StgClosure *c, retainer c_child_r, StgClosure **first_child )
     case CONSTR_1_0:
     case CONSTR_1_1:
 	*first_child = c->payload[0];
+        return;
+    case RCREF:
+        *first_child = ((StgRCRef *)c)->var;
 	return;
 
 	// For CONSTR_2_0 and MVAR, we use se.info.step to record the position
@@ -1071,6 +1074,7 @@ isRetainer( StgClosure *c )
         // immutable arrays
     case MUT_ARR_PTRS_FROZEN:
     case MUT_ARR_PTRS_FROZEN0:
+    case RCREF:
 	return rtsFalse;
 
 	//
