@@ -1396,6 +1396,8 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(stg_usedBlocksRCzh)                                 \
       SymI_HasProto(stg_listenRCzh)                                     \
       SymI_HasProto(stg_unlistenRCzh)                                   \
+      SymI_HasProto(stg_readRCRefzh)                                    \
+      SymI_HasProto(stg_newRCRefzh)                                     \
       RTS_USER_SIGNALS_SYMBOLS                                          \
       RTS_INTCHAR_SYMBOLS
 

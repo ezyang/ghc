@@ -771,6 +771,17 @@ loop:
       copy(gwt,p,info,q,sizeofW(StgTRecChunk),gen_no);
       return;
 
+  case RCREF:
+      {
+        StgRCRef *rcref = (StgRCRef*)q;
+        if (rcref->rc->status == RC_NORMAL) {
+          copy(gwt,p,info,q,sizeofW(StgRCRef),gen_no);
+        } else {
+          *p = STATIC_CLOSURE(stg_DEAD_RCREF);
+        }
+        return;
+      }
+
   default:
     barf("evacuate: strange closure type %d", (int)(INFO_PTR_TO_STRUCT(info)->type));
   }

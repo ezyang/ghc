@@ -163,6 +163,7 @@ static void searchHeapBlocks (HashTable *addrs, bdescr *bd)
 	    case MUT_PRIM:
 	    case MUT_VAR_CLEAN:
 	    case MUT_VAR_DIRTY:
+            case RCREF:
 		prim = rtsTrue;
 		size = sizeW_fromITBL(info);
 		break;

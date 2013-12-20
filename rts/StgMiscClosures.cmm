@@ -665,6 +665,14 @@ INFO_TABLE_CONSTR(stg_END_LISTENER_LIST,0,0,0,CONSTR_NOCAF_STATIC,"END_LISTENER_
 
 CLOSURE(stg_END_LISTENER_LIST);
 
+INFO_TABLE(stg_RCREF,1,1,RCREF,"RCREF","RCREF")
+{ foreign "C" barf("RCREF object entered!") never returns; }
+
+INFO_TABLE_CONSTR(stg_DEAD_RCREF,0,0,0,CONSTR_NOCAF_STATIC,"DEAD_RCREF","DEAD_RCREF")
+{ foreign "C" barf("DEAD_RCREF object entered!") never returns; }
+
+CLOSURE(stg_DEAD_RCREF);
+
 /* ----------------------------------------------------------------------------
    CHARLIKE and INTLIKE closures.
 

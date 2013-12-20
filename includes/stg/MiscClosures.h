@@ -145,6 +145,8 @@ RTS_ENTRY(stg_NO_TREC);
 RTS_ENTRY(stg_LISTENER);
 RTS_ENTRY(stg_END_LISTENER_LIST);
 RTS_CLOSURE(stg_END_LISTENER_LIST);
+RTS_ENTRY(stg_DEAD_RCREF);
+RTS_CLOSURE(stg_DEAD_RCREF);
 
 /* closures */
 
@@ -433,6 +435,9 @@ RTS_FUN_DECL(stg_killRCzh);
 RTS_FUN_DECL(stg_usedBlocksRCzh);
 RTS_FUN_DECL(stg_listenRCzh);
 RTS_FUN_DECL(stg_unlistenRCzh);
+
+RTS_FUN_DECL(stg_newRCRefzh);
+RTS_FUN_DECL(stg_readRCRefzh);
 
 /* Other misc stuff */
 // See wiki:Commentary/Compiler/Backends/PprC#Prototypes
