@@ -22,6 +22,7 @@ import StgCmmUtils
 import StgCmmTicky
 import StgCmmHeap
 import StgCmmProf ( costCentreFrom, curCCS )
+import StgCmmContainer ( rcCurrent, rcFrom )
 
 import DynFlags
 import Platform
@@ -229,6 +230,12 @@ emitPrimOp dflags [res] GetCCSOfOp [arg]
 
 emitPrimOp _ [res] GetCurrentCCSOp [_dummy_arg]
    = emitAssign (CmmLocal res) curCCS
+
+emitPrimOp dflags [res] GetCurrentRCOp [_dummy_arg]
+   = emitAssign (CmmLocal res) (rcCurrent dflags)
+
+emitPrimOp dflags [res] GetRCOfOp [var]
+   = emitAssign (CmmLocal res) (rcFrom dflags var)
 
 emitPrimOp dflags [res] ReadMutVarOp [mutv]
    = emitAssign (CmmLocal res) (cmmLoadIndexW dflags mutv (fixedHdrSize dflags) (gcWord dflags))
@@ -856,6 +863,8 @@ nopOp Int2WordOp     = True
 nopOp Word2IntOp     = True
 nopOp Int2AddrOp     = True
 nopOp Addr2IntOp     = True
+nopOp RCToAddrOp     = True
+nopOp AddrToRCOp     = True
 nopOp ChrOp          = True  -- Int# and Char# are rep'd the same
 nopOp OrdOp          = True
 nopOp _              = False
