@@ -86,6 +86,6 @@ StgWord16 closure_flags[] = {
  [RCREF]                =  (_HNF|     _NS|              _UPT           )
 };
 
-#if N_CLOSURE_TYPES != 62
+#if N_CLOSURE_TYPES != 63
 #error Closure types changed: update ClosureFlags.c!
 #endif
