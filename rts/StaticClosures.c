@@ -43,11 +43,24 @@ initialize_field(StgClosure **p)
     *p = r;
 }
 
+// Helper debug function for when you're in GDB.
+// Calculate the arguments by running 'objdump -h executable'
+// and look for the 'staticclosureinds' section:
+//
+//Idx Name              SIZE      VMA               LMA               File off  Algn
+// 25 staticclosureinds 00003090  0000000000742748  0000000000742748  00142748  2**3
+//
+// Then run checkStaticClosures(VMA, VMA+SIZE) after initStaticClosures
+// to check if initialization was good.  The way we test for this is
+// looking for any pointers which are still pointing into the
+// indirections (this is how it is initialized).
 void
 checkStaticClosures(StgClosure **section_start, StgClosure **section_end) {
     StgClosure **pp;
     for (pp = section_start; pp < section_end; pp++) {
         StgClosure *p = UNTAG_CLOSURE(*pp);
+        // Not perfect, but will segfault if it's not actually a block
+        ASSERT(!HEAP_ALLOCED(p));
         // TODO: sanity check tagging
         const StgInfoTable *info = get_itbl(p);
         switch (info->type) {
