@@ -832,7 +832,7 @@ dumpCensus( Census *census )
 }
 
 
-static void heapProfObject(Census *census, StgClosure *p, nat size,
+static void heapProfObject(Census *census, StgClosure *p, nat size, rtsBool hack,
                            rtsBool prim
 #ifndef PROFILING
                            STG_UNUSED
@@ -852,7 +852,11 @@ static void heapProfObject(Census *census, StgClosure *p, nat size,
 	    real_size = size;
 #endif
 
+            if (hack) {
+                goto next;
+            }
 	    if (closureSatisfiesConstraints((StgClosure*)p)) {
+next:
 #ifdef PROFILING
 		if (RtsFlags.ProfFlags.doHeapProfile == HEAP_BY_LDV) {
 		    if (prim)
@@ -929,7 +933,7 @@ heapCensusChain( Census *census, bdescr *bd )
         if (bd->flags & BF_PINNED) {
             StgClosure arr;
             SET_HDR(&arr, &stg_ARR_WORDS_info, CCS_PINNED);
-            heapProfObject(census, &arr, bd->blocks * BLOCK_SIZE_W, rtsTrue);
+            heapProfObject(census, &arr, bd->blocks * BLOCK_SIZE_W, rtsTrue, rtsTrue);
             continue;
         }
 
@@ -1069,7 +1073,7 @@ heapCensusChain( Census *census, bdescr *bd )
 		barf("heapCensus, unknown object: %d", info->type);
 	    }
 	    
-            heapProfObject(census,(StgClosure*)p,size,prim);
+            heapProfObject(census,(StgClosure*)p,size,rtsFalse,prim);
 
 	    p += size;
 	}
