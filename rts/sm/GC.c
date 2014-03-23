@@ -147,7 +147,7 @@ static void prepare_collected_gen   (generation *gen);
 static void prepare_uncollected_gen (generation *gen);
 static void init_gc_thread          (gc_thread *t);
 static void resize_generations      (void);
-static void resize_nursery          (void);
+static W_ calculate_resize_nursery          (void);
 static void start_gc_threads        (void);
 static void scavenge_until_all_done (void);
 static StgWord inc_running          (void);
@@ -314,10 +314,6 @@ GarbageCollect (nat collect_gen,
     }
   }
 
-  /* Initialise all resource containers */
-  for (rc = RC_LIST; rc != NULL; rc = rc->link) {
-      rc->n_words = 0;
-  }
 
   // Prepare this gc_thread
   init_gc_thread(gct);
@@ -423,7 +419,10 @@ GarbageCollect (nat collect_gen,
   }
 
   if (!DEBUG_IS_ON && n_gc_threads != 1) {
-      clearNursery(cap);
+
+    for (rc = RC_LIST; rc != NULL; rc = rc->link) {
+      clearNursery(rc,cap);
+    }
   }
 
   shutdown_gc_threads(gct->thread_index);
@@ -704,22 +703,30 @@ GarbageCollect (nat collect_gen,
       }
   }
 
+  W_ resize_blocks = calculate_resize_nursery();
+
   // Reset the nursery: make the blocks empty
+  for (rc = RC_LIST; rc != NULL; rc = rc->link) {
   if (DEBUG_IS_ON || n_gc_threads == 1) {
       for (n = 0; n < n_capabilities; n++) {
-          clearNursery(capabilities[n]);
+          clearNursery(rc, capabilities[n]);
       }
   } else {
       // When doing parallel GC, clearNursery() is called by the
       // worker threads
       for (n = 0; n < n_capabilities; n++) {
           if (gc_threads[n]->idle) {
-              clearNursery(capabilities[n]);
+              clearNursery(rc, capabilities[n]);
           }
       }
   }
-
-  resize_nursery();
+  resizeNurseriesFixed(rc, resize_blocks);
+  nat i;
+  for (i = 0; i < n_capabilities; i++) {
+      bdescr *currentNursery = rc->threads[i].nursery.blocks;
+      rc->threads[i].currentNursery = currentNursery;
+  }
+  }
 
   resetNurseries();
 
@@ -1189,7 +1196,10 @@ gcWorkerThread (Capability *cap)
     scavenge_until_all_done();
 
     if (!DEBUG_IS_ON) {
-        clearNursery(cap);
+      ResourceContainer *rc;
+      for (rc = RC_LIST; rc != NULL; rc = rc->link) {
+        clearNursery(rc, cap);
+      }
     }
 
 #ifdef THREADED_RTS
@@ -1382,6 +1392,13 @@ prepare_collected_gen (generation *gen)
 #endif
 
     for (rc = RC_LIST; rc != NULL; rc = rc->link) {
+      // clear out n_words
+      rc->n_words = 0;
+      // liberate (killed) all pinned object blocks
+      if (rc->pinned_object_block != NULL) {
+          dbl_link_onto(rc->pinned_object_block, &g0->large_objects);
+          rc->pinned_object_block = NULL;
+      }
     for (n = 0; n < n_capabilities; n++) {
         ws = &rc->threads[n].workspaces[gen->no];
 
@@ -1738,8 +1755,8 @@ resize_generations (void)
    Calculate the new size of the nursery, and resize it.
    -------------------------------------------------------------------------- */
 
-static void
-resize_nursery (void)
+static W_
+calculate_resize_nursery (void)
 {
     const StgWord min_nursery =
       RtsFlags.GcFlags.minAllocAreaSize * (StgWord)n_capabilities;
@@ -1791,7 +1808,7 @@ resize_nursery (void)
 		blocks = min_nursery;
 	    }
 	}
-	resizeNurseries(blocks);
+        return blocks / n_capabilities;
     }
     else  // Generational collector
     {
@@ -1841,13 +1858,13 @@ resize_nursery (void)
 		blocks = min_nursery;
 	    }
 
-            resizeNurseries((W_)blocks);
+            return ((W_)blocks) / n_capabilities;
 	}
 	else
 	{
 	    // we might have added extra large blocks to the nursery, so
 	    // resize back to minAllocAreaSize again.
-	    resizeNurseriesFixed(RtsFlags.GcFlags.minAllocAreaSize);
+            return RtsFlags.GcFlags.minAllocAreaSize;
 	}
     }
 }
