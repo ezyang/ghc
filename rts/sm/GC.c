@@ -53,6 +53,12 @@
 #include <string.h> // for memset()
 #include <unistd.h>
 
+#if 0
+#define MARK_STRATA(x,y) stat_markStrata(x,y)
+#else
+#define MARK_STRATA(x,y) 
+#endif
+
 /* -----------------------------------------------------------------------------
    Global variables
    -------------------------------------------------------------------------- */
@@ -115,6 +121,7 @@ nat mutlist_MUTVARS,
     mutlist_TREC_HEADER,
     mutlist_ATOMIC_INVARIANT,
     mutlist_INVARIANT_CHECK_QUEUE,
+    mutlist_IND_STATIC,
     mutlist_OTHERS;
 #endif
 
@@ -147,7 +154,7 @@ static void prepare_collected_gen   (generation *gen);
 static void prepare_uncollected_gen (generation *gen);
 static void init_gc_thread          (gc_thread *t);
 static void resize_generations      (void);
-static void resize_nursery          (void);
+static W_ calculate_resize_nursery          (void);
 static void start_gc_threads        (void);
 static void scavenge_until_all_done (void);
 static StgWord inc_running          (void);
@@ -218,6 +225,7 @@ GarbageCollect (nat collect_gen,
 
   // tell the stats department that we've started a GC
   stat_startGC(cap, gct);
+  MARK_STRATA(gct, 0);
 
   // lock the StablePtr table
   stableLock();
@@ -285,7 +293,7 @@ GarbageCollect (nat collect_gen,
 
 #ifdef DEBUG
   // check for memory leaks if DEBUG is on
-  memInventory(DEBUG_gc);
+  //memInventory(DEBUG_gc);
 #endif
 
   // check sanity *before* GC
@@ -295,14 +303,17 @@ GarbageCollect (nat collect_gen,
   // and put them on the g0->large_object list.
   collect_pinned_object_blocks();
 
+  MARK_STRATA(gct, 1);
   // Initialise all the generations/steps that we're collecting.
   for (g = 0; g <= N; g++) {
       prepare_collected_gen(&generations[g]);
   }
+  MARK_STRATA(gct, 2);
   // Initialise all the generations/steps that we're *not* collecting.
   for (g = N+1; g < RtsFlags.GcFlags.generations; g++) {
       prepare_uncollected_gen(&generations[g]);
   }
+  MARK_STRATA(gct, 3);
 
 
   // Setup scan stack
@@ -313,14 +324,13 @@ GarbageCollect (nat collect_gen,
         ws->scan_sp = ws->scan_stack;
     }
   }
+  MARK_STRATA(gct, 4);
 
-  /* Initialise all resource containers */
-  for (rc = RC_LIST; rc != NULL; rc = rc->link) {
-      rc->n_words = 0;
-  }
+  MARK_STRATA(gct, 5);
 
   // Prepare this gc_thread
   init_gc_thread(gct);
+  MARK_STRATA(gct, 6);
 
   /* Allocate a mark stack if we're doing a major collection.
    */
@@ -335,6 +345,7 @@ GarbageCollect (nat collect_gen,
       mark_stack_top_bd = NULL;
       mark_sp           = NULL;
   }
+  MARK_STRATA(gct, 7);
 
   /* -----------------------------------------------------------------------
    * follow all the roots that we know about:
@@ -346,6 +357,7 @@ GarbageCollect (nat collect_gen,
   // the other GC threads will be writing into the old mutable lists.
   inc_running();
   wakeup_gc_threads(gct->thread_index);
+  MARK_STRATA(gct, 8);
 
   traceEventGcWork(gct->cap);
 
@@ -371,10 +383,12 @@ GarbageCollect (nat collect_gen,
           }
       }
   }
+  MARK_STRATA(gct, 9);
 
   // follow roots from the CAF list (used by GHCi)
   gct->evac_gen_no = 0;
   markCAFs(mark_root, gct);
+  MARK_STRATA(gct, 10);
 
   // follow all the roots that the application knows about.
   gct->evac_gen_no = 0;
@@ -386,22 +400,30 @@ GarbageCollect (nat collect_gen,
   } else {
       markCapability(mark_root, gct, cap, rtsTrue/*don't mark sparks*/);
   }
+  MARK_STRATA(gct, 11);
 
   markScheduler(mark_root, gct);
+  MARK_STRATA(gct, 12);
 
 #if defined(RTS_USER_SIGNALS)
   // mark the signal handlers (signals should be already blocked)
   markSignalHandlers(mark_root, gct);
 #endif
+  MARK_STRATA(gct, 13);
 
   // Mark the weak pointer list, and prepare to detect dead weak pointers.
   markWeakPtrList();
   initWeakForGC();
+  MARK_STRATA(gct, 14);
 
   // Mark the stable pointer table.
   markStableTables(mark_root, gct);
 
-  markResourceContainers(mark_root, gct);
+  MARK_STRATA(gct, 15);
+
+  //markResourceContainers(mark_root, gct);
+
+  MARK_STRATA(gct, 16);
 
   /* -------------------------------------------------------------------------
    * Repeatedly scavenge all the areas we know about until there's no
@@ -425,7 +447,10 @@ GarbageCollect (nat collect_gen,
   }
 
   if (!DEBUG_IS_ON && n_gc_threads != 1) {
-      clearNursery(cap);
+
+    for (rc = RC_LIST; rc != NULL; rc = rc->link) {
+      clearNursery(rc,cap);
+    }
   }
 
   shutdown_gc_threads(gct->thread_index);
@@ -491,6 +516,7 @@ GarbageCollect (nat collect_gen,
           par_tot_copied = 0;
       }
   }
+  MARK_STRATA(gct, 17);
 
   // Free the scan stacks
   for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
@@ -502,6 +528,7 @@ GarbageCollect (nat collect_gen,
         ws->scan_sp = NULL;
     }
   }
+  MARK_STRATA(gct, 18);
 
   // Run through all the generations/steps and tidy up.
   // We're going to:
@@ -529,14 +556,15 @@ GarbageCollect (nat collect_gen,
         }
 	copied +=  mut_list_size;
 
-	debugTrace(DEBUG_gc,
-		   "mut_list_size: %lu (%d vars, %d arrays, %d MVARs, %d TVARs, %d TVAR_WATCH_QUEUEs, %d TREC_CHUNKs, %d TREC_HEADERs, %d ATOMIC_INVARIANTs, %d INVARIANT_CHECK_QUEUEs, %d others)",
+	debugTrace(DEBUG_block_alloc,
+		   "mut_list_size: %lu (%d vars, %d arrays, %d MVARs, %d TVARs, %d TVAR_WATCH_QUEUEs, %d TREC_CHUNKs, %d TREC_HEADERs, %d ATOMIC_INVARIANTs, %d INVARIANT_CHECK_QUEUEs, %d IND_STATIC, %d others)",
 		   (unsigned long)(mut_list_size * sizeof(W_)),
                    mutlist_MUTVARS, mutlist_MUTARRS, mutlist_MVARS,
                    mutlist_TVAR, mutlist_TVAR_WATCH_QUEUE,
                    mutlist_TREC_CHUNK, mutlist_TREC_HEADER,
                    mutlist_ATOMIC_INVARIANT,
                    mutlist_INVARIANT_CHECK_QUEUE,
+                   mutlist_IND_STATIC,
                    mutlist_OTHERS);
     }
 
@@ -650,19 +678,20 @@ GarbageCollect (nat collect_gen,
     gen->n_scavenged_large_blocks = 0;
 
     // Count "live" data
-    live_words  += genLiveWords(gen);
-    live_blocks += genLiveBlocks(gen);
+    // live_words  += genLiveWords(gen);
+    // live_blocks += genLiveBlocks(gen);
 
     // add in the partial blocks in the gen_workspaces, but ignore gen 0
     // if this is a local GC (we can't count another capability's part_list)
     {
         nat i;
         for (i = 0; i < n_capabilities; i++) {
-            live_words  += gcThreadLiveWords(i, gen->no);
-            live_blocks += gcThreadLiveBlocks(i, gen->no);
+            //live_words  += gcThreadLiveWords(i, gen->no);
+            //live_blocks += gcThreadLiveBlocks(i, gen->no);
         }
     }
   } // for all generations
+  MARK_STRATA(gct, 19);
 
   // update the max size of older generations after a major GC
   resize_generations();
@@ -700,30 +729,44 @@ GarbageCollect (nat collect_gen,
               }
               RC_COUNT--;
 #ifdef DEBUG
-              memInventory(DEBUG_gc);
+              //memInventory(DEBUG_gc);
 #endif
           }
       }
   }
+  MARK_STRATA(gct, 20);
+
+  W_ resize_blocks = calculate_resize_nursery();
 
   // Reset the nursery: make the blocks empty
+  for (rc = RC_LIST; rc != NULL; rc = rc->link) {
   if (DEBUG_IS_ON || n_gc_threads == 1) {
       for (n = 0; n < n_capabilities; n++) {
-          clearNursery(capabilities[n]);
+          clearNursery(rc, capabilities[n]);
       }
   } else {
       // When doing parallel GC, clearNursery() is called by the
       // worker threads
+
       for (n = 0; n < n_capabilities; n++) {
           if (gc_threads[n]->idle) {
-              clearNursery(capabilities[n]);
+              clearNursery(rc, capabilities[n]);
           }
       }
   }
+  resizeNurseriesFixed(rc, resize_blocks);
+  int i;
+  for (i = 0; i < n_capabilities; i++) {
+      bdescr *currentNursery = rc->threads[i].nursery.blocks;
+      rc->threads[i].currentNursery = currentNursery;
+  }
+  }
+  MARK_STRATA(gct, 21);
 
-  resize_nursery();
-
+  MARK_STRATA(gct, 22);
   resetNurseries();
+
+  MARK_STRATA(gct, 23);
 
  // mark the garbage collected CAFs as dead
 #if defined(DEBUG)
@@ -791,17 +834,20 @@ GarbageCollect (nat collect_gen,
   RELEASE_SM_LOCK;
   resurrectThreads(resurrected_threads);
   ACQUIRE_SM_LOCK;
+  MARK_STRATA(gct, 24);
 
   // Run any triggered RC listeners.
   // XXX Which capability should the listeners be run on?
   // It should be something like "whichever capability was doing the
   // most allocation for this resource limit", but for now, we just
   // shove it in capabilities[0]
+  /*
   for (rc = RC_LIST; rc != NULL; rc = rc->link) {
       checkListenersRC(capabilities[0], rc);
       // no need to check result, since nothing is running at this point
       // anyway
   }
+  */
 
   if (major_gc) {
       W_ need, got;
@@ -833,7 +879,7 @@ GarbageCollect (nat collect_gen,
 
 #ifdef DEBUG
   // check for memory leaks if DEBUG is on
-  memInventory(DEBUG_gc);
+  //memInventory(DEBUG_gc);
 #endif
 
   // ok, GC over: tell the stats department what happened.
@@ -1202,7 +1248,10 @@ gcWorkerThread (Capability *cap)
     scavenge_until_all_done();
 
     if (!DEBUG_IS_ON) {
-        clearNursery(cap);
+      ResourceContainer *rc;
+      for (rc = RC_LIST; rc != NULL; rc = rc->link) {
+        clearNursery(rc, cap);
+      }
     }
 
 #ifdef THREADED_RTS
@@ -1395,6 +1444,13 @@ prepare_collected_gen (generation *gen)
 #endif
 
     for (rc = RC_LIST; rc != NULL; rc = rc->link) {
+      // clear out n_words
+      rc->n_words = 0;
+      // liberate (killed) all pinned object blocks
+      if (rc->pinned_object_block != NULL) {
+          dbl_link_onto(rc->pinned_object_block, &g0->large_objects);
+          rc->pinned_object_block = NULL;
+      }
     for (n = 0; n < n_capabilities; n++) {
         ws = &rc->threads[n].workspaces[gen->no];
 
@@ -1581,13 +1637,6 @@ collect_pinned_object_blocks (void)
             capabilities[n]->pinned_object_blocks = 0;
         }
     }
-    for (rc = RC_LIST; rc != NULL; rc = rc->link) {
-        // liberate killed pinned object blocks
-        if (rc->status == RC_KILLED && rc->pinned_object_block != NULL) {
-            dbl_link_onto(rc->pinned_object_block, &g0->large_objects);
-            rc->pinned_object_block = NULL;
-        }
-    }
 }
 
 /* -----------------------------------------------------------------------------
@@ -1759,8 +1808,8 @@ resize_generations (void)
    Calculate the new size of the nursery, and resize it.
    -------------------------------------------------------------------------- */
 
-static void
-resize_nursery (void)
+static W_
+calculate_resize_nursery (void)
 {
     const StgWord min_nursery = RtsFlags.GcFlags.minAllocAreaSize * n_capabilities;
 
@@ -1811,7 +1860,7 @@ resize_nursery (void)
 		blocks = min_nursery;
 	    }
 	}
-	resizeNurseries(blocks);
+        return blocks / n_capabilities;
     }
     else  // Generational collector
     {
@@ -1861,13 +1910,13 @@ resize_nursery (void)
 		blocks = min_nursery;
 	    }
 
-            resizeNurseries((W_)blocks);
+            return ((W_)blocks) / n_capabilities;
 	}
 	else
 	{
 	    // we might have added extra large blocks to the nursery, so
 	    // resize back to minAllocAreaSize again.
-	    resizeNurseriesFixed(RtsFlags.GcFlags.minAllocAreaSize);
+            return RtsFlags.GcFlags.minAllocAreaSize;
 	}
     }
 }

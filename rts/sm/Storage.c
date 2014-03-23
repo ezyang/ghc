@@ -551,14 +551,6 @@ assignNurseriesToCapabilities (nat from, nat to)
     ResourceContainer *rc;
     ASSERT(from == 0);
 
-    // make sure currentNursery is up-to-date
-    for (rc = RC_LIST; rc != NULL; rc = rc->link) {
-        for (i = from; i < to; i++) {
-            bdescr *currentNursery = rc->threads[i].nursery.blocks;
-            rc->threads[i].currentNursery = currentNursery;
-        }
-    }
-
     for (i = from; i < to; i++) {
         bdescr *currentNursery = capabilities[i]->r.rRC->threads[i].nursery.blocks;
         capabilities[i]->r.rCurrentNursery = currentNursery;
@@ -578,20 +570,20 @@ allocNurseries (nat from, nat to)
     for (i = from; i < to; i++) {
         rc->threads[i].nursery.n_blocks =
             RtsFlags.GcFlags.minAllocAreaSize;
-        rc->threads[i].nursery.blocks =
-            allocNursery(NULL, &rc->threads[i].nursery.n_blocks, rc);
+      bdescr *currentNursery = allocNursery(NULL, &rc->threads[i].nursery.n_blocks, rc);
+      rc->threads[i].nursery.blocks = currentNursery;
+      rc->threads[i].currentNursery = currentNursery;
     }
+
     }
     assignNurseriesToCapabilities(from, to);
 }
       
 void
-clearNursery (Capability *cap)
+clearNursery (ResourceContainer *rc, Capability *cap)
 {
     bdescr *bd;
-    ResourceContainer *rc;
 
-    for (rc = RC_LIST; rc != NULL; rc = rc->link) {
     for (bd = rc->threads[cap->no].nursery.blocks; bd; bd = bd->link) {
         cap->total_allocated += (W_)(bd->free - bd->start);
         bd->free = bd->start;
@@ -603,7 +595,6 @@ clearNursery (Capability *cap)
                                 ASSERT(bd->free == bd->start));
             break;
         }
-    }
     }
 }
 
@@ -676,11 +667,9 @@ resizeNursery (nursery *nursery, W_ blocks, ResourceContainer *rc)
 // Resize each of the nurseries to the specified size.
 //
 void
-resizeNurseriesFixed (W_ blocks)
+resizeNurseriesFixed (ResourceContainer *rc, W_ blocks)
 {
     nat i;
-    ResourceContainer *rc;
-    for (rc = RC_LIST; rc != NULL; rc = rc->link) {
         for (i = 0; i < n_capabilities; i++) {
             if (rc->status == RC_KILLED) {
                 // truncate the nursery
@@ -691,18 +680,17 @@ resizeNurseriesFixed (W_ blocks)
                 resizeNursery(&rc->threads[i].nursery, blocks, rc);
             }
         }
-    }
 }
 
 // 
 // Resize the nurseries to the total specified size.
 //
 void
-resizeNurseries (W_ blocks)
+resizeNurseries (ResourceContainer *rc, W_ blocks)
 {
     // If there are multiple nurseries, then we just divide the number
     // of available blocks between them.
-    resizeNurseriesFixed(blocks / n_capabilities);
+    resizeNurseriesFixed(rc, blocks / n_capabilities);
 }
 
 

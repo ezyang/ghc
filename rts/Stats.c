@@ -71,6 +71,8 @@ static Time *GC_coll_cpu = NULL;
 static Time *GC_coll_elapsed = NULL;
 static Time *GC_coll_max_pause = NULL;
 
+static Time *GC_coll_strata = NULL;
+
 static void statsFlush( void );
 static void statsClose( void );
 
@@ -193,6 +195,13 @@ initStats1 (void)
 	GC_coll_cpu[i] = 0;
         GC_coll_elapsed[i] = 0;
         GC_coll_max_pause[i] = 0;
+    }
+    GC_coll_strata =
+        (Time *)stgMallocBytes(
+            sizeof(Time)*100,
+            "initStats");
+    for (i = 0; i < 100; i++) {
+        GC_coll_strata[i] = 0;
     }
 }
 
@@ -359,6 +368,15 @@ calcTotalAllocated(void)
 /* -----------------------------------------------------------------------------
    Called at the end of each GC
    -------------------------------------------------------------------------- */
+
+void
+stat_markStrata(gc_thread *gct, W_ strata)
+{
+    Time cpu, elapsed, gc_cpu;
+    getProcessTimes(&cpu, &elapsed);
+    gc_cpu = cpu - gct->gc_start_cpu;
+    GC_coll_strata[strata] += gc_cpu;
+}
 
 void
 stat_endGC (Capability *cap, gc_thread *gct,
@@ -767,6 +785,12 @@ stat_exit (void)
 		    TimeToSecondsDbl(gc_cpu)*100/TimeToSecondsDbl(tot_cpu),
 		    TimeToSecondsDbl(gc_elapsed)*100/TimeToSecondsDbl(tot_elapsed));
 #endif
+
+            int ix;
+            for (ix = 0; ix < 100; ix++) {
+                if (GC_coll_strata[ix] == 0) break;
+                statsPrintf("% 4d  %6.2fs\n", ix, TimeToSecondsDbl(GC_coll_strata[ix]));
+            }
 
             if (mut_cpu == 0) {
 		showStgWord64(0, temp, rtsTrue/*commas*/);

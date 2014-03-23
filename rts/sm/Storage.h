@@ -1,7 +1,5 @@
 /* -----------------------------------------------------------------------------
  *
- * (c) The GHC Team, 1998-2009
- *
  * External Storage Manger Interface
  *
  * ---------------------------------------------------------------------------*/
@@ -80,9 +78,9 @@ void dirty_TVAR(Capability *cap, StgTVar *p);
    -------------------------------------------------------------------------- */
 
 void     resetNurseries       ( void );
-void     clearNursery         ( Capability *cap );
-void     resizeNurseries      ( W_ blocks );
-void     resizeNurseriesFixed ( W_ blocks );
+void     clearNursery         ( ResourceContainer *rc, Capability *cap );
+void     resizeNurseries      ( ResourceContainer *rc, W_ blocks );
+void     resizeNurseriesFixed ( ResourceContainer *rc, W_ blocks );
 W_       countNurseryBlocks   ( void );
 bdescr * allocNursery         ( bdescr *tail, W_ *blocks, ResourceContainer *rc );
 

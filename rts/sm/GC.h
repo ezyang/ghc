@@ -43,6 +43,7 @@ extern nat mutlist_MUTVARS, mutlist_MUTARRS, mutlist_MVARS, mutlist_OTHERS,
     mutlist_TREC_CHUNK,
     mutlist_TREC_HEADER,
     mutlist_ATOMIC_INVARIANT,
+    mutlist_IND_STATIC,
     mutlist_INVARIANT_CHECK_QUEUE;
 #endif
 
