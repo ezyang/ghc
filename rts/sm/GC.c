@@ -397,7 +397,7 @@ GarbageCollect (nat collect_gen,
   // Mark the stable pointer table.
   markStableTables(mark_root, gct);
 
-  markResourceContainers(mark_root, gct);
+  //markResourceContainers(mark_root, gct);
 
   /* -------------------------------------------------------------------------
    * Repeatedly scavenge all the areas we know about until there's no
@@ -804,11 +804,13 @@ GarbageCollect (nat collect_gen,
   // It should be something like "whichever capability was doing the
   // most allocation for this resource limit", but for now, we just
   // shove it in capabilities[0]
+  /*
   for (rc = RC_LIST; rc != NULL; rc = rc->link) {
       checkListenersRC(capabilities[0], rc);
       // no need to check result, since nothing is running at this point
       // anyway
   }
+  */
 
   if (major_gc) {
       W_ need, got;
