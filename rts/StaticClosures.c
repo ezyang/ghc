@@ -208,12 +208,6 @@ processStaticClosures()
             default:
                 barf("initStaticClosures: strange closure type %d", (int)(info->type));
             }
-            // we can do a sanity check for all except the last closure
-            ASSERT(pp+1 == sci->end
-                    // use the packing of closures together as the test...
-                    || UNTAG_CLOSURE(*(pp+1)) == p + size_w
-                    // ...but allow FUN_STATIC to be a little sloppy
-                    || (info->type == FUN_STATIC && size_w == 1 && (*((W_*)p+1) & ~1) == 0));
             // ToDo: relax this restriction
             ASSERT(size_w < BLOCK_SIZE_W);
             if (current_block->free + size_w >= current_block->start + BLOCK_SIZE_W) {

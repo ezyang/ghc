@@ -1320,18 +1320,18 @@ runPhase (RealPhase SplitAs) _input_fn dflags
         -- initialisation routine.
         --
         -- To that end, we make a DANGEROUS ASSUMPTION here: the data
-        -- that needs to be initialised is all in the FIRST split
+        -- that needs to be initialised is all in the LAST split
         -- object.  See Note [codegen-split-init].
 
         PipeState{maybe_stub_o} <- getPipeState
         case maybe_stub_o of
             Nothing     -> return ()
             Just stub_o -> liftIO $ do
-                     tmp_split_1 <- newTempName dflags osuf
-                     let split_1 = split_obj 1
-                     copyFile split_1 tmp_split_1
-                     removeFile split_1
-                     joinObjectFiles dflags [tmp_split_1, stub_o] split_1
+                     tmp_split_n <- newTempName dflags osuf
+                     let split_n = split_obj n
+                     copyFile split_n tmp_split_n
+                     removeFile split_n
+                     joinObjectFiles dflags [tmp_split_n, stub_o] split_n
 
         -- join them into a single .o file
         liftIO $ joinObjectFiles dflags (map split_obj [1..n]) output_fn

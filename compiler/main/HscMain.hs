@@ -1670,13 +1670,42 @@ showModuleIndex (i,n) = "[" ++ padded ++ " of " ++ n_str ++ "] "
     i_str = show i
     padded = replicate (length n_str - length i_str) ' ' ++ i_str
 
+-- Slightly inefficient, in that it needs to lookahead in order to
+-- determine if it needs to cat the closures on immediatel
+deferStaticClosures :: Monad m =>
+       Either CLabel Module
+    -> Stream m [GenCmmDecl CmmStatics info stmt] b
+    -> [GenCmmDecl CmmStatics info stmt]
+    -> [GenCmmDecl CmmStatics info stmt]
+    -> Stream m [GenCmmDecl CmmStatics info stmt] b
+deferStaticClosures lbl_or_mod str prev closures = Stream.Stream $ do
+    r <- Stream.runStream str
+    case r of
+        Left x -> do
+            let addLabel starts = mkDataLits StaticClosureInds (mkStaticClosureIndsLabel lbl_or_mod starts) []
+            return (Right (addLabel True : closures ++ [addLabel False] ++ prev, Stream.Stream (return (Left x))))
+            -- return (Right (addLabel True : closures ++ [addLabel False], Stream.Stream (return (Left x))))
+        Right (next, str') -> do
+            let isStaticClosure (CmmData StaticClosureInds _) = True
+                isStaticClosure _ = False
+                -- inlined partition so we don't recompute closures
+                select :: (a -> Bool) -> a -> ([a], [a]) -> ([a], [a])
+                select p x ~(ts,fs) | p x       = (x:ts,fs)
+                                    | otherwise = (ts, x:fs)
+                (closures', next') = foldr (select isStaticClosure) (closures, []) next
+            closures' `seqList` if null prev
+                then Stream.runStream (deferStaticClosures lbl_or_mod str' next' closures')
+                else return (Right (prev, deferStaticClosures lbl_or_mod str' next' closures'))
+            -- closures' `seqList` return (Right (next', deferStaticClosures lbl_or_mod str' prev closures'))
+
 prepareStaticClosures :: Monad m => Either CLabel Module
      -> Stream m [GenCmmDecl CmmStatics info stmt] b -> ForeignStubs
      -> (Stream m [GenCmmDecl CmmStatics info stmt] b, ForeignStubs)
 prepareStaticClosures lbl_or_mod cmms0 foreign_stubs0 =
-    let cmms = addLabel True >> cmms0 >>= (\r -> addLabel False >> return r)
-        addLabel starts =
-            Stream.yield [mkDataLits StaticClosureInds (mkStaticClosureIndsLabel lbl_or_mod starts) []]
+    let cmms = deferStaticClosures lbl_or_mod cmms0 [] []
+    --let cmms = addLabel True >> cmms0 >>= (\r -> addLabel False >> return r)
+    --    addLabel starts =
+    --        Stream.yield [mkDataLits StaticClosureInds (mkStaticClosureIndsLabel lbl_or_mod starts) []]
         foreign_stubs = foreign_stubs0 `appendStubC` static_closure_inds_init
         tag = case lbl_or_mod of
                 Left lbl -> text "cmm_" <> ppr lbl
