@@ -796,7 +796,7 @@ externallyVisibleCLabel (AsmTempLabel _)        = False
 externallyVisibleCLabel (PlainModuleInitLabel _)= True
 externallyVisibleCLabel (StaticClosureIndsLabel _ _)= True
 externallyVisibleCLabel (RtsLabel _)            = True
-externallyVisibleCLabel (CmmLabel _ _ CmmClosure)= False
+externallyVisibleCLabel (CmmLabel _ _ CmmClosure)= True
 externallyVisibleCLabel (CmmLabel _ _ _)        = True
 externallyVisibleCLabel (ForeignLabel{})        = True
 externallyVisibleCLabel (IdLabel name _ info)   = isExternalName name && externallyVisibleIdLabel info
@@ -814,7 +814,7 @@ externallyVisibleIdLabel :: IdLabelInfo -> Bool
 externallyVisibleIdLabel SRT             = False
 externallyVisibleIdLabel LocalInfoTable  = False
 externallyVisibleIdLabel LocalEntry      = False
-externallyVisibleIdLabel Closure         = False
+externallyVisibleIdLabel Closure         = True
 externallyVisibleIdLabel _               = True
 
 -- -----------------------------------------------------------------------------

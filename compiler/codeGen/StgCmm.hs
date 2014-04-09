@@ -78,12 +78,6 @@ codeGen dflags this_mod data_tycons
                          return a
                 yield cmm
 
-               -- Note [codegen-split-init] the cmm_init block must come
-               -- FIRST.  This is because when -split-objs is on we need to
-               -- combine this block with its initialisation routines; see
-               -- Note [pipeline-split-init].
-        ; cg (mkModuleInit cost_centre_info this_mod hpc_info)
-
         ; mapM_ (cg . cgTopBinding dflags) stg_binds
 
                 -- Put datatype_stuff after code_stuff, because the
@@ -98,6 +92,12 @@ codeGen dflags this_mod data_tycons
                  mapM_ (cg . cgDataCon) (tyConDataCons tycon)
 
         ; mapM_ do_tycon data_tycons
+
+               -- Note [codegen-split-init] the cmm_init block must come
+               -- LAST.  This is because when -split-objs is on we need to
+               -- combine this block with its initialisation routines; see
+               -- Note [pipeline-split-init].
+        ; cg (mkModuleInit cost_centre_info this_mod hpc_info)
         }
 
 ---------------------------------------------------------------
