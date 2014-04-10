@@ -189,35 +189,35 @@ processStaticClosures()
             // the sordid details
             switch (info->type) {
             case CONSTR_STATIC:
-                // info_table
+                // {header}
                 // {payload}
                 // static_link
                 size_w = sizeW_fromITBL(info) + 1;
                 break;
             case FUN_STATIC:
                 if (info->srt_bitmap != 0) {
-                    // info_table
+                    // {header}
                     // static_link
-                    size_w = 2;
+                    size_w = sizeofW(StgHeader) +  1;
                 } else {
-                    // info_table
-                    size_w = 1;
+                    // {header}
+                    size_w = sizeofW(StgHeader);
                     // Nota bene: there may be a little bit of slop
                     // here, if the code generator tacked on a
                     // static_link when it didn't need to
                 }
                 break;
             case CONSTR_NOCAF_STATIC:
-                // info_table
+                // {header}
                 // {payload}
                 size_w = sizeW_fromITBL(info);
                 break;
             case THUNK_STATIC:
-                // info_table
+                // {header}
                 // indirectee
                 // static_link
                 // saved_info
-                size_w = 4;
+                size_w = sizeofW(StgHeader) + 3;
                 break;
             case IND_STATIC:
                 // Laid out explicitly!
