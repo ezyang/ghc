@@ -26,9 +26,9 @@ Mutex static_closures_mutex;
 #endif
 
 static void initialize_field(StgClosure **p);
-static void addBlock(void);
+static void ensureFreeSpace(int);
 static W_ static_blocks = 0;
-static bdescr *current_block;
+static bdescr *current_block = NULL;
 
 W_ countStaticBlocks() {
     return static_blocks;
@@ -94,14 +94,23 @@ checkStaticClosures(StgClosure **section_start, StgClosure **section_end) {
     }
 }
 
+// Ensure there are size_w words available in the current block; allocating
+// a new block if there are not enough
 static void
-addBlock(void)
+ensureFreeSpace(int size_w)
 {
+    if (current_block != NULL &&
+        (current_block->free + size_w
+            < current_block->start + current_block->blocks * BLOCK_SIZE_W)) {
+        // still has enough space, no-op
+        return;
+    }
     bdescr *old_block = current_block;
-    current_block = allocBlock_lock();
+    W_ n_blocks = (W_)BLOCK_ROUND_UP(size_w*sizeof(W_)) / BLOCK_SIZE;
+    current_block = allocGroup_lock(n_blocks);
     current_block->flags |= BF_STATIC;
     current_block->link = old_block;
-    static_blocks++;
+    static_blocks += n_blocks;
 }
 
 // Invariant: concurrent calls to processStaticClosures should
@@ -118,8 +127,8 @@ initStaticClosures(void)
 
         // ToDo: do a proper block size check
         // ToDo: does this need to get tagged?
-        addBlock();
         size_w = (MAX_CHARLIKE-MIN_CHARLIKE+1) * sizeofW(StgIntCharlikeClosure);
+        ensureFreeSpace(size_w);
         memcpy(current_block->free,
                stg_CHARLIKE_static_closure,
                size_w*sizeof(W_));
@@ -128,10 +137,9 @@ initStaticClosures(void)
         stg_CHARLIKE_static_closure_ind =
             (StgIntCharlikeClosure*)current_block->free;
         current_block->free += size_w;
-        ASSERT(current_block->free <= current_block->start + BLOCK_SIZE_W);
 
-        addBlock();
         size_w = (MAX_INTLIKE-MIN_INTLIKE+1) * sizeofW(StgIntCharlikeClosure);
+        ensureFreeSpace(size_w);
         memcpy(current_block->free,
                stg_INTLIKE_static_closure,
                size_w*sizeof(W_));
@@ -140,7 +148,6 @@ initStaticClosures(void)
         stg_INTLIKE_static_closure_ind =
             (StgIntCharlikeClosure*)current_block->free;
         current_block->free += size_w;
-        ASSERT(current_block->free <= current_block->start + BLOCK_SIZE_W);
     }
 
     processStaticClosures();
@@ -220,13 +227,7 @@ processStaticClosures()
                 barf("initStaticClosures: strange closure type %d",
                      (int)(info->type));
             }
-            // ToDo: relax this restriction
-            ASSERT(size_w < BLOCK_SIZE_W);
-            if (current_block->free  + size_w >=
-                current_block->start + BLOCK_SIZE_W) {
-                // out of space, make a new current_block
-                addBlock();
-            }
+            ensureFreeSpace(size_w);
             memcpy(current_block->free, p, size_w*sizeof(W_));
             IF_DEBUG(sanity, memset(p, 0xDD, size_w*sizeof(W_)));
             *pp = TAG_CLOSURE(tag, (StgClosure*)current_block->free);
