@@ -104,8 +104,15 @@ ensureFreeSpace(int size_w)
     }
     bdescr *old_block = current_block;
     W_ n_blocks = (W_)BLOCK_ROUND_UP(size_w*sizeof(W_)) / BLOCK_SIZE;
+    ASSERT(n_blocks < BLOCKS_PER_MBLOCK);
     current_block = allocGroup_lock(n_blocks);
     current_block->flags |= BF_STATIC;
+    // to handle closure tables, mark all other blocks as BF_STATIC too
+    bdescr *bd;
+    W_ i;
+    for (i=1, bd=current_block+1; i < n_blocks; i++, bd++) {
+        bd->flags |= BF_STATIC;
+    }
     current_block->link = old_block;
     static_blocks += n_blocks;
 }
