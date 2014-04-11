@@ -343,8 +343,7 @@ entryHeapCheck cl_info nodeSet arity args code = do
 
     let node = case nodeSet of
               Just r  -> CmmReg (CmmLocal r)
-              -- XXX FIX ME
-              Nothing -> cmmUntag dflags (CmmLoad (CmmLit (CmmLabel $ staticClosureLabel cl_info)) (bWord dflags))
+              Nothing -> CmmLoad (CmmLit (CmmLabel $ staticClosureLabel cl_info)) (bWord dflags)
 
     let is_fastf = case closureFunInfo cl_info of
                  Just (_, ArgGen _) -> False
