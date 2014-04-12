@@ -225,7 +225,7 @@ processStaticClosures()
             switch (info->type) {
             case CONSTR_STATIC:
                 needsStaticLink = rtsTrue;
-                size_w++;
+                size_w += 2;
                 // fallthrough
             case CONSTR_NOCAF_STATIC:
                 // {header}
@@ -240,7 +240,7 @@ processStaticClosures()
                 size_w += sizeofW(StgHeader);
                 if (info->srt_bitmap != 0) {
                     needsStaticLink = rtsTrue;
-                    size_w++;
+                    size_w += 2;
                 }
                 // TODO: ASSERT that itbl payload is empty
                 break;
@@ -255,7 +255,7 @@ processStaticClosures()
                 //
                 // the static_link and saved_info fields must always be in the
                 // same place.
-                size_w += sizeofW(StgThunkHeader) + 2;
+                size_w += sizeofW(StgThunkHeader) + 3;
                 needsPadding = rtsTrue;
                 needsStaticLink = rtsTrue;
                 needsSavedInfo = rtsTrue;
@@ -293,6 +293,8 @@ processStaticClosures()
                 // static link field to a non-zero value so the garbage
                 // collector will ignore it.
                 q->payload[i++] = (StgClosure*)(W_)(info->type == CONSTR_NOCAF_STATIC ? 1 : 0);
+                // static_ind field, records p's location
+                q->payload[i++] = (StgClosure*)p;
             }
             if (needsSavedInfo) {
                 q->payload[i++] = 0;
