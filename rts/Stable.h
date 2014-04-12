@@ -16,6 +16,7 @@
 #define STABLE_H
 
 #include "sm/GC.h" // for evac_fn below
+#include "LinkerInternals.h" // for ObjectCode below
 
 #include "BeginPrivate.h"
 
@@ -25,7 +26,7 @@ void    freeStablePtr         ( StgStablePtr sp );
 void    freeStablePtrUnsafe   ( StgStablePtr sp );
 
 void    initStableTables      ( void );
-void    processPendingStablePtrs ( void );
+void    processPendingStablePtrs ( ObjectCode * );
 void    exitStableTables      ( void );
 StgWord lookupStableName      ( StgPtr p );
 
