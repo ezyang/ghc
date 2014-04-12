@@ -11,7 +11,7 @@ module StgCmmProf (
         mkCCostCentre, mkCCostCentreStack,
 
         -- Cost-centre Profiling
-        dynProfHdr, profDynAlloc, profAlloc, staticProfHdr, initUpdFrameProf,
+        dynProfHdr, profDynAlloc, profAlloc, staticProfData, initUpdFrameProf,
         enterCostCentreThunk, enterCostCentreFun,
         costCentreFrom,
         curCCS, storeCurCCS,
@@ -75,10 +75,10 @@ costCentreFrom :: DynFlags
                -> CmmExpr        -- The cost centre from that closure
 costCentreFrom dflags cl = CmmLoad (cmmOffsetB dflags cl (oFFSET_StgHeader_ccs dflags)) (ccsType dflags)
 
--- | The profiling header words in a static closure
-staticProfHdr :: DynFlags -> CostCentreStack -> [CmmLit]
-staticProfHdr dflags ccs
- = ifProfilingL dflags [mkCCostCentreStack ccs, staticLdvInit dflags]
+-- | The profiling data in a static closure
+staticProfData :: DynFlags -> CostCentreStack -> [CmmLit]
+staticProfData dflags ccs
+ = ifProfilingL dflags [mkCCostCentreStack ccs]
 
 -- | Profiling header words in a dynamic closure
 dynProfHdr :: DynFlags -> CmmExpr -> [CmmExpr]
@@ -298,12 +298,6 @@ bumpSccCount dflags ccs
 --                Lag/drag/void stuff
 --
 -----------------------------------------------------------------------------
-
---
--- Initial value for the LDV field in a static closure
---
-staticLdvInit :: DynFlags -> CmmLit
-staticLdvInit = zeroCLit
 
 --
 -- Initial value of the LDV field in a dynamic closure
