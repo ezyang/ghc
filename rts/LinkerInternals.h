@@ -113,6 +113,7 @@ typedef struct _ObjectCode {
 
     /* Allow a chain of these things */
     struct _ObjectCode * next;
+    struct _ObjectCode * next2;
 
     /* SANITY CHECK ONLY: a list of the only memory regions which may
        safely be prodded during relocation.  Any attempt to prod
@@ -132,6 +133,8 @@ typedef struct _ObjectCode {
 #endif
 
     ForeignExportStablePtr *stable_ptrs;
+    StaticClosureInds *static_object_list;
+    bdescr *static_object_blocks;
 
 } ObjectCode;
 
