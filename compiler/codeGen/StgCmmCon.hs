@@ -97,12 +97,12 @@ cgTopRhsCon dflags id con args =
         ; let closure_rep = mkStaticClosureFields
                              dflags
                              info_tbl
+                             (lfDynTag dflags lf)
                              dontCareCCS                -- Because it's static data
-                             caffy                      -- Has CAF refs
                              payload
 
                 -- BUILD THE OBJECT
-        ; emitStaticClosure closure_label (lfDynTag dflags lf) closure_rep
+        ; emitStaticClosure closure_label closure_rep
 
         ; return () }
 

@@ -322,19 +322,16 @@ emitRODataLits :: CLabel -> [CmmLit] -> FCode ()
 -- Emit a read-only data block
 emitRODataLits lbl lits = emitDecl (mkRODataLits lbl lits)
 
-emitStaticClosure :: CLabel -> DynTag -> [CmmLit] -> FCode ()
+emitStaticClosure :: CLabel -> [CmmLit] -> FCode ()
 -- Emit a static closure data block, which is only used at startup time.
 -- Eventually make this READ ONLY(?)
-emitStaticClosure lbl tag lits =
+emitStaticClosure lbl lits =
     let p (CmmLabel l) | isClosureLabel l = False
         p (CmmLabelOff l _) | isClosureLabel l = False
         p _ = True
     in ASSERT(all p lits)
        ASSERT(isClosureLabel lbl) do
         emitDecl (mkDataLits StaticClosures lbl lits)
-        -- tagged to indicate that it does not point to the true location
-        emitDecl (mkDataLits StaticClosureInds (genClosureIndLabel lbl)
-            [CmmLabelOff lbl tag])
 
 newStringCLit :: String -> FCode CmmLit
 -- Make a global definition for the string,
