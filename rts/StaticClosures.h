@@ -5,7 +5,9 @@
 #include "Rts.h"
 
 void initStaticClosures(void);
-void processStaticClosures(void);
+void processStaticClosures(StaticClosureInds *, bdescr **);
+void allocateStaticClosures(StaticClosureInds *, bdescr **);
+void updateStaticClosureFields(StaticClosureInds *);
 W_ countStaticBlocks(void);
 
 #ifdef DEBUG
