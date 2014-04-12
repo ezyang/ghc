@@ -38,7 +38,6 @@ import CLabel
 import StgSyn
 import CostCentre
 import Id
-import IdInfo
 import Name
 import Module
 import ListSetOps
@@ -90,9 +89,10 @@ cgTopRhsClosure dflags rec id ccs _ upd_flag args body =
     = do
          cg_info <- getCgIdInfo f
          let closure_rep   = mkStaticClosureFields dflags
-                                    indStaticInfoTable ccs MayHaveCafRefs
+                                    indStaticInfoTable (lfDynTag dflags lf_info)
+                                    ccs
                                     [extractLit (idInfoToAmode cg_info)]
-         emitStaticClosure closure_label (lfDynTag dflags lf_info) closure_rep
+         emitStaticClosure closure_label closure_rep
          return ()
 
   gen_code dflags lf_info closure_label
@@ -102,12 +102,11 @@ cgTopRhsClosure dflags rec id ccs _ upd_flag args body =
         ; let descr         = closureDescription dflags mod_name name
               closure_info  = mkClosureInfo dflags True id lf_info 0 0 descr
 
-              caffy         = idCafInfo id
               info_tbl      = mkCmmInfo closure_info -- XXX short-cut
-              closure_rep   = mkStaticClosureFields dflags info_tbl ccs caffy []
+              closure_rep   = mkStaticClosureFields dflags info_tbl (lfDynTag dflags lf_info) ccs []
 
                  -- BUILD THE OBJECT, AND GENERATE INFO TABLE (IF NECESSARY)
-        ; emitStaticClosure closure_label (lfDynTag dflags lf_info) closure_rep
+        ; emitStaticClosure closure_label closure_rep
         ; let fv_details :: [(NonVoid Id, VirtualHpOffset)]
               (_, _, fv_details) = mkVirtHeapOffsets dflags (isLFThunk lf_info)
                                                (addIdReps [])

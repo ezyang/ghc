@@ -8,6 +8,7 @@
  * ---------------------------------------------------------------------------*/
 
 #include "Rts.h"
+#include "Prelude.h"
 #include "StaticClosures.h"
 
 #include <string.h>
@@ -48,6 +49,8 @@ initialize_field(StgClosure **p)
     *p = r;
 }
 
+#ifdef DEBUG
+
 // Helper debug function for when you're in GDB.
 // Calculate the arguments by running 'objdump -h executable'
 // and look for the 'staticclosureinds' section:
@@ -55,19 +58,24 @@ initialize_field(StgClosure **p)
 //Idx Name              SIZE      VMA               LMA               File off  Algn
 // 25 staticclosureinds 00003090  0000000000742748  0000000000742748  00142748  2**3
 //
-// Then run checkStaticClosures(VMA, VMA+SIZE) after initStaticClosures
+// Then run checkStaticClosures(SIZE, VMA) after initStaticClosures
 // to check if initialization was good.  The way we test for this is
 // looking for any pointers which are still pointing into the
 // indirections (this is how it is initialized).
 void
-checkStaticClosures(StgClosure **section_start, StgClosure **section_end) {
+checkStaticClosures(W_ size_b, StgClosure **section_start) {
     StgClosure **pp;
-    for (pp = section_start; pp < section_end; pp++) {
+    StgClosure **section_end = (StgClosure**)((W_)section_start + size_b);
+    W_ payload_size;
+    for (pp = section_start; pp < section_end; pp += sizeofW(StgStaticClosureDesc) + payload_size) {
         StgClosure *p = UNTAG_CLOSURE(*pp);
         // Not perfect, but will segfault if it's not actually a block
         ASSERT(!HEAP_ALLOCED(p));
+        payload_size = 0;
         // TODO: sanity check tagging
         const StgInfoTable *info = get_itbl(p);
+        // XXX: It would better if we can process all closure types
+        // uniformly
         switch (info->type) {
         case FUN_STATIC:
         case THUNK_STATIC:
@@ -76,6 +84,7 @@ checkStaticClosures(StgClosure **section_start, StgClosure **section_end) {
           {
             StgClosure **q, **end;
 
+            payload_size = info->layout.payload.ptrs + info->layout.payload.nptrs;
             end = ((StgClosure**)p->payload) + info->layout.payload.ptrs;
             for (q = p->payload; q < end; q++) {
                 ASSERT(!(*q >= (StgClosure*)section_start && *q < (StgClosure*)section_end));
@@ -83,6 +92,7 @@ checkStaticClosures(StgClosure **section_start, StgClosure **section_end) {
             break;
           }
         case IND_STATIC:
+            payload_size = 1;
             ASSERT(!(((StgInd*)p)->indirectee >= (StgClosure*)section_start && ((StgInd*)p)->indirectee < (StgClosure*)section_end));
             break;
         default:
@@ -90,6 +100,8 @@ checkStaticClosures(StgClosure **section_start, StgClosure **section_end) {
         }
     }
 }
+
+#endif
 
 // Ensure there are size_w words available in the current block; allocating
 // a new block if there are not enough
@@ -124,26 +136,44 @@ initStaticClosures(void)
 {
     if (current_block == NULL) {
         int size_w;
+        StgIntCharlikeClosure *p;
 
 #ifdef THREADED_RTS
         initMutex(&static_closures_mutex);
 #endif
 
-        // ToDo: do a proper block size check
         // ToDo: does this need to get tagged?
         size_w = (MAX_CHARLIKE - MIN_CHARLIKE + 1) * sizeofW(StgIntCharlikeClosure);
         ensureFreeSpace(size_w);
-        memcpy(current_block->free, stg_CHARLIKE_static_closure, size_w*sizeof(W_));
-        IF_DEBUG(sanity, memset(stg_CHARLIKE_static_closure, 0xDD, size_w*sizeof(W_)));
+        StgWord c;
+        for (p = (StgIntCharlikeClosure*)current_block->free, c = MIN_CHARLIKE;
+                c <= MAX_CHARLIKE; c++, p++) {
+            p->header.info = Czh_static_info;
+#ifdef PROFILING
+            p->header.prof.ccs = CCS_DONT_CARE;
+            p->header.prof.ldvw = 0;
+#endif
+            p->data = c;
+        }
         stg_CHARLIKE_static_closure_ind = (StgIntCharlikeClosure*)current_block->free;
         current_block->free += size_w;
+        ASSERT((StgWord*)p == current_block->free);
 
         size_w = (MAX_INTLIKE - MIN_INTLIKE + 1) * sizeofW(StgIntCharlikeClosure);
         ensureFreeSpace(size_w);
-        memcpy(current_block->free, stg_INTLIKE_static_closure, size_w*sizeof(W_));
-        IF_DEBUG(sanity, memset(stg_INTLIKE_static_closure, 0xDD, size_w*sizeof(W_)));
+        StgInt i;
+        for (p = (StgIntCharlikeClosure*)current_block->free, i = MIN_INTLIKE;
+                i <= MAX_INTLIKE; i++, p++) {
+            p->header.info = Izh_static_info;
+#ifdef PROFILING
+            p->header.prof.ccs = CCS_DONT_CARE;
+            p->header.prof.ldvw = 0;
+#endif
+            p->data = (StgWord)i;
+        }
         stg_INTLIKE_static_closure_ind = (StgIntCharlikeClosure*)current_block->free;
         current_block->free += size_w;
+        ASSERT((StgWord*)p == current_block->free);
     }
 
     processStaticClosures();
@@ -163,71 +193,115 @@ processStaticClosures()
     // copy stuff (not updating fields)
 
     // Before:
-    //      foo_static_closure_ind => foo_static_closure + tag
-    //          foo_static_closure => ... | foo_static_closure_ind | ...
+    //      foo_static_closure_ind => info table + tag
+    //                                (ccs if profiling)
+    //                                payload
     // After:
     //      foo_static_closure_ind => dyn_addr + tag
-    //          foo_static_closure => 0xDDDDDDDD DDDDDDDD (with -DS)
-    //                    dyn_addr => ... | foo_static_closure_ind | ...
+    //                                0xDDDDDDDD DDDDDDDD (with -DS)
+    //                    dyn_addr => info table | ... | foo_static_closure_ind | ...
+
 
     // (Keep the lock due to access to the block)
 
     for (sci = base_sci; sci != NULL; sci = sci->link) {
-        StgClosure **pp;
-        for (pp = sci->start; pp < sci->end; pp++) {
-            StgClosure *p = *pp;
-            W_ size_w;
-            ASSERT(LOOKS_LIKE_CLOSURE_PTR(p));
-            StgWord tag = GET_CLOSURE_TAG(p);
-            p = UNTAG_CLOSURE(p);
-            const StgInfoTable *info = get_itbl(p);
-            // Dicey business! Check mkStaticClosureFields for
-            // the sordid details
+        StgClosure **pp; // for easier pointer arithmetic; technically it's StgStaticClosureDesc*
+        W_ payload_size;
+        for (pp = sci->start; pp < sci->end; pp += sizeofW(StgStaticClosureDesc) + payload_size) {
+            StgStaticClosureDesc *p = (StgStaticClosureDesc*)pp;
+            StgWord tag = GET_CLOSURE_TAG((StgClosure*)p->t.tagged_info);
+            // XXX could be bad if the alignment is not good enough
+            const StgInfoTable *info_ptr = (StgInfoTable*)UNTAG_CLOSURE((StgClosure*)p->t.tagged_info);
+            ASSERT(LOOKS_LIKE_INFO_PTR((StgWord)info_ptr));
+            const StgInfoTable *info = INFO_PTR_TO_STRUCT(info_ptr);
+
+            W_ size_w = 0; // sizeof(q)
+            payload_size = 0; // the p payload, not the q payload
+            rtsBool needsPadding = rtsFalse;
+            rtsBool needsStaticLink = rtsFalse;
+            rtsBool needsSavedInfo = rtsFalse;
+            // XXX: It would better if we can process all closure types
+            // uniformly
             switch (info->type) {
             case CONSTR_STATIC:
-                // {header}
-                // {payload}
-                // static_link
-                size_w = sizeW_fromITBL(info) + 1;
-                break;
-            case FUN_STATIC:
-                if (info->srt_bitmap != 0) {
-                    // {header}
-                    // static_link
-                    size_w = sizeofW(StgHeader) +  1;
-                } else {
-                    // {header}
-                    size_w = sizeofW(StgHeader);
-                    // Nota bene: there may be a little bit of slop
-                    // here, if the code generator tacked on a
-                    // static_link when it didn't need to
-                }
-                break;
+                needsStaticLink = rtsTrue;
+                size_w++;
+                // fallthrough
             case CONSTR_NOCAF_STATIC:
                 // {header}
                 // {payload}
-                size_w = sizeW_fromITBL(info);
+                // static_link if has CAFs
+                size_w += sizeW_fromITBL(info);
+                payload_size = info->layout.payload.ptrs + info->layout.payload.nptrs;
+                break;
+            case FUN_STATIC:
+                // {header}
+                // static_link?
+                size_w += sizeofW(StgHeader);
+                if (info->srt_bitmap != 0) {
+                    needsStaticLink = rtsTrue;
+                    size_w++;
+                }
+                // TODO: ASSERT that itbl payload is empty
                 break;
             case THUNK_STATIC:
-                // {header}
-                // indirectee
-                // static_link
-                // saved_info
-                size_w = sizeofW(StgHeader) + 3;
+                // CAFs must have consistent layout, regardless of whether they
+                // are actually updatable or not.  The layout of a CAF is:
+                //
+                //        3 saved_info
+                //        2 static_link
+                //        1 indirectee
+                //        0 {header}
+                //
+                // the static_link and saved_info fields must always be in the
+                // same place.
+                size_w += sizeofW(StgThunkHeader) + 2;
+                needsPadding = rtsTrue;
+                needsStaticLink = rtsTrue;
+                needsSavedInfo = rtsTrue;
+                // TODO: ASSERT that itbl payload is empty
                 break;
             case IND_STATIC:
-                // Laid out explicitly!
-                size_w = sizeofW(StgIndStatic);
+                size_w += sizeofW(StgIndStatic);
+                payload_size = 1;
+                needsStaticLink = rtsTrue;
+                needsSavedInfo = rtsTrue;
                 break;
             default:
                 barf("initStaticClosures: strange closure type %d", (int)(info->type));
             }
             ensureFreeSpace(size_w);
-            memcpy(current_block->free, p, size_w*sizeof(W_));
-            IF_DEBUG(sanity, memset(p, 0xDD, size_w*sizeof(W_)));
-            *pp = TAG_CLOSURE(tag, (StgClosure*)current_block->free);
+
+            StgClosure *q = (StgClosure*)current_block->free;
+            q->header.info = info_ptr;
+#ifdef PROFILING
+            q->header.prof.ccs = p->ccs;
+            IF_DEBUG(sanity, memset(&p->ccs, 0xDD, sizeof(W_)));
+            q->header.prof.ldvw = 0;
+#endif
+            W_ i = 0;
+            ASSERT(!needsPadding || payload_size == 0);
+            for (; i < payload_size; i++) {
+                q->payload[i] = p->payload[i];
+                IF_DEBUG(sanity, memset(&p->payload[i], 0xDD, sizeof(W_)));
+            }
+            if (needsPadding) {
+                q->payload[i++] = 0;
+            }
+            if (needsStaticLink) {
+                // For a static constructor which has no CAF refs, we set the
+                // static link field to a non-zero value so the garbage
+                // collector will ignore it.
+                q->payload[i++] = (StgClosure*)(W_)(info->type == CONSTR_NOCAF_STATIC ? 1 : 0);
+            }
+            if (needsSavedInfo) {
+                q->payload[i++] = 0;
+            }
             current_block->free += size_w;
+            ASSERT((StgClosure*)&q->payload[i] == (StgClosure*)current_block->free);
+            p->t.dest = TAG_CLOSURE(tag, q);
         }
+        ASSERT(pp == sci->end);
     }
 
     RELEASE_LOCK(&static_closures_mutex);
@@ -238,29 +312,34 @@ processStaticClosures()
     //      foo_static_closure_ind => dyn_addr + tag
     //                    dyn_addr => ... | foo_static_closure_ind | ...
     // After:
-    //      foo_static_closure_ind => dyn_addr + tag
+    //      ooo_static_closure_ind => dyn_addr + tag
     //                    dyn_addr => ... | dyn_addr + tag | ...
 
     for (sci = base_sci; sci != NULL; sci = next_sci) {
         next_sci = sci->link;
         sci->link = NULL;
         StgClosure **pp;
-        for (pp = sci->start; pp < sci->end; pp++) {
+        W_ payload_size;
+        for (pp = sci->start; pp < sci->end; pp += sizeofW(StgStaticClosureDesc) + payload_size) {
             StgClosure *p = UNTAG_CLOSURE(*pp);
             ASSERT(LOOKS_LIKE_CLOSURE_PTR(p));
             const StgInfoTable *info = get_itbl(p);
+            payload_size = 0;
+            // XXX: It would better if we can process all closure types
+            // uniformly
             switch (info->type) {
             case FUN_STATIC:
             case THUNK_STATIC:
-            case CONSTR_NOCAF_STATIC:
-              {
                 ASSERT(info->layout.payload.ptrs == 0);
                 break;
-              }
+            case CONSTR_NOCAF_STATIC:
+                ASSERT(info->layout.payload.ptrs == 0);
+                // fallthrough
             case CONSTR_STATIC:
               {
                 StgClosure **q, **end;
 
+                payload_size = info->layout.payload.ptrs + info->layout.payload.nptrs;
                 end = ((StgClosure**)p->payload) + info->layout.payload.ptrs;
                 for (q = p->payload; q < end; q++) {
                     initialize_field(q);
@@ -270,6 +349,7 @@ processStaticClosures()
             case IND_STATIC:
                 // ToDo: just short-circuit it
                 initialize_field(&((StgInd *)p)->indirectee);
+                payload_size = 1;
                 break;
             default:
                 barf("initStaticClosures: strange closure type %d", (int)(info->type));

@@ -28,7 +28,7 @@ import CLabel
 import StgCmmLayout
 import StgCmmUtils
 import StgCmmMonad
-import StgCmmProf (profDynAlloc, dynProfHdr, staticProfHdr)
+import StgCmmProf (profDynAlloc, dynProfHdr, staticProfData)
 import StgCmmTicky
 import StgCmmClosure
 import StgCmmEnv
@@ -40,7 +40,6 @@ import SMRep
 import Cmm
 import CmmUtils
 import CostCentre
-import IdInfo( CafInfo(..), mayHaveCafRefs )
 import Id ( Id )
 import Module
 import DynFlags
@@ -156,50 +155,33 @@ hpStore base vals offs
 mkStaticClosureFields
         :: DynFlags
         -> CmmInfoTable
+        -> DynTag
         -> CostCentreStack
-        -> CafInfo
         -> [CmmLit]             -- Payload
         -> [CmmLit]             -- The full closure
-mkStaticClosureFields dflags info_tbl ccs caf_refs payload
-  = mkStaticClosure dflags info_lbl ccs payload padding
-        static_link_field saved_info_field
+mkStaticClosureFields dflags info_tbl tag ccs payload
+  = mkStaticClosure dflags info_lbl tag ccs payload
   where
     info_lbl = cit_lbl info_tbl
 
-    -- CAFs must have consistent layout, regardless of whether they
-    -- are actually updatable or not.  The layout of a CAF is:
-    --
-    --        3 saved_info
-    --        2 static_link
-    --        1 indirectee
-    --        0 info ptr
-    --
-    -- the static_link and saved_info fields must always be in the
-    -- same place.  So we use isThunkRep rather than closureUpdReqd
-    -- here:
-
-    is_caf = isThunkRep (cit_rep info_tbl)
-
-    padding
-        | is_caf && null payload = [mkIntCLit dflags 0]
-        | otherwise = []
-
-    static_link_field
-        | is_caf || staticClosureNeedsLink (mayHaveCafRefs caf_refs) info_tbl
-        = [static_link_value]
-        | otherwise
-        = []
-
-    saved_info_field
-        | is_caf     = [mkIntCLit dflags 0]
-        | otherwise  = []
-
-        -- For a static constructor which has NoCafRefs, we set the
-        -- static link field to a non-zero value so the garbage
-        -- collector will ignore it.
-    static_link_value
-        | mayHaveCafRefs caf_refs  = mkIntCLit dflags 0
-        | otherwise                = mkIntCLit dflags 1  -- No CAF refs
+-- Since the CAF is going to be processed by the static
+-- closure initialization code, we lay out a compressed
+-- representation which doesn't correspond to the actual static
+-- closure layout:
+--
+--        0 info ptr & tag
+--
+-- In fact, this is enough to reconstruct all other data. We
+-- have to record the tag bits, which are not reconstructable
+-- due to the fact that constructor family size is not encoded
+-- in info tables.  However, we don't have to record these things:
+--
+-- * payload size (derivable from info table)
+-- * is it a CAF? (derivable from closure type from the info table)
+-- * does it have references to CAFs? (derivable from info table SRT/no of ptrs)
+--
+-- See rts/StaticClosures.c for information on the reconstruction
+-- process.
 
 -- Converts an expression into a literal, so it can be stored
 -- in a static closure.  Supports identifying indirect accesses.
@@ -211,15 +193,12 @@ extractLit (CmmMachOp (MO_Add _) [CmmLoad (CmmLit (CmmLabel l)) _, CmmLit (CmmIn
     | isClosureIndLabel l = CmmLabelOff l (fromInteger offset)
 extractLit e = pprPanic "extractLit" (ppr e)
 
-mkStaticClosure :: DynFlags -> CLabel -> CostCentreStack -> [CmmLit]
-  -> [CmmLit] -> [CmmLit] -> [CmmLit] -> [CmmLit]
-mkStaticClosure dflags info_lbl ccs payload padding static_link_field saved_info_field
-  =  [CmmLabel info_lbl]
-  ++ staticProfHdr dflags ccs
+mkStaticClosure :: DynFlags -> CLabel -> DynTag -> CostCentreStack -> [CmmLit]
+  -> [CmmLit]
+mkStaticClosure dflags info_lbl tag ccs payload
+  =  [CmmLabelOff info_lbl tag]
+  ++ staticProfData dflags ccs
   ++ concatMap (padLitToWord dflags) payload
-  ++ padding
-  ++ static_link_field
-  ++ saved_info_field
 
 -- JD: Simon had ellided this padding, but without it the C back end asserts
 -- failure. Maybe it's a bad assertion, and this padding is indeed unnecessary?

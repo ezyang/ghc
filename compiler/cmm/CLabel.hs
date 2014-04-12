@@ -800,7 +800,7 @@ externallyVisibleCLabel (DeadStripPreventer {}) = panic "externallyVisibleCLabel
 
 externallyVisibleIdLabel :: IdLabelInfo -> Bool
 externallyVisibleIdLabel SRT             = False
-externallyVisibleIdLabel LocalInfoTable  = False
+externallyVisibleIdLabel LocalInfoTable  = True
 externallyVisibleIdLabel LocalEntry      = False
 externallyVisibleIdLabel Closure         = True
 externallyVisibleIdLabel _               = True
@@ -984,12 +984,14 @@ For a data constructor (such as Just or Nothing), we have:
     Nothing_closure: a statically allocated closure for Nothing
     Nothing_static_info: info table for Nothing_closure
 
-All these must be exported symbol, EXCEPT Just_info.  We don't need to
-export this because in other modules we either have
+All these must be exported symbol. Previously, we were able to get away
+with not exporting Just_info, as in other modules we either have
        * A reference to 'Just'; use Just_closure
        * A saturated call 'Just x'; allocate using Just_con_info
-Not exporting these Just_info labels reduces the number of symbols
-somewhat.
+However, when split objects is used, closures (which refer to these
+local info tables) must be collected in a single object file separate
+from the closures, and thus the references span object boundaries,
+and they must be exported.
 -}
 
 instance Outputable CLabel where
@@ -1107,7 +1109,7 @@ pprCLbl (CmmLabel _ fs CmmRet)
   = ftext fs <> ptext (sLit "_ret")
 
 pprCLbl (CmmLabel _ fs CmmClosure)
-  = ftext fs <> ptext (sLit "_static_closure")
+  = ftext fs <> ptext (sLit "_static_closure_ind")
 
 pprCLbl (CmmLabel _ fs CmmClosureInd)
   = ftext fs <> ptext (sLit "_static_closure_ind")
@@ -1152,7 +1154,7 @@ pprCLbl (DeadStripPreventer {}) = panic "pprCLbl DeadStripPreventer"
 ppIdFlavor :: IdLabelInfo -> SDoc
 ppIdFlavor x = pp_cSEP <>
                (case x of
-                       Closure          -> ptext (sLit "static_closure")
+                       Closure          -> ptext (sLit "static_closure_ind")
                        ClosureInd       -> ptext (sLit "static_closure_ind")
                        SRT              -> ptext (sLit "srt")
                        InfoTable        -> ptext (sLit "info")

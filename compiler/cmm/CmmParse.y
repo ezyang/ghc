@@ -412,15 +412,6 @@ static  :: { CmmParse [CmmStatic] }
         | typenot8 '[' INT ']' ';'      { return [CmmUninitialised 
                                                 (widthInBytes (typeWidth $1) * 
                                                         fromIntegral $3)] }
-        | 'ANONYMOUS_CLOSURE' '(' NAME lits ')'
-                { do { lits <- sequence $4
-                ; dflags <- getDynFlags
-                     ; return $ map CmmStaticLit $
-                        mkStaticClosure dflags (mkForeignLabel $3 Nothing ForeignLabelInExternalPackage IsData)
-                         -- mkForeignLabel because these are only used
-                         -- for CHARLIKE and INTLIKE closures in the RTS.
-                        dontCareCCS (map getLit lits) [] [] [] } }
-        -- arrays of closures required for the CHARLIKE & INTLIKE arrays
 
 lits    :: { [CmmParse CmmExpr] }
         : {- empty -}           { [] }
@@ -1106,9 +1097,9 @@ profilingInfo dflags desc_str ty_str
 staticClosure :: PackageId -> FastString -> [CmmLit] -> CmmParse ()
 staticClosure pkg label payload
   = do dflags <- getDynFlags
-       let lits = mkStaticClosure dflags (mkCmmInfoLabel pkg label) dontCareCCS payload [] [] []
-       -- ezyang: We seem to assume that C-- closures are not tagged
-       code $ emitStaticClosure (mkCmmClosureLabel pkg label) 0 lits
+       let -- ezyang: We seem to assume that C-- closures are not tagged
+           lits = mkStaticClosure dflags (mkCmmInfoLabel pkg label) 0 dontCareCCS payload
+       code $ emitStaticClosure (mkCmmClosureLabel pkg label) lits
 
 foreignCall
         :: String

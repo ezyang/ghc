@@ -386,7 +386,7 @@ pprSectionHeader seg
            RelocatableReadOnlyData -> ptext (sLit ".const_data\n.align 2")
            UninitialisedData       -> ptext (sLit ".data\n\t.align 2")
            ReadOnlyData16          -> ptext (sLit ".const\n.align 4")
-           StaticClosures          -> ptext (sLit ".section staticclosures,\"aw\"\n\t.align 2")
+           StaticClosures          -> ptext (sLit ".section staticclosureinds,\"aw\"\n\t.align 2")
            StaticClosureInds       -> ptext (sLit ".section staticclosureinds,\"aw\"\n\t.align 2")
            OtherSection _          -> panic "X86.Ppr.pprSectionHeader: unknown section"
     | otherwise ->
@@ -397,7 +397,7 @@ pprSectionHeader seg
            RelocatableReadOnlyData -> ptext (sLit ".const_data\n.align 3")
            UninitialisedData       -> ptext (sLit ".data\n\t.align 3")
            ReadOnlyData16          -> ptext (sLit ".const\n.align 4")
-           StaticClosures          -> ptext (sLit ".section staticclosures,\"aw\"\n\t.align 3")
+           StaticClosures          -> ptext (sLit ".section staticclosureinds,\"aw\"\n\t.align 3")
            StaticClosureInds       -> ptext (sLit ".section staticclosureinds,\"aw\"\n\t.align 3")
            OtherSection _          -> panic "PprMach.pprSectionHeader: unknown section"
    _
@@ -409,7 +409,7 @@ pprSectionHeader seg
            RelocatableReadOnlyData -> ptext (sLit ".section .data\n\t.align 4")
            UninitialisedData       -> ptext (sLit ".section .bss\n\t.align 4")
            ReadOnlyData16          -> ptext (sLit ".section .rodata\n\t.align 16")
-           StaticClosures          -> ptext (sLit ".section staticclosures,\"aw\"\n\t.align 4")
+           StaticClosures          -> ptext (sLit ".section staticclosureinds,\"aw\"\n\t.align 4")
            StaticClosureInds       -> ptext (sLit ".section staticclosureinds,\"aw\"\n\t.align 4")
            OtherSection _          -> panic "X86.Ppr.pprSectionHeader: unknown section"
     | otherwise ->
@@ -420,7 +420,7 @@ pprSectionHeader seg
            RelocatableReadOnlyData -> ptext (sLit ".section .data\n\t.align 8")
            UninitialisedData       -> ptext (sLit ".section .bss\n\t.align 8")
            ReadOnlyData16          -> ptext (sLit ".section .rodata.cst16\n\t.align 16")
-           StaticClosures          -> ptext (sLit ".section staticclosures,\"aw\"\n\t.align 8")
+           StaticClosures          -> ptext (sLit ".section staticclosureinds,\"aw\"\n\t.align 8")
            StaticClosureInds       -> ptext (sLit ".section staticclosureinds,\"aw\"\n\t.align 8")
            OtherSection _          -> panic "PprMach.pprSectionHeader: unknown section"
 
