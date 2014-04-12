@@ -1798,7 +1798,8 @@ internal_dlopen(const char *dll_name)
    RELEASE_LOCK(&dl_mutex);
    //--------------- End critical section -------------------
 
-   processStaticClosures();
+   // NB: unloading is not supported
+   processStaticClosures(SCI_LIST, NULL);
    processPendingStablePtrs();
 
    return errmsg;
@@ -2229,6 +2230,7 @@ void freeObjectCode (ObjectCode *oc)
 
     stgFree(oc->fileName);
     stgFree(oc->archiveMemberName);
+    freeChain(oc->static_object_blocks);
     stgFree(oc);
 }
 
@@ -2284,6 +2286,8 @@ mkOc( pathchar *path, char *image, int imageSize,
    /* chain it onto the list of objects */
    oc->next              = objects;
    objects               = oc;
+
+   oc->static_object_blocks = NULL;
 
    IF_DEBUG(linker, debugBelch("mkOc: done\n"));
    return oc;
@@ -2883,6 +2887,8 @@ resolveObjs( void )
     IF_DEBUG(linker, debugBelch("resolveObjs: start\n"));
     initLinker();
 
+    ObjectCode *resolved_objects = NULL;
+
     for (oc = objects; oc; oc = oc->next) {
         if (oc->status != OBJECT_RESOLVED) {
 #           if defined(OBJFORMAT_ELF)
@@ -2897,6 +2903,7 @@ resolveObjs( void )
             if (!r) { return r; }
 
             // run init/init_array/ctors/mod_init_func
+            ASSERT(SCI_LIST == NULL);
 
             loading_obj = oc; // tells foreignExportStablePtr what to do
 #if defined(OBJFORMAT_ELF)
@@ -2912,11 +2919,32 @@ resolveObjs( void )
 
             if (!r) { return r; }
 
+            // NB: We have to defer running processStaticClosures until
+            // we've finished resolving everything
+            oc->static_object_list = SCI_LIST;
+            SCI_LIST = NULL;
+            oc->next2 = resolved_objects;
+            resolved_objects = oc;
+
             oc->status = OBJECT_RESOLVED;
         }
     }
 
-    processStaticClosures();
+    // It's important to phase it this way, because
+    // (1) we need to know what block we allocate into, and
+    // (2) updateStaticClosureFields implicitly assumes everything
+    // is allocated 
+    for (oc = resolved_objects; oc; oc = oc->next2) {
+        allocateStaticClosures(oc->static_object_list, &oc->static_object_blocks);
+    }
+    ObjectCode *next_oc;
+    for (oc = resolved_objects; oc; oc = next_oc) {
+        updateStaticClosureFields(oc->static_object_list);
+        oc->static_object_list = NULL;
+        next_oc = oc->next2;
+        oc->next2 = NULL;
+    }
+
     processPendingStablePtrs();
 
     IF_DEBUG(linker, debugBelch("resolveObjs: done\n"));
