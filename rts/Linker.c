@@ -1839,7 +1839,7 @@ internal_dlopen(const char *dll_name)
 
    // NB: unloading is not supported
    processStaticClosures(SCI_LIST, NULL);
-   processPendingStablePtrs();
+   processPendingStablePtrs(NULL);
 
    return errmsg;
 }
@@ -2078,9 +2078,7 @@ lookupSymbol( char *lbl )
    again in unloadObj().
    -------------------------------------------------------------------------- */
 
-static ObjectCode *loading_obj = NULL;
-
-StgStablePtr foreignExportStablePtr (StgPtr p)
+StgStablePtr foreignExportStablePtr (StgPtr p, ObjectCode *loading_obj)
 {
     ForeignExportStablePtr *fe_sptr;
     StgStablePtr *sptr;
@@ -3008,8 +3006,8 @@ resolveObjs( void )
 
             // run init/init_array/ctors/mod_init_func
             ASSERT(SCI_LIST == NULL);
+            ASSERT(SP_LIST == NULL);
 
-            loading_obj = oc; // tells foreignExportStablePtr what to do
 #if defined(OBJFORMAT_ELF)
             r = ocRunInit_ELF ( oc );
 #elif defined(OBJFORMAT_PEi386)
@@ -3019,7 +3017,6 @@ resolveObjs( void )
 #else
             barf("resolveObjs: initializers not implemented on this platform");
 #endif
-            loading_obj = NULL;
 
             if (!r) { return r; }
 
@@ -3029,6 +3026,8 @@ resolveObjs( void )
             SCI_LIST = NULL;
             oc->next2 = resolved_objects;
             resolved_objects = oc;
+            oc->pending_stable_ptr_list = SP_LIST;
+            SP_LIST = NULL;
 
             oc->status = OBJECT_RESOLVED;
         }
@@ -3045,11 +3044,11 @@ resolveObjs( void )
     for (oc = resolved_objects; oc; oc = next_oc) {
         updateStaticClosureFields(oc->static_object_list);
         oc->static_object_list = NULL;
+        SP_LIST = oc->pending_stable_ptr_list;
+        processPendingStablePtrs(oc);
         next_oc = oc->next2;
         oc->next2 = NULL;
     }
-
-    processPendingStablePtrs();
 
     IF_DEBUG(linker, debugBelch("resolveObjs: done\n"));
     return 1;

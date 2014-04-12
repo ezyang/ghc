@@ -16,6 +16,7 @@
 #include "RtsUtils.h"
 #include "Trace.h"
 #include "Stable.h"
+#include "LinkerInternals.h"
 
 /* Comment from ADR's implementation in old RTS:
 
@@ -183,16 +184,17 @@ initStableTables(void)
     initMutex(&stable_mutex);
 #endif
 
-    processPendingStablePtrs();
+    processPendingStablePtrs(NULL);
 }
 
-void processPendingStablePtrs(void) {
+void processPendingStablePtrs(ObjectCode *loading_obj) {
     PendingStablePtr *sp, *next_sp;
     for (sp = SP_LIST; sp != NULL; sp = next_sp) {
         next_sp = sp->link;
         sp->link = NULL;
-        foreignExportStablePtr((StgPtr)*sp->payload);
+        foreignExportStablePtr((StgPtr)*sp->payload, loading_obj);
     }
+    SP_LIST = NULL;
 }
 
 /* -----------------------------------------------------------------------------
