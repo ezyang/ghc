@@ -27,12 +27,12 @@ Mutex static_closures_mutex;
 #endif
 
 static void initialize_field(StgClosure **p);
-static void ensureFreeSpace(int);
-static W_ static_blocks = 0;
-static bdescr *current_block = NULL;
+static bdescr* ensureFreeSpace(bdescr **, int);
+static W_ n_global_blocks = 0;
+static bdescr *global_block = NULL;
 
 W_ countStaticBlocks() {
-    return static_blocks;
+    return n_global_blocks;
 }
 
 void
@@ -105,28 +105,33 @@ checkStaticClosures(W_ size_b, StgClosure **section_start) {
 
 // Ensure there are size_w words available in the current block; allocating
 // a new block if there are not enough
-static void
-ensureFreeSpace(int size_w)
+static bdescr*
+ensureFreeSpace(bdescr **current_block_p, int size_w)
 {
+    bdescr *current_block = *current_block_p;
     if (current_block != NULL &&
         (current_block->free + size_w
             < current_block->start + current_block->blocks * BLOCK_SIZE_W)) {
         // still has enough space, no-op
-        return;
+        return current_block;
     }
-    bdescr *old_block = current_block;
     W_ n_blocks = (W_)BLOCK_ROUND_UP(size_w*sizeof(W_)) / BLOCK_SIZE;
     ASSERT(n_blocks < BLOCKS_PER_MBLOCK);
-    current_block = allocGroup_lock(n_blocks);
-    current_block->flags |= BF_STATIC;
+    bdescr *new_block = allocGroup_lock(n_blocks);
+    new_block->flags |= BF_STATIC;
     // to handle closure tables, mark all other blocks as BF_STATIC too
     bdescr *bd;
     W_ i;
-    for (i=1, bd=current_block+1; i < n_blocks; i++, bd++) {
+    for (i=1, bd=new_block+1; i < n_blocks; i++, bd++) {
         bd->flags |= BF_STATIC;
     }
-    current_block->link = old_block;
-    static_blocks += n_blocks;
+    new_block->link = current_block;
+    *current_block_p = new_block;
+    // special case for global blocks
+    if (&global_block == current_block_p) {
+        n_global_blocks += n_blocks;
+    }
+    return new_block;
 }
 
 // Invariant: concurrent calls to processStaticClosures should
@@ -134,7 +139,7 @@ ensureFreeSpace(int size_w)
 void
 initStaticClosures(void)
 {
-    if (current_block == NULL) {
+    if (global_block == NULL) {
         int size_w;
         StgIntCharlikeClosure *p;
 
@@ -144,9 +149,9 @@ initStaticClosures(void)
 
         // ToDo: does this need to get tagged?
         size_w = (MAX_CHARLIKE - MIN_CHARLIKE + 1) * sizeofW(StgIntCharlikeClosure);
-        ensureFreeSpace(size_w);
+        ensureFreeSpace(&global_block, size_w);
         StgWord c;
-        for (p = (StgIntCharlikeClosure*)current_block->free, c = MIN_CHARLIKE;
+        for (p = (StgIntCharlikeClosure*)global_block->free, c = MIN_CHARLIKE;
                 c <= MAX_CHARLIKE; c++, p++) {
             p->header.info = Czh_static_info;
 #ifdef PROFILING
@@ -155,14 +160,14 @@ initStaticClosures(void)
 #endif
             p->data = c;
         }
-        stg_CHARLIKE_static_closure_ind = (StgIntCharlikeClosure*)current_block->free;
-        current_block->free += size_w;
-        ASSERT((StgWord*)p == current_block->free);
+        stg_CHARLIKE_static_closure_ind = (StgIntCharlikeClosure*)global_block->free;
+        global_block->free += size_w;
+        ASSERT((StgWord*)p == global_block->free);
 
         size_w = (MAX_INTLIKE - MIN_INTLIKE + 1) * sizeofW(StgIntCharlikeClosure);
-        ensureFreeSpace(size_w);
+        ensureFreeSpace(&global_block, size_w);
         StgInt i;
-        for (p = (StgIntCharlikeClosure*)current_block->free, i = MIN_INTLIKE;
+        for (p = (StgIntCharlikeClosure*)global_block->free, i = MIN_INTLIKE;
                 i <= MAX_INTLIKE; i++, p++) {
             p->header.info = Izh_static_info;
 #ifdef PROFILING
@@ -171,24 +176,29 @@ initStaticClosures(void)
 #endif
             p->data = (StgWord)i;
         }
-        stg_INTLIKE_static_closure_ind = (StgIntCharlikeClosure*)current_block->free;
-        current_block->free += size_w;
-        ASSERT((StgWord*)p == current_block->free);
+        stg_INTLIKE_static_closure_ind = (StgIntCharlikeClosure*)global_block->free;
+        global_block->free += size_w;
+        ASSERT((StgWord*)p == global_block->free);
     }
 
-    processStaticClosures();
+    processStaticClosures(SCI_LIST, &global_block);
+    SCI_LIST = NULL;
 }
 
 void
-processStaticClosures()
+processStaticClosures(StaticClosureInds *base_sci, bdescr **current_block_p)
 {
-    StaticClosureInds *sci, *next_sci, *base_sci;
+    allocateStaticClosures(base_sci, current_block_p);
+    updateStaticClosureFields(base_sci);
+}
+
+void
+allocateStaticClosures(StaticClosureInds *base_sci, bdescr **current_block_p)
+{
+    if (current_block_p == NULL) current_block_p = &global_block;
 
     // XXX Initialization code should take the lock too...
     ACQUIRE_LOCK(&static_closures_mutex);
-
-    base_sci = SCI_LIST;
-    SCI_LIST = NULL;
 
     // copy stuff (not updating fields)
 
@@ -201,9 +211,9 @@ processStaticClosures()
     //                                0xDDDDDDDD DDDDDDDD (with -DS)
     //                    dyn_addr => info table | ... | foo_static_closure_ind | ...
 
-
     // (Keep the lock due to access to the block)
 
+    StaticClosureInds *sci;
     for (sci = base_sci; sci != NULL; sci = sci->link) {
         StgClosure **pp; // for easier pointer arithmetic; technically it's StgStaticClosureDesc*
         W_ payload_size;
@@ -270,7 +280,7 @@ processStaticClosures()
             default:
                 barf("initStaticClosures: strange closure type %d", (int)(info->type));
             }
-            ensureFreeSpace(size_w);
+            bdescr *current_block = ensureFreeSpace(current_block_p, size_w);
 
             StgClosure *q = (StgClosure*)current_block->free;
             q->header.info = info_ptr;
@@ -307,8 +317,12 @@ processStaticClosures()
     }
 
     RELEASE_LOCK(&static_closures_mutex);
+}
 
-    // update fields
+void
+updateStaticClosureFields(StaticClosureInds *base_sci)
+{
+    StaticClosureInds *sci, *next_sci;
 
     // Before:
     //      foo_static_closure_ind => dyn_addr + tag

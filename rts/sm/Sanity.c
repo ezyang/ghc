@@ -29,6 +29,7 @@
 #include "Arena.h"
 #include "RetainerProfile.h"
 #include "StaticClosures.h"
+#include "LinkerInternals.h"
 
 /* -----------------------------------------------------------------------------
    Forward decls.
@@ -881,6 +882,15 @@ memInventory (rtsBool show)
 
   // count the blocks allocated to hold static closures
   static_blocks = countStaticBlocks();
+
+  // don't forget linker objects
+  ObjectCode *oc;
+  for (oc = objects; oc; oc = oc->next) {
+    static_blocks += countAllocdBlocks(oc->static_object_blocks);
+  }
+  for (oc = unloaded_objects; oc; oc = oc->next) {
+    static_blocks += countAllocdBlocks(oc->static_object_blocks);
+  }
 
   /* count the blocks on the free list */
   free_blocks = countFreeList();
