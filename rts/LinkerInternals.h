@@ -134,6 +134,7 @@ typedef struct _ObjectCode {
 
     ForeignExportStablePtr *stable_ptrs;
     StaticClosureInds *static_object_list;
+    PendingStablePtr *pending_stable_ptr_list;
     bdescr *static_object_blocks;
 
 } ObjectCode;
@@ -150,5 +151,7 @@ extern ObjectCode *unloaded_objects;
 void exitLinker( void );
 
 void freeObjectCode (ObjectCode *oc);
+
+StgStablePtr foreignExportStablePtr (StgPtr, ObjectCode*);
 
 #endif /* LINKERINTERNALS_H */
