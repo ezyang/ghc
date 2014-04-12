@@ -124,6 +124,7 @@ typedef struct {
     StgHeader     header;
     StgClosure   *indirectee;
     StgClosure   *static_link;
+    StgClosure  **static_ind;
     const StgInfoTable *saved_info;
 } StgIndStatic;
 

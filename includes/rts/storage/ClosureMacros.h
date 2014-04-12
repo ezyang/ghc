@@ -184,6 +184,30 @@ INLINE_HEADER StgClosure *STATIC_LINK2(const StgInfoTable *info,
 }
 
 /* -----------------------------------------------------------------------------
+   How to get hold of the indirection field for a static closure.
+   -------------------------------------------------------------------------- */
+
+#define FUN_STATIC_IND(p)   (&(p)->payload[1])
+#define THUNK_STATIC_IND(p) (&(p)->payload[2])
+#define IND_STATIC_IND(p)   (&(p)->payload[2])
+
+INLINE_HEADER StgClosure **
+STATIC_IND(const StgInfoTable *info, StgClosure *p)
+{
+    switch (info->type) {
+    case THUNK_STATIC:
+	return THUNK_STATIC_IND(p);
+    case FUN_STATIC:
+	return FUN_STATIC_IND(p);
+    case IND_STATIC:
+	return IND_STATIC_IND(p);
+    default:
+	return &(p)->payload[info->layout.payload.ptrs +
+			     info->layout.payload.nptrs + 1];
+    }
+}
+
+/* -----------------------------------------------------------------------------
    INTLIKE and CHARLIKE closures.
    -------------------------------------------------------------------------- */
 
