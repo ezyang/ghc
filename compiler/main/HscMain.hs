@@ -1237,6 +1237,7 @@ hscCompileCmmFile hsc_env filename output_filename = runHsc hsc_env $ do
         -- the C-- file is the symbols it exports.  So let's pick out
         -- the first one and use that.
         let f (CmmData StaticClosureInds (Statics l _)) = Just l
+            f (CmmData StaticClosures (Statics l _)) = Just l
             f _ = Nothing
             g = case catMaybes (map f cmmgroup) of
                         [] -> (,)
@@ -1687,6 +1688,7 @@ deferStaticClosures lbl_or_mod str prev closures = Stream.Stream $ do
             -- return (Right (addLabel True : closures ++ [addLabel False], Stream.Stream (return (Left x))))
         Right (next, str') -> do
             let isStaticClosure (CmmData StaticClosureInds _) = True
+                isStaticClosure (CmmData StaticClosures _) = True
                 isStaticClosure _ = False
                 -- inlined partition so we don't recompute closures
                 select :: (a -> Bool) -> a -> ([a], [a]) -> ([a], [a])
