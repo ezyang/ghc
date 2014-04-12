@@ -270,8 +270,8 @@ void checkUnload (StgClosure *static_objects)
   addrs = allocHashTable();
 
   for (p = static_objects; p != END_OF_STATIC_LIST; p = link) {
-      checkAddress(addrs, p);
       info = get_itbl(p);
+      checkAddress(addrs, *STATIC_IND(info, p));
       link = *STATIC_LINK(info, p);
   }
 
