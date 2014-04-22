@@ -51,6 +51,10 @@ import DynFlags
 
 import Control.Monad
 
+#if __GLASGOW_HASKELL__ >= 709
+import Prelude hiding ((<*>))
+#endif
+
 ------------------------------------------------------------------------
 --              Top-level bindings
 ------------------------------------------------------------------------

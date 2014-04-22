@@ -40,6 +40,10 @@ import FastString
 import Outputable
 import Util
 
+#if __GLASGOW_HASKELL__ >= 709
+import Prelude hiding ((<*>))
+#endif
+
 import Control.Monad (liftM, when)
 import Data.Bits
 

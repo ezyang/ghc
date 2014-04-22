@@ -49,6 +49,7 @@ import Util
 import Coercion     (mkUnbranchedAxInstCo,mkSymCo,Role(..))
 
 import Control.Applicative ( Applicative(..), Alternative(..) )
+
 import Control.Monad
 import Data.Bits as Bits
 import qualified Data.ByteString as BS

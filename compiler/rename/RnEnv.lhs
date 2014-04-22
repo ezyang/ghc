@@ -798,7 +798,7 @@ warnIfDeprecated gre@(GRE { gre_name = name, gre_prov = Imported (imp_spec : _) 
     name_mod = ASSERT2( isExternalName name, ppr name ) nameModule name
     imp_mod  = importSpecModule imp_spec
     imp_msg  = ptext (sLit "imported from") <+> ppr imp_mod <> extra
-    extra | imp_mod == moduleName name_mod = empty
+    extra | imp_mod == moduleName name_mod = Outputable.empty
           | otherwise = ptext (sLit ", but defined in") <+> ppr name_mod
 
     doc = ptext (sLit "The name") <+> quotes (ppr name) <+> ptext (sLit "is mentioned explicitly")
@@ -987,7 +987,7 @@ lookupBindGroupOcc ctxt what rdr_name
       = do { env <- getGlobalRdrEnv
            ; let all_gres = lookupGlobalRdrEnv env (rdrNameOcc rdr_name)
            ; case filter (keep_me . gre_name) all_gres of
-               [] | null all_gres -> bale_out_with empty
+               [] | null all_gres -> bale_out_with Outputable.empty
                   | otherwise -> bale_out_with local_msg
                (gre:_)
                   | ParentIs {} <- gre_par gre
@@ -1002,7 +1002,7 @@ lookupBindGroupOcc ctxt what rdr_name
                Just n
                  | n `elemNameSet` bound_names -> return (Right n)
                  | otherwise                   -> bale_out_with local_msg
-               Nothing                         -> bale_out_with empty }
+               Nothing                         -> bale_out_with Outputable.empty }
 
     bale_out_with msg
         = return (Left (sep [ ptext (sLit "The") <+> what
@@ -1432,7 +1432,7 @@ reportUnboundName :: RdrName -> RnM Name
 reportUnboundName rdr = unboundName WL_Any rdr
 
 unboundName :: WhereLooking -> RdrName -> RnM Name
-unboundName wl rdr = unboundNameX wl rdr empty
+unboundName wl rdr = unboundNameX wl rdr Outputable.empty
 
 unboundNameX :: WhereLooking -> RdrName -> SDoc -> RnM Name
 unboundNameX where_look rdr_name extra
@@ -1452,7 +1452,7 @@ unknownNameErr what rdr_name
          , extra ]
   where
     extra | rdr_name == forall_tv_RDR = perhapsForallMsg
-          | otherwise                 = empty
+          | otherwise                 = Outputable.empty
 
 type HowInScope = Either SrcSpan ImpDeclSpec
      -- Left loc    =>  locally bound at loc
@@ -1473,7 +1473,7 @@ unknownNameSuggestErr where_look tried_rdr_name
              suggest = fuzzyLookup (showPpr dflags tried_rdr_name) all_possibilities
              perhaps = ptext (sLit "Perhaps you meant")
              extra_err = case suggest of
-                           []  -> empty
+                           []  -> Outputable.empty
                            [p] -> perhaps <+> pp_item p
                            ps  -> sep [ perhaps <+> ptext (sLit "one of these:")
                                       , nest 2 (pprWithCommas pp_item ps) ]

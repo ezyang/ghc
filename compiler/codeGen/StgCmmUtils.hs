@@ -706,7 +706,7 @@ label_code :: BlockId -> CmmAGraph -> FCode BlockId
 -- and returns L
 label_code join_lbl code = do
     lbl <- newLabelC
-    emitOutOfLine lbl (code <*> mkBranch join_lbl)
+    emitOutOfLine lbl (code MkGraph.<*> mkBranch join_lbl)
     return lbl
 
 --------------

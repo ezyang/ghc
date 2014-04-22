@@ -604,7 +604,7 @@ cantFindErr cannot_find _ dflags mod_name find_result
          tried_these files
 
     tried_these files
-        | null files = empty
+        | null files = Outputable.empty
         | verbosity dflags < 3 =
               ptext (sLit "Use -v to see a list of the files searched for.")
         | otherwise =
@@ -620,15 +620,15 @@ cantFindErr cannot_find _ dflags mod_name find_result
               ptext (sLit "Perhaps you need to add") <+>
               quotes (text (display (pkgName pid))) <+>
               ptext (sLit "to the build-depends in your .cabal file.")
-          Nothing -> empty
-     | otherwise = empty
+          Nothing -> Outputable.empty
+     | otherwise = Outputable.empty
 
     mod_hidden pkg =
         ptext (sLit "it is a hidden module in the package") <+> quotes (ppr pkg)
 
     pp_suggestions :: [Module] -> SDoc
     pp_suggestions sugs
-      | null sugs = empty
+      | null sugs = Outputable.empty
       | otherwise = hang (ptext (sLit "Perhaps you meant"))
                        2 (vcat [ vcat (map pp_exp exposed_sugs)
                                , vcat (map pp_hid hidden_sugs) ])

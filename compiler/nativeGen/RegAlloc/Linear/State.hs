@@ -41,8 +41,9 @@ import Unique
 import UniqSupply
 
 import Control.Monad (liftM, ap)
+#if __GLASGOW_HASKELL__ < 709
 import Control.Applicative (Applicative(..))
-
+#endif
 
 -- | The register allocator monad type.
 newtype RegM freeRegs a

@@ -98,6 +98,15 @@ libraries/containers_dist-install_EXTRA_HC_OPTS += -fno-warn-incomplete-patterns
 # Temporarily turn off pointless-pragma warnings for containers
 libraries/containers_dist-install_EXTRA_HC_OPTS += -fno-warn-pointless-pragmas
 
+# Turn off import warnings for bad unused imports
+libraries/containers_dist-install_EXTRA_HC_OPTS += -fno-warn-unused-imports
+libraries/hoopl_dist-install_EXTRA_HC_OPTS += -fno-warn-unused-imports
+libraries/bytestring_dist-install_EXTRA_HC_OPTS += -fno-warn-unused-imports
+utils/haddock_dist_EXTRA_HC_OPTS += -fno-warn-unused-imports
+libraries/stm_dist-install_EXTRA_HC_OPTS += -fno-warn-unused-imports
+libraries/parallel_dist-install_EXTRA_HC_OPTS += -fno-warn-unused-imports
+libraries/vector_dist-install_EXTRA_HC_OPTS += -fno-warn-unused-imports
+
 # bytestring has identities at the moment
 libraries/bytestring_dist-install_EXTRA_HC_OPTS += -fno-warn-identities
 

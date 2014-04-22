@@ -176,7 +176,9 @@ import FastString
 
 import Data.IORef
 import Control.Monad (liftM, ap)
+#if __GLASGOW_HASKELL__ < 709
 import Control.Applicative (Applicative(..))
+#endif
 \end{code}
 
 %************************************************************************

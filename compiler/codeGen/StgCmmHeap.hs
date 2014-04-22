@@ -46,6 +46,10 @@ import Module
 import DynFlags
 import FastString( mkFastString, fsLit )
 
+#if __GLASGOW_HASKELL__ >= 709
+import Prelude hiding ((<*>))
+#endif
+
 import Control.Monad (when)
 import Data.Maybe (isJust)
 

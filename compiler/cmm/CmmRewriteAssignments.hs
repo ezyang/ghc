@@ -568,14 +568,14 @@ assignmentRewrite dflags = mkFRewrite3 first middle last
         -- an opportunity here, where all possible inlinings should
         -- instead be sunk.
         rewrite _ (True, []) _ n | not (inlinable n) = Nothing -- see [CmmCall Inline Hack]
-        rewrite assign (i, xs) mk n = Just $ mkMiddles xs <*> mk (Plain (inline i assign n))
+        rewrite assign (i, xs) mk n = Just $ mkMiddles xs Compiler.Hoopl.<*> mk (Plain (inline i assign n))
 
         rewriteLocal :: AssignmentMap
                      -> (Bool, [WithRegUsage CmmNode O O])
                      -> LocalReg -> CmmExpr -> RegUsage
                      -> Maybe (Graph (WithRegUsage CmmNode) O O)
         rewriteLocal _ (False, []) _ _ _ = Nothing
-        rewriteLocal assign (i, xs) l e u = Just $ mkMiddles xs <*> mkMiddle n'
+        rewriteLocal assign (i, xs) l e u = Just $ mkMiddles xs Compiler.Hoopl.<*> mkMiddle n'
             where n' = AssignLocal l e' u
                   e' = if i then wrapRecExp (inlineExp assign) e else e
             -- inlinable check omitted, since we can always inline into

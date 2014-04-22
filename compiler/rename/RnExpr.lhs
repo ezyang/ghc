@@ -1263,7 +1263,7 @@ pprStmtCat (ParStmt {})       = ptext (sLit "parallel")
 ------------
 isOK, notOK :: Maybe SDoc
 isOK  = Nothing
-notOK = Just empty
+notOK = Just Outputable.empty
 
 okStmt, okDoStmt, okCompStmt, okParStmt, okPArrStmt
    :: DynFlags -> HsStmtContext Name

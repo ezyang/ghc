@@ -264,7 +264,7 @@ tcCheckFIType sig_ty arg_tys res_ty (CImport cconv safety mh CWrapper) = do
                         checkForeignRes mustBeIO checkSafe (isFFIDynTy arg1_ty) res_ty
                   where
                      (arg1_tys, res1_ty) = tcSplitFunTys arg1_ty
-        _ -> addErrTc (illegalForeignTyErr empty sig_ty)
+        _ -> addErrTc (illegalForeignTyErr Outputable.empty sig_ty)
     return (CImport cconv' safety mh CWrapper)
 
 tcCheckFIType sig_ty arg_tys res_ty idecl@(CImport cconv safety mh (CFunction target))
@@ -273,7 +273,7 @@ tcCheckFIType sig_ty arg_tys res_ty idecl@(CImport cconv safety mh (CFunction ta
       cconv' <- checkCConv cconv
       case arg_tys of           -- The first arg must be Ptr or FunPtr
         []                -> do
-          check False (illegalForeignTyErr empty sig_ty)
+          check False (illegalForeignTyErr Outputable.empty sig_ty)
         (arg1_ty:arg_tys) -> do
           dflags <- getDynFlags
           let curried_res_ty = foldr FunTy res_ty arg_tys

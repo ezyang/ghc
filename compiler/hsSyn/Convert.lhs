@@ -33,7 +33,9 @@ import Outputable
 
 import qualified Data.ByteString as BS
 import Control.Monad( unless, liftM, ap )
+#if __GLASGOW_HASKELL__ < 709
 import Control.Applicative (Applicative(..))
+#endif
 
 import Language.Haskell.TH as TH hiding (sigP)
 import Language.Haskell.TH.Syntax as TH
