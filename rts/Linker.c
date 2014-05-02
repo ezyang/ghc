@@ -1800,7 +1800,7 @@ internal_dlopen(const char *dll_name)
 
    // NB: unloading is not supported
    processStaticClosures(SCI_LIST, NULL);
-   processPendingStablePtrs();
+   processPendingStablePtrs(NULL);
 
    return errmsg;
 }
@@ -2941,10 +2941,7 @@ resolveObjs( void )
         updateStaticClosureFields(oc->static_object_list);
         oc->static_object_list = NULL;
         SP_LIST = oc->pending_stable_ptr_list;
-        // XXX refactor this
-        loading_obj = oc;
-        processPendingStablePtrs();
-        loading_obj = NULL;
+        processPendingStablePtrs(oc);
         next_oc = oc->next2;
         oc->next2 = NULL;
     }
