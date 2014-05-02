@@ -263,7 +263,7 @@ copy(gen_workspace *gwt, StgClosure **p, const StgInfoTable *info,
    -------------------------------------------------------------------------- */
 
 STATIC_INLINE void
-evacuate_large(gen_workspace *gwt, StgPtr p)
+evacuate_large(gen_workspace *gwt STG_UNUSED, StgPtr p)
 {
   bdescr *bd;
   generation *gen, *new_gen;
