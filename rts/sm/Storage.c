@@ -496,6 +496,10 @@ allocNursery (bdescr *tail, W_ *pblocks, ResourceContainer *rc)
                     // Always have one block in nursery
                     bd = forceAllocBlockFor(rc);
                     initBdescr(bd, g0, g0);
+                    bd->flags = 0;
+                    bd->u.back = NULL;
+                    bd->link = NULL;
+                    bd->free = bd->start;
                     *pblocks = 1;
                 }
             } else {
