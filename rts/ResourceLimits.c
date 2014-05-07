@@ -46,18 +46,15 @@ rc_status(ResourceContainer *rc)
 {
     if (rc->status == RC_NORMAL) {
         return "NORMAL";
-    } else if (rc->status == RC_KILLED) {
-        return "KILLED";
     } else {
-        ASSERT(rc->status == RC_DEAD);
-        return "DEAD";
+        ASSERT(rc->status == RC_KILLED);
+        return "KILLED";
     }
 }
 
 void
 allocNotifyRC(ResourceContainer *rc, bdescr *bd)
 {
-    ASSERT(rc->status != RC_DEAD);
     rc->used_blocks += bd->blocks;
     if (rc->max_blocks != 0 && rc->used_blocks > rc->max_blocks) {
         IF_DEBUG(gc, debugBelch("rc %s (%p) forced %d block allocation (to %ld/%ld)\n", rc->label, rc, bd->blocks, (long)rc->used_blocks, (long)rc->max_blocks));
@@ -74,7 +71,6 @@ allocNotifyRC(ResourceContainer *rc, bdescr *bd)
 void
 freeNotifyRC(ResourceContainer *rc, bdescr *bd)
 {
-    ASSERT(rc->status != RC_DEAD);
 #ifdef DEBUG
     void *r;
 #endif
@@ -98,7 +94,6 @@ freeNotifyRC(ResourceContainer *rc, bdescr *bd)
 rtsBool
 checkListenersRC(Capability *cap, ResourceContainer *rc)
 {
-    ASSERT(rc->status != RC_DEAD);
     rtsBool triggered = rtsFalse;
     // Only perform trigger_blocks check if hard limits are not
     // exceeded.  One consequence is that listeners for things
@@ -203,7 +198,6 @@ initResourceLimits(void)
     RC_MAIN->label = "RC_MAIN";
     RC_MAIN->status = RC_NORMAL;
     RC_MAIN->link = NULL;
-    RC_MAIN->parent = NULL;
     RC_MAIN->max_blocks = 0; // unlimited
     RC_MAIN->used_blocks = 0;
     RC_MAIN->block_record = NULL;
@@ -223,8 +217,8 @@ initResourceLimits(void)
     RC_COUNT = 1;
 }
 
-ResourceContainer *
-newResourceContainer(nat max_blocks, ResourceContainer *parent)
+StgRC *
+newResourceContainer(nat max_blocks)
 {
     nat i;
     // XXX leaky; need to do something like unloadObj
@@ -235,8 +229,8 @@ newResourceContainer(nat max_blocks, ResourceContainer *parent)
     rc->max_blocks = max_blocks;
     rc->used_blocks = 0; // will be bumped shortly
     rc->trigger_blocks = 0;
-    rc->parent = parent;
     rc->block_record = NULL;
+    rc->src = NULL;
 #ifdef DEBUG
     IF_DEBUG(sanity, rc->block_record = allocHashTable());
 #endif
@@ -260,12 +254,35 @@ newResourceContainer(nat max_blocks, ResourceContainer *parent)
     rc->link = RC_LIST;
     RC_LIST = rc;
     RC_COUNT++;
-    return rc;
+    return setupStgRC(rc);
+}
+
+StgRC *
+setupStgRC(ResourceContainer *rc)
+{
+    // NB: must place this in last generation
+    bdescr *bd = forceAllocBlockFor(rc);
+    initBdescr(bd, oldest_gen, oldest_gen);
+    bd->free = bd->start;
+    bd->u.scan = NULL;
+    bd->flags = BF_EVACUATED;
+    StgRC *src = bd->free;
+    SET_HDR(src, &stg_RC_info, CCS_SYSTEM);
+    src->rc = rc;
+    bd->free += sizeofW(StgRC);
+    // NB: assumes lock (making this lock free will be kind of annoying)
+    // modeled off collect_gct_blocks
+    bd->link = oldest_gen->blocks;
+    //bd->flags = BF_EVACUATED;
+    oldest_gen->blocks = bd;
+    oldest_gen->n_blocks++;
+    oldest_gen->n_words += sizeofW(StgRC);
+    rc->src = src;
+    return src;
 }
 
 void killRC(ResourceContainer *rc)
 {
-    if (rc->status == RC_DEAD) return;
     rc->status = RC_KILLED;
 }
 
@@ -295,9 +312,7 @@ void
 freeResourceContainer(ResourceContainer *rc)
 {
     nat i, g;
-    ASSERT(rc->status != RC_DEAD);
     IF_DEBUG(sanity, sanityCheckFreeRC(rc));
-    rc->parent = NULL;
     // TODO: maybe properly run all of them at the end
     rc->listeners = END_LISTENER_LIST;
     for (i = 0; i < n_capabilities; i++) {
@@ -317,7 +332,7 @@ freeResourceContainer(ResourceContainer *rc)
     IF_DEBUG(sanity, ASSERT(keyCountHashTable(rc->block_record) == 0));
     IF_DEBUG(sanity, freeHashTable(rc->block_record, NULL));
     IF_DEBUG(sanity, memset(rc->threads, 0xDD, n_capabilities * sizeof(rcthread)));
-    rc->status = RC_DEAD;
+    stgFree(rc);
 }
 
 rtsBool
@@ -349,8 +364,6 @@ isDeadResourceContainer(ResourceContainer *rc)
 // is guaranteed to get walked upon GC.
 void listenRC(Capability *cap, ResourceContainer *rc, StgListener *listener)
 {
-    ASSERT(rc->status != RC_DEAD);
-    ASSERT(listener->rc == rc);
     // XXX not synchronized
     W_ limit = listener->limit;
     StgListener *p = rc->listeners;

@@ -205,6 +205,7 @@ hs_init_ghc(int *argc, char **argv[], RtsConfig rts_config)
 
     /* initialize the storage manager */
     initStorage();
+    setupStgRC(RC_MAIN);
 
     /* initialise the stable pointer table */
     initStableTables();

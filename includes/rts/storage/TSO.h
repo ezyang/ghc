@@ -131,7 +131,7 @@ typedef struct StgTSO_ {
     StgWord32               dirty;          /* non-zero => dirty */
     struct InCall_*         bound;
     struct Capability_*     cap;
-    struct ResourceContainer_* rc;      /* saved resource container info */
+    StgRC* src;      /* saved resource container info */
 
     struct StgTRecHeader_ * trec;       /* STM transaction record */
 

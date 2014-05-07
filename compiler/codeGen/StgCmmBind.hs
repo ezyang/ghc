@@ -687,11 +687,11 @@ emitUpdateFrame dflags frame lbl updatee = do
   let
            hdr         = fixedHdrSize dflags * wORD_SIZE dflags
            off_updatee = hdr + oFFSET_StgUpdateFrame_updatee dflags
-           off_rc      = hdr + oFFSET_StgUpdateFrame_rc dflags
+           off_src      = hdr + oFFSET_StgUpdateFrame_src dflags
   --
   emitStore frame (mkLblExpr lbl)
   emitStore (cmmOffset dflags frame off_updatee) updatee
-  emitStore (cmmOffset dflags frame off_rc) (CmmReg (CmmGlobal OldRC))
+  emitStore (cmmOffset dflags frame off_src) (CmmLoad (cmmRegOff (CmmGlobal OldRC) (oFFSET_ResourceContainer_src dflags)) (bWord dflags))
   initUpdFrameProf frame
 
 -----------------------------------------------------------------------------

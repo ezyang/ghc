@@ -23,7 +23,6 @@ typedef struct rcthread_ {
 typedef struct ResourceContainer_ {
     char *label;
     struct ResourceContainer_ *link;
-    struct ResourceContainer_ *parent;
     // ToDo add synchronization for THREADED
     StgListener *listeners;
     // NB: this is may be an underestimate, if a relevant listener
@@ -35,6 +34,7 @@ typedef struct ResourceContainer_ {
     } u;
     memcount used_blocks;
     StgWord status;
+    StgRC *src; // cached StgRC object, refreshed every GC
     HashTable *block_record;
     memcount n_words;
     // NB: needs lock. Do it properly: do it PER thread
@@ -55,9 +55,7 @@ typedef struct ResourceContainer_ {
 } ResourceContainer;
 
 #define RC_NORMAL       0
-#define RC_RECOVERING   1
-#define RC_KILLED       2
-#define RC_DEAD         3
+#define RC_KILLED       1
 
 rtsBool allocGroupFor(bdescr **pbd, W_ n, ResourceContainer *rc);
 rtsBool allocBlockFor(bdescr **pbd, ResourceContainer *rc);
@@ -69,7 +67,7 @@ void allocNotifyRC(ResourceContainer *rc, bdescr *bd);
 void freeNotifyRC(ResourceContainer *rc, bdescr *bd);
 
 void initResourceLimits(void);
-ResourceContainer *newResourceContainer(nat max_blocks, ResourceContainer *parent);
+StgRC *newResourceContainer(nat max_blocks);
 void freeResourceContainer(ResourceContainer *rc);
 rtsBool isDeadResourceContainer(ResourceContainer *rc);
 
@@ -83,6 +81,7 @@ void killRC(ResourceContainer *rc);
 const char *rc_status(ResourceContainer *rc);
 
 void markResourceContainers(evac_fn evac, void *user);
+StgRC *setupStgRC(ResourceContainer *rc);
 
 #include "EndPrivate.h"
 
