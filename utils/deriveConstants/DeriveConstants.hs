@@ -361,6 +361,7 @@ wanteds = concat
           ,fieldOffset Both "ResourceContainer" "threads"
           ,structField C    "ResourceContainer" "used_blocks"
           ,structField C    "ResourceContainer" "status"
+          ,structField Both "ResourceContainer" "src"
 
           ,structField Both "rcthread" "workspaces"
           ,structField Both "rcthread" "nursery"
@@ -431,7 +432,7 @@ wanteds = concat
           ,closureField  C    "StgTSO"      "bq"
           ,closureField_ Both "StgTSO_cccs" "StgTSO" "prof.cccs"
           ,closureField  Both "StgTSO"      "stackobj"
-          ,closureField  Both "StgTSO"      "rc"
+          ,closureField  Both "StgTSO"      "src"
 
           ,closureField       Both "StgStack" "sp"
           ,closureFieldOffset Both "StgStack" "stack"
@@ -441,7 +442,7 @@ wanteds = concat
           ,structSize C "StgTSOProfInfo"
 
           ,closureField Both "StgUpdateFrame" "updatee"
-          ,closureField Both "StgUpdateFrame" "rc"
+          ,closureField Both "StgUpdateFrame" "src"
 
           ,closureField C "StgCatchFrame" "handler"
           ,closureField C "StgCatchFrame" "exceptions_blocked"
@@ -542,12 +543,14 @@ wanteds = concat
 
           ,closureSize  C "StgListener"
           ,closureField C "StgListener" "callback"
-          ,closureField C "StgListener" "rc"
           ,closureField C "StgListener" "limit"
 
           ,closureSize  C "StgRCRef"
           ,closureField C "StgRCRef" "var"
-          ,closureField C "StgRCRef" "rc"
+          ,closureField C "StgRCRef" "src"
+
+          ,closureSize  C "StgRC"
+          ,closureField Both "StgRC" "rc"
 
           ,closureSize  C "MessageBlackHole"
           ,closureField C "MessageBlackHole" "link"

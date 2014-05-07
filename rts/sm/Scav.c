@@ -67,6 +67,7 @@ scavengeTSO (StgTSO *tso)
     
     // scavange current transaction record
     evacuate((StgClosure **)&tso->trec);
+    evacuate((StgClosure **)&tso->src);
 
     evacuate((StgClosure **)&tso->stackobj);
 
@@ -1705,6 +1706,7 @@ scavenge_stack(StgPtr p, StgPtr stack_end)
         StgClosure *v;
 
         evacuate(&frame->updatee);
+        evacuate((StgClosure**)&frame->src);
         v = frame->updatee;
         if (GET_CLOSURE_TAG(v) != 0 ||
             (get_itbl(v)->type != BLACKHOLE)) {

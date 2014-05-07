@@ -2236,18 +2236,17 @@ stg_traceMarkerzh ( W_ msg )
    return ();
 }
 
-// Note: use W_ for RC, since it's not garbage collected
-
-stg_newRCzh ( W_ limit, W_ parent )
+stg_newRCzh ( W_ limit, P_ parent )
 {
     W_ rc;
+    gcptr src;
     ACQUIRE_LOCK(sm_mutex);
-    (rc) = ccall newResourceContainer(limit, parent);
+    (src) = ccall newResourceContainer(limit);
     RELEASE_LOCK(sm_mutex);
-    return (rc);
+    return (src);
 }
 
-stg_listenRCzh ( W_ rc, W_ limit, gcptr cb )
+stg_listenRCzh ( gcptr src, W_ limit, gcptr cb )
 {
     P_ p;
     W_ r;
@@ -2257,10 +2256,9 @@ stg_listenRCzh ( W_ rc, W_ limit, gcptr cb )
     p = Hp - SIZEOF_StgListener + WDS(1);
     SET_HDR(p, stg_LISTENER_info, CCS_SYSTEM);
     StgListener_callback(p) = cb;
-    StgListener_rc(p) = rc;
     StgListener_limit(p) = limit;
 
-    (r) = ccall listenRC(MyCapability() "ptr", rc, p "ptr");
+    (r) = ccall listenRC(MyCapability() "ptr", StgRC_rc(src), p "ptr");
 
     if (r == 1) {
         jump stg_yieldzh();
@@ -2283,13 +2281,15 @@ stg_unlistenRCzh ( P_ p )
     return ();
 }
 
-stg_withRCzh ( W_ rc, P_ io )
+stg_withRCzh ( gcptr src, P_ io )
 {
     STK_CHK_GEN();
-    Sp(-1) = RC;
+    Sp(-1) = ResourceContainer_src(RC);
     Sp(-2) = stg_restore_container_info;
     Sp_adj(-2);
     CLOSE_NURSERY();
+    W_ rc;
+    rc = StgRC_rc(src);
     RC = rc;
     OldRC = rc;
     CurrentNursery = RC_CURRENT_NURSERY;
@@ -2305,20 +2305,38 @@ stg_withRCzh ( W_ rc, P_ io )
     jump stg_ap_v_fast [R1];
 }
 
-stg_killRCzh (W_ rc) {
+stg_killRCzh (gcptr src) {
     ACQUIRE_LOCK(sm_mutex);
+    W_ rc;
+    rc = StgRC_rc(src);
     ccall killRC(rc);
     RELEASE_LOCK(sm_mutex);
     return ();
 }
 
-stg_usedBlocksRCzh (W_ rc) {
+stg_getCurrentRCzh () {
+    gcptr src;
+    W_ rc;
+    rc = RC;
+    src = ResourceContainer_src(rc);
+    return (src);
+}
+
+stg_getRCOfzh (P_ obj) {
+    W_ rc;
+    gcptr src;
+    rc = bdescr_rc(Bdescr(obj));
+    src = ResourceContainer_src(rc);
+    return (src);
+}
+
+stg_usedBlocksRCzh (gcptr src) {
     W_ r;
-    r = ResourceContainer_used_blocks(rc);
+    r = ResourceContainer_used_blocks(StgRC_rc(src));
     return (r);
 }
 
-stg_newRCRefzh (W_ rc, P_ value)
+stg_newRCRefzh (gcptr src, P_ value)
 {
     gcptr p;
 
@@ -2328,7 +2346,7 @@ stg_newRCRefzh (W_ rc, P_ value)
     SET_HDR(p, stg_RCREF_info, CCCS);
 
     StgRCRef_var(p) = value;
-    StgRCRef_rc(p) = rc;
+    StgRCRef_src(p) = src;
 
     return (p);
 }
@@ -2341,7 +2359,7 @@ stg_readRCRefzh (P_ p)
     if (info == stg_RCREF_info) {
       W_ rc;
       // This could be a problem when we want to deallocate here
-      rc = StgRCRef_rc(p);
+      rc = StgRC_rc(StgRCRef_src(p));
       if (ResourceContainer_status(rc) != 0) {
         code = 0;
         value = p;

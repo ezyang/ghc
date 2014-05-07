@@ -2744,6 +2744,9 @@ primop KillRCOp "killRC#" GenPrimOp
 
 primop GetRCOfOp "getRCOf#" GenPrimOp
    a -> State# s -> (# State# s, RC# #)
+   with
+   out_of_line = True
+   has_side_effects = True
 
 primop UsedBlocksRC "usedBlocksRC#" GenPrimOp
     RC# -> State# RealWorld -> (# State# RealWorld, Int# #)
@@ -2768,11 +2771,9 @@ primop  GetCurrentRCOp "getCurrentRC#" GenPrimOp
    { Returns the current {\tt RC}.  Takes a dummy argument which can be used to
      avoid the call to {\tt getCurrentRC\#} being floated out by the
      simplifier, which would result in an uninformative container. }
-
-primop RCToAddrOp  "rcToAddr"  GenPrimOp RC# -> Addr#
-    with code_size = 0
-primop AddrToRCOp  "addrToRC"  GenPrimOp Addr# -> RC#
-    with code_size = 0
+   with
+   out_of_line = True
+   has_side_effects = True
 
 primtype RCRef# a
     { A {\tt RCRef#} is a simple indirection to an object that dies when

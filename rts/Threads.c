@@ -23,6 +23,7 @@
 #include "Printer.h"
 #include "sm/Sanity.h"
 #include "sm/Storage.h"
+#include "ResourceLimits.h"
 
 #include <string.h>
 
@@ -117,7 +118,7 @@ createThread(Capability *cap, W_ size)
     tso->prof.cccs = CCS_MAIN;
 #endif
 
-    tso->rc = cap->r.rRC;
+    tso->src = cap->r.rRC->src;
     
     // put a stop frame on the stack
     stack->sp -= sizeofW(StgStopFrame);

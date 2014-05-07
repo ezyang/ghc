@@ -809,7 +809,7 @@ anyTypeOfKind kind = TyConApp anyTyCon [kind]
 resourceContainerPrimTy :: Type
 resourceContainerPrimTy = mkTyConTy resourceContainerPrimTyCon
 resourceContainerPrimTyCon :: TyCon
-resourceContainerPrimTyCon = pcPrimTyCon0 resourceContainerPrimTyConName AddrRep
+resourceContainerPrimTyCon = pcPrimTyCon0 resourceContainerPrimTyConName PtrRep
 
 listenerPrimTy    :: Type
 listenerPrimTy    = mkTyConTy listenerPrimTyCon

@@ -271,7 +271,7 @@ saveThreadState dflags =
   mkStore (cmmOffset dflags (CmmLoad (cmmOffset dflags stgCurrentTSO (tso_stackobj dflags)) (bWord dflags)) (stack_SP dflags)) stgSp
   <*> closeNursery dflags
   -- save the RC to the TSO
-  <*> mkStore (cmmOffset dflags stgCurrentTSO (tso_RC dflags)) stgRC
+  <*> mkStore (cmmOffset dflags stgCurrentTSO (tso_SRC dflags)) (CmmLoad (cmmRegOff rc (oFFSET_ResourceContainer_src dflags)) (bWord dflags))
   -- and save the current cost centre stack in the TSO when profiling:
   <*> if gopt Opt_SccProfilingOn dflags then
         mkStore (cmmOffset dflags stgCurrentTSO (tso_CCCS dflags)) curCCS
@@ -312,7 +312,13 @@ loadThreadState dflags tso stack rc_reg = do
         -- load RC from the thread (use a local register because RC
         -- lives in memory)
         -- rc = tso->rc
-        mkAssign (CmmLocal rc_reg) (CmmLoad (cmmOffset dflags (CmmReg (CmmLocal tso)) (tso_RC dflags)) (rcType dflags)),
+        -- mkAssign (CmmLocal rc_reg) (CmmLoad (cmmOffset dflags (CmmReg (CmmLocal tso)) (tso_RC dflags)) (rcType dflags)),
+        mkAssign (CmmLocal rc_reg)
+                 (CmmLoad (cmmOffset dflags (CmmLoad (cmmOffset dflags (CmmReg (CmmLocal tso))
+                                                                       (tso_SRC dflags))
+                                                     (bWord dflags))
+                                            (rc_rc dflags))
+                          (rcType dflags)),
         -- RC = rc
         mkAssign rc (CmmReg (CmmLocal rc_reg)),
         mkAssign oldRc (CmmReg (CmmLocal rc_reg)),
@@ -383,12 +389,13 @@ nursery_bdescr_free   dflags = cmmOffset dflags stgCurrentNursery (oFFSET_bdescr
 nursery_bdescr_start  dflags = cmmOffset dflags stgCurrentNursery (oFFSET_bdescr_start dflags)
 nursery_bdescr_blocks dflags = cmmOffset dflags stgCurrentNursery (oFFSET_bdescr_blocks dflags)
 
-tso_stackobj, tso_CCCS, tso_RC, stack_STACK, stack_SP :: DynFlags -> ByteOff
+tso_stackobj, tso_CCCS, tso_SRC, stack_STACK, stack_SP, rc_rc :: DynFlags -> ByteOff
 tso_stackobj dflags = closureField dflags (oFFSET_StgTSO_stackobj dflags)
 tso_CCCS     dflags = closureField dflags (oFFSET_StgTSO_cccs dflags)
-tso_RC       dflags = closureField dflags (oFFSET_StgTSO_rc dflags)
+tso_SRC      dflags = closureField dflags (oFFSET_StgTSO_src dflags)
 stack_STACK  dflags = closureField dflags (oFFSET_StgStack_stack dflags)
 stack_SP     dflags = closureField dflags (oFFSET_StgStack_sp dflags)
+rc_rc        dflags = closureField dflags (oFFSET_StgRC_rc dflags)
 
 
 closureField :: DynFlags -> ByteOff -> ByteOff
