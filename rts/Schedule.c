@@ -2778,12 +2778,12 @@ raiseExceptionHelper (StgRegTable *reg, StgTSO *tso, StgClosure *exception)
 	    }
             updateThunk(cap, tso, ((StgUpdateFrame *)p)->updatee,
                         (StgClosure *)raise_closure);
-            tso->rc = ((StgUpdateFrame *)p)->rc; // LOAD_THREAD_STATE will take care of the rest
+            tso->src = ((StgUpdateFrame *)p)->src; // LOAD_THREAD_STATE will take care of the rest
 	    p = next;
 	    continue;
 
         case RC_FRAME:
-            tso->rc = ((StgRCFrame*)p)->rc;
+            tso->src = ((StgRCFrame*)p)->src;
             p = next;
             continue;
 

@@ -269,7 +269,7 @@ printClosure( StgClosure *obj )
             debugBelch(",");
             printPtr((StgPtr)u->updatee);
             debugBelch(",");
-            printPtr((StgPtr)u->rc);
+            printPtr((StgPtr)u->src);
             debugBelch(")\n"); 
             break;
         }
@@ -280,7 +280,7 @@ printClosure( StgClosure *obj )
             debugBelch("RC_FRAME(");
             printPtr((StgPtr)GET_INFO((StgClosure *)u));
             debugBelch(",");
-            printPtr((StgPtr)u->rc);
+            printPtr((StgPtr)u->src);
             debugBelch(")\n"); 
             break;
         }
@@ -388,7 +388,7 @@ printClosure( StgClosure *obj )
     case RCREF:
       {
           StgRCRef *rcref = (StgRCRef*)obj;
-          debugBelch("RCREF(%s, ", rcref->rc->label);
+          debugBelch("RCREF(%s, ", rcref->src->rc->label);
           printPtr((StgPtr)rcref->var);
           debugBelch(")");
           break;

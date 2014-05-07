@@ -162,10 +162,15 @@ typedef struct {
     StgClosure *var;
 } StgMutVar;
 
+typedef struct StgRC_ {
+    StgHeader        header;
+    struct ResourceContainer_ *rc;
+} StgRC;
+
 typedef struct _StgUpdateFrame {
     StgHeader  header;
     StgClosure *updatee;
-    struct ResourceContainer_ *rc;
+    StgRC *src;
 } StgUpdateFrame;
 
 typedef struct {
@@ -428,7 +433,7 @@ typedef struct MessageBlackHole_ {
 
 typedef struct {
     StgHeader  header;
-    struct ResourceContainer_ *rc;
+    StgRC *src;
 } StgRCFrame;
 
 
@@ -438,14 +443,13 @@ typedef struct StgListener_ {
     StgHeader        header;
     struct StgListener_  *link;
     StgClosure      *callback;
-    struct ResourceContainer_ *rc;
     StgWord          limit;
 } StgListener;
 
 typedef struct StgRCRef_ {
     StgHeader        header;
     StgClosure      *var;
-    struct ResourceContainer_ *rc;
+    StgRC           *src;
 } StgRCRef;
 
 #endif /* RTS_STORAGE_CLOSURES_H */

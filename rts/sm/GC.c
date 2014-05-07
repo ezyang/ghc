@@ -683,24 +683,27 @@ GarbageCollect (nat collect_gen,
   }
 
   // Check for free resource containers
-  ResourceContainer *prev;
+  ResourceContainer *prev, *next;
   if (major_gc) {
-      for (rc = RC_LIST, prev = NULL; rc != NULL; prev = rc, rc = rc->link) {
+      for (rc = RC_LIST, prev = NULL; rc != NULL; rc = next) {
+          next = rc->link;
           if (isDeadResourceContainer(rc)) {
               freeResourceContainer(rc);
               // everything in the resource container has to be dead
               if (prev == NULL) {
-                  RC_LIST = rc->link;
-                  rc->link = NULL;
+                  RC_LIST = next;
               } else {
-                  prev->link = rc->link;
-                  rc->link = NULL;
-                  rc = prev;
+                  prev->link = next;
               }
               RC_COUNT--;
 #ifdef DEBUG
               memInventory(DEBUG_gc);
 #endif
+          } else {
+              if (rc->src == NULL) {
+                  setupStgRC(rc);
+              }
+              prev = rc;
           }
       }
   }
@@ -1407,13 +1410,21 @@ prepare_collected_gen (generation *gen)
 #endif
 
     for (rc = RC_LIST; rc != NULL; rc = rc->link) {
-      // clear out n_words
-      rc->n_words = 0;
-      // liberate (killed) all pinned object blocks
-      if (rc->pinned_object_block != NULL) {
-          dbl_link_onto(rc->pinned_object_block, &g0->large_objects);
-          rc->pinned_object_block = NULL;
-      }
+
+    // clear out n_words
+    rc->n_words = 0;
+    if (major_gc && gen == oldest_gen) {
+      ASSERT(rc->src != NULL);
+      ASSERT(Bdescr(rc->src)->gen == oldest_gen);
+      ASSERT(Bdescr(rc->src)->rc == rc);
+      ASSERT(LOOKS_LIKE_CLOSURE_PTR(rc->src));
+      rc->src = NULL;
+    }
+    // liberate (killed) all pinned object blocks
+    if (rc->pinned_object_block != NULL) {
+        dbl_link_onto(rc->pinned_object_block, &g0->large_objects);
+        rc->pinned_object_block = NULL;
+    }
     for (n = 0; n < n_capabilities; n++) {
         ws = &rc->threads[n].workspaces[gen->no];
 

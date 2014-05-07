@@ -673,6 +673,22 @@ loop:
       goto loop;
   }
 
+  case PRIM:
+      if (info == &stg_RC_info) {
+        ASSERT(gen_no == oldest_gen->no);
+        ResourceContainer *rc = ((StgRC*)q)->rc;
+        ASSERT(rc == Bdescr(q)->rc);
+        // NB: duplication is OK
+        if (rc->src == NULL) {
+            copy_tag_nolock(gwt,p,info,q,sizeW_fromITBL(INFO_PTR_TO_STRUCT(info)),gen_no,tag);
+            rc->src = (StgRC*)*p;
+            return;
+        } else {
+            *p = (StgClosure*)rc->src;
+            return;
+        }
+      }
+      // fall-through
   case MUT_VAR_CLEAN:
   case MUT_VAR_DIRTY:
   case MVAR_CLEAN:
@@ -680,7 +696,6 @@ loop:
   case TVAR:
   case BLOCKING_QUEUE:
   case WEAK:
-  case PRIM:
   case MUT_PRIM:
       copy(gwt,p,info,q,sizeW_fromITBL(INFO_PTR_TO_STRUCT(info)),gen_no);
       return;
@@ -774,7 +789,7 @@ loop:
   case RCREF:
       {
         StgRCRef *rcref = (StgRCRef*)q;
-        if (rcref->rc->status == RC_NORMAL) {
+        if (rcref->src->rc->status == RC_NORMAL) {
           copy(gwt,p,info,q,sizeofW(StgRCRef),gen_no);
         } else {
           *p = STATIC_CLOSURE(stg_DEAD_RCREF);

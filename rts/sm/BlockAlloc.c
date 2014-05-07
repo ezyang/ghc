@@ -423,6 +423,7 @@ allocGroup (W_ n)
     }
 
     bd = free_list[ln];
+    ASSERT(bd->free == (P_)-1);
 
     if (bd->blocks == n)	        // exactly the right size!
     {
@@ -763,7 +764,6 @@ inventoryBlocks(bdescr *bd, ResourceContainer *rc)
 	n += bd->blocks;
         ASSERT(rc == NULL || rc == bd->rc);
         ASSERT(bd->rc != NULL);
-        ASSERT(bd->rc->status != RC_DEAD);
         bd->rc->u.count += bd->blocks;
         IF_DEBUG(sanity, ASSERT(lookupHashTable(bd->rc->block_record, (StgWord)bd) == (void*)(StgWord)bd->blocks));
     }

@@ -838,8 +838,8 @@ raiseAsync(Capability *cap, StgTSO *tso, StgClosure *exception,
                 updateThunk(cap, tso, ((StgUpdateFrame *)frame)->updatee,
                             (StgClosure *)raise_closure);
 
-                tso->rc = ((StgUpdateFrame*)frame)->rc;
-                cap->r.rRC = tso->rc;
+                tso->src = ((StgUpdateFrame*)frame)->src;
+                cap->r.rRC = tso->src->rc;
 
                 // throw away the stack from Sp up to the update frame.
                 frame += sizeofW(StgUpdateFrame) - 2;
@@ -891,7 +891,7 @@ raiseAsync(Capability *cap, StgTSO *tso, StgClosure *exception,
             // XXX manage AP_STACK RC restoration properly
             // XXX this is probably not right because the 'allocate'
             // calls lag
-            tso->rc = ((StgUpdateFrame*)frame)->rc;
+            tso->src = ((StgUpdateFrame*)frame)->src;
 
 	    sp += sizeofW(StgUpdateFrame) - 1;
 	    sp[0] = (W_)ap; // push onto stack
@@ -901,7 +901,7 @@ raiseAsync(Capability *cap, StgTSO *tso, StgClosure *exception,
 
         case RC_FRAME:
         {
-            tso->rc = ((StgRCFrame*)frame)->rc;
+            tso->src = ((StgRCFrame*)frame)->src;
             break;
         }
 
