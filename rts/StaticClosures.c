@@ -161,7 +161,7 @@ initStaticClosures(void)
             p->header.info = Czh_static_info;
 #ifdef PROFILING
             p->header.prof.ccs = CCS_DONT_CARE;
-            p->header.prof.ldvw = 0;
+            p->header.prof.hp.ldvw = 0;
 #endif
             p->data = c;
         }
@@ -177,7 +177,7 @@ initStaticClosures(void)
             p->header.info = Izh_static_info;
 #ifdef PROFILING
             p->header.prof.ccs = CCS_DONT_CARE;
-            p->header.prof.ldvw = 0;
+            p->header.prof.hp.ldvw = 0;
 #endif
             p->data = (StgWord)i;
         }
@@ -295,7 +295,7 @@ allocateStaticClosures(StaticClosureInds *base_sci, bdescr **current_block_p)
 #ifdef PROFILING
             q->header.prof.ccs = p->ccs;
             IF_DEBUG(sanity, memset(&p->ccs, 0xDD, sizeof(W_)));
-            q->header.prof.ldvw = 0;
+            q->header.prof.hp.ldvw = 0;
 #endif
             W_ i = 0;
             ASSERT(!needsPadding || payload_size == 0);
