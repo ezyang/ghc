@@ -63,6 +63,7 @@ import Util
 import Outputable
 import Control.Monad( unless )
 import Data.List( mapAccumL )
+import Data.Maybe( isJust )
 \end{code}
 
 
@@ -445,6 +446,7 @@ addLocalInst (home_ie, my_insts) ispec
              -- 'dups'     are those 'matches' that are equal to the new one
          ; isGHCi <- getIsGHCi
          ; eps    <- getEps
+         ; tcg_env <- getGblEnv
          ; let (home_ie', my_insts')
                  | isGHCi    = ( deleteFromInstEnv home_ie ispec
                                , filterOut (identicalInstHead ispec) my_insts)
@@ -453,7 +455,14 @@ addLocalInst (home_ie, my_insts) ispec
                -- silently delete it
 
                (_tvs, cls, tys) = instanceHead ispec
-               inst_envs       = (eps_inst_env eps, home_ie')
+               -- If we're compiling sig-of and there's an external duplicate
+               -- instance, silently ignore it (that's the instance we;re
+               -- implementing!)  NB: we still count local duplicate instances
+               -- as errors.
+               global_ie
+                    | isJust (tcg_sig_of tcg_env) = emptyInstEnv
+                    | otherwise = eps_inst_env eps
+               inst_envs       = (global_ie, home_ie')
                (matches, _, _) = lookupInstEnv inst_envs cls tys
                dups            = filter (identicalInstHead ispec) (map fst matches)
 
@@ -462,7 +471,7 @@ addLocalInst (home_ie, my_insts) ispec
              Just specs -> funDepErr ispec specs
              Nothing    -> return ()
 
-             -- Check for duplicate instance decls
+             -- Check for duplicate instance decls.
          ; unless (null dups) $
            dupInstErr ispec (head dups)
 

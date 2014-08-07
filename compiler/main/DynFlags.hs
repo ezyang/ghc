@@ -50,6 +50,7 @@ module DynFlags (
         fFlags, fWarningFlags, fLangFlags, xFlags,
         dynFlagDependencies,
         tablesNextToCode, mkTablesNextToCode,
+        SigOf(..), getSigOf,
 
         printOutputForUser, printInfoForUser,
 
@@ -589,6 +590,17 @@ data ExtensionFlag
    | Opt_PatternSynonyms
    deriving (Eq, Enum, Show)
 
+data SigOf = NotSigOf
+           | SigOf Module
+           | SigOfMap (Map ModuleName Module)
+
+getSigOf :: DynFlags -> ModuleName -> Maybe Module
+getSigOf dflags n =
+    case sigOf dflags of
+        NotSigOf -> Nothing
+        SigOf m -> Just m
+        SigOfMap m -> Map.lookup n m
+
 -- | Contains not only a collection of 'GeneralFlag's but also a plethora of
 -- information relating to the compilation of a single file or GHC session
 data DynFlags = DynFlags {
@@ -596,6 +608,7 @@ data DynFlags = DynFlags {
   ghcLink               :: GhcLink,
   hscTarget             :: HscTarget,
   settings              :: Settings,
+  sigOf                 :: SigOf,       -- ^ Compiling an hs-boot against impl
   verbosity             :: Int,         -- ^ Verbosity level: see Note [Verbosity levels]
   optLevel              :: Int,         -- ^ Optimisation level
   simplPhases           :: Int,         -- ^ Number of simplifier phases
@@ -1333,6 +1346,7 @@ defaultDynFlags mySettings =
         ghcMode                 = CompManager,
         ghcLink                 = LinkBinary,
         hscTarget               = defaultHscTarget (sTargetPlatform mySettings),
+        sigOf                   = NotSigOf,
         verbosity               = 0,
         optLevel                = 0,
         simplPhases             = 2,
@@ -1830,6 +1844,29 @@ setOutputFile f d = d{ outputFile = f}
 setDynOutputFile f d = d{ dynOutputFile = f}
 setOutputHi   f d = d{ outputHi   = f}
 
+parseSigOf :: String -> SigOf
+parseSigOf str = case filter ((=="").snd) (readP_to_S parse str) of
+    [(r, "")] -> r
+    _ -> throwGhcException $ CmdLineError ("Can't parse -sig-of: " ++ str)
+  where parse = parseOne +++ parseMany
+        parseOne = SigOf `fmap` parseModule
+        parseMany = SigOfMap . Map.fromList <$> sepBy parseEntry (R.char ',')
+        parseEntry = do
+            n <- tok $ parseModuleName
+            -- ToDo: deprecate this 'is' syntax?
+            tok $ ((string "is" >> return ()) +++ (R.char '=' >> return ()))
+            m <- tok $ parseModule
+            return (mkModuleName n, m)
+        parseModule = do
+            pk <- munch1 (\c -> isAlphaNum c || c `elem` "-_")
+            _ <- R.char ':'
+            m <- parseModuleName
+            return (mkModule (stringToPackageKey pk) (mkModuleName m))
+        tok m = skipSpaces >> m
+
+setSigOf :: String -> DynFlags -> DynFlags
+setSigOf s d = d { sigOf = parseSigOf s }
+
 addPluginModuleName :: String -> DynFlags -> DynFlags
 addPluginModuleName name d = d { pluginModNames = (mkModuleName name) : (pluginModNames d) }
 
@@ -2151,6 +2188,8 @@ dynamic_flags = [
   , Flag "v"        (OptIntSuffix setVerbosity)
 
   , Flag "j"        (OptIntSuffix (\n -> upd (\d -> d {parMakeCount = n})))
+  , Flag "sig-of"   (sepArg setSigOf)
+  , Flag "sigof"   (sepArg setSigOf)
 
     -- RTS options -------------------------------------------------------------
   , Flag "H"           (HasArg (\s -> upd (\d ->
@@ -3361,6 +3400,9 @@ removeGlobalPkgConf = upd $ \s -> s { extraPkgConfs = filter isNotGlobal . extra
 clearPkgConf :: DynP ()
 clearPkgConf = upd $ \s -> s { extraPkgConfs = const [] }
 
+parseModuleName :: ReadP String
+parseModuleName = munch1 (\c -> isAlphaNum c || c `elem` ".")
+
 parsePackageFlag :: (String -> PackageArg) -- type of argument
                  -> String                 -- string to parse
                  -> PackageFlag
@@ -3377,11 +3419,10 @@ parsePackageFlag constr str = case filter ((=="").snd) (readP_to_S parse str) of
                       rns <- tok $ sepBy parseItem (tok $ R.char ',')
                       _ <- tok $ R.char ')'
                       return rns
-        parseMod = munch1 (\c -> isAlphaNum c || c `elem` ".")
         parseItem = do
-            orig <- tok $ parseMod
+            orig <- tok $ parseModuleName
             (do _ <- tok $ string "as"
-                new <- tok $ parseMod
+                new <- tok $ parseModuleName
                 return (orig, new)
               +++
              return (orig, orig))

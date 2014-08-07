@@ -141,12 +141,30 @@ newTopSrcBinder (L loc rdr_name)
                 -- module name, we we get a confusing "M.T is not in scope" error later
 
         ; stage <- getStage
+        ; env <- getGblEnv
         ; if isBrackStage stage then
                 -- We are inside a TH bracket, so make an *Internal* name
                 -- See Note [Top-level Names in Template Haskell decl quotes] in RnNames
              do { uniq <- newUnique
                 ; return (mkInternalName uniq (rdrNameOcc rdr_name) loc) }
-          else
+          else case tcg_impl_rdr_env env of
+            Just gr ->
+                -- We're compiling --sig-of, so resolve with respect to this
+                -- module
+             do { case lookupGlobalRdrEnv gr (rdrNameOcc rdr_name) of
+                    -- Be sure to override the loc so that we get accurate
+                    -- information later
+                    [GRE n _ _] -> return (setNameLoc n loc)
+                    _ -> do
+                      { -- NB: cannot use reportUnboundName rdr_name
+                        -- because it looks up in the wrong RdrEnv
+                        -- ToDo: more helpful error messages
+                      ; addErr (unknownNameErr (pprNonVarNameSpace
+                            (occNameSpace (rdrNameOcc rdr_name))) rdr_name)
+                      ; return (mkUnboundName rdr_name)
+                      }
+                }
+            Nothing ->
                 -- Normal case
              do { this_mod <- getModule
                 ; newGlobalBinder this_mod (rdrNameOcc rdr_name) loc } }
@@ -1604,7 +1622,8 @@ mapFvRnCPS f (x:xs) cont = f x             $ \ x' ->
 warnUnusedTopBinds :: [GlobalRdrElt] -> RnM ()
 warnUnusedTopBinds gres
     = whenWOptM Opt_WarnUnusedBinds
-    $ do isBoot <- tcIsHsBoot
+    $ do isBoot <- tcIsHsBootOrSig
+         -- ToDo: is this actually appropriate for hsig?
          let noParent gre = case gre_par gre of
                             NoParent -> True
                             ParentIs _ -> False

@@ -10,7 +10,7 @@
 -----------------------------------------------------------------------------
 
 module DriverPhases (
-   HscSource(..), isHsBoot, hscSourceString,
+   HscSource(..), isHsBootOrSig, hscSourceString,
    Phase(..),
    happensBefore, eqPhase, anyHsc, isStopLn,
    startPhase,
@@ -22,10 +22,12 @@ module DriverPhases (
    isCishSuffix,
    isDynLibSuffix,
    isHaskellUserSrcSuffix,
+   isHaskellSigSuffix,
    isSourceSuffix,
 
    isHaskellishFilename,
    isHaskellSrcFilename,
+   isHaskellSigFilename,
    isObjectFilename,
    isCishFilename,
    isDynLibFilename,
@@ -56,7 +58,7 @@ import System.FilePath
 -}
 
 data HscSource
-   = HsSrcFile | HsBootFile
+   = HsSrcFile | HsBootFile | HsigFile
      deriving( Eq, Ord, Show )
         -- Ord needed for the finite maps we build in CompManager
 
@@ -64,10 +66,15 @@ data HscSource
 hscSourceString :: HscSource -> String
 hscSourceString HsSrcFile   = ""
 hscSourceString HsBootFile  = "[boot]"
+hscSourceString HsigFile    = "[sig]"
 
-isHsBoot :: HscSource -> Bool
-isHsBoot HsBootFile = True
-isHsBoot _          = False
+-- | hs-boot and hsig files are somewhat similar: they both omit actual
+-- value declarations and don't actually generate object files upon compilation.
+-- So this is a convenience function to test if this is the case.
+isHsBootOrSig :: HscSource -> Bool
+isHsBootOrSig HsBootFile = True
+isHsBootOrSig HsigFile   = True
+isHsBootOrSig _          = False
 
 data Phase
         = Unlit HscSource
@@ -170,8 +177,10 @@ nextPhase dflags p
 startPhase :: String -> Phase
 startPhase "lhs"      = Unlit HsSrcFile
 startPhase "lhs-boot" = Unlit HsBootFile
+startPhase "lhsig"    = Unlit HsigFile
 startPhase "hs"       = Cpp   HsSrcFile
 startPhase "hs-boot"  = Cpp   HsBootFile
+startPhase "hsig"     = Cpp   HsigFile
 startPhase "hscpp"    = HsPp  HsSrcFile
 startPhase "hspp"     = Hsc   HsSrcFile
 startPhase "hc"       = HCc
@@ -200,6 +209,7 @@ startPhase _          = StopLn     -- all unknown file types
 phaseInputExt :: Phase -> String
 phaseInputExt (Unlit HsSrcFile)   = "lhs"
 phaseInputExt (Unlit HsBootFile)  = "lhs-boot"
+phaseInputExt (Unlit HsigFile)    = "lhsig"
 phaseInputExt (Cpp   _)           = "lpp"       -- intermediate only
 phaseInputExt (HsPp  _)           = "hscpp"     -- intermediate only
 phaseInputExt (Hsc   _)           = "hspp"      -- intermediate only
@@ -224,14 +234,16 @@ phaseInputExt MergeStub           = "o"
 phaseInputExt StopLn              = "o"
 
 haskellish_src_suffixes, haskellish_suffixes, cish_suffixes,
-    haskellish_user_src_suffixes
+    haskellish_user_src_suffixes, haskellish_sig_suffixes
  :: [String]
 haskellish_src_suffixes      = haskellish_user_src_suffixes ++
                                [ "hspp", "hscpp", "hcr", "cmm", "cmmcpp" ]
 haskellish_suffixes          = haskellish_src_suffixes ++ ["hc", "raw_s"]
 cish_suffixes                = [ "c", "cpp", "C", "cc", "cxx", "s", "S", "ll", "bc", "lm_s", "m", "M", "mm" ]
 -- Will not be deleted as temp files:
-haskellish_user_src_suffixes = [ "hs", "lhs", "hs-boot", "lhs-boot" ]
+haskellish_user_src_suffixes =
+  haskellish_sig_suffixes ++ [ "hs", "lhs", "hs-boot", "lhs-boot" ]
+haskellish_sig_suffixes      = [ "hsig", "lhsig" ]
 
 objish_suffixes :: Platform -> [String]
 -- Use the appropriate suffix for the system on which
@@ -247,9 +259,10 @@ dynlib_suffixes platform = case platformOS platform of
   _         -> ["so"]
 
 isHaskellishSuffix, isHaskellSrcSuffix, isCishSuffix,
-    isHaskellUserSrcSuffix
+    isHaskellUserSrcSuffix, isHaskellSigSuffix
  :: String -> Bool
 isHaskellishSuffix     s = s `elem` haskellish_suffixes
+isHaskellSigSuffix     s = s `elem` haskellish_sig_suffixes
 isHaskellSrcSuffix     s = s `elem` haskellish_src_suffixes
 isCishSuffix           s = s `elem` cish_suffixes
 isHaskellUserSrcSuffix s = s `elem` haskellish_user_src_suffixes
@@ -262,7 +275,7 @@ isSourceSuffix :: String -> Bool
 isSourceSuffix suff  = isHaskellishSuffix suff || isCishSuffix suff
 
 isHaskellishFilename, isHaskellSrcFilename, isCishFilename,
-    isHaskellUserSrcFilename, isSourceFilename
+    isHaskellUserSrcFilename, isSourceFilename, isHaskellSigFilename
  :: FilePath -> Bool
 -- takeExtension return .foo, so we drop 1 to get rid of the .
 isHaskellishFilename     f = isHaskellishSuffix     (drop 1 $ takeExtension f)
@@ -270,6 +283,7 @@ isHaskellSrcFilename     f = isHaskellSrcSuffix     (drop 1 $ takeExtension f)
 isCishFilename           f = isCishSuffix           (drop 1 $ takeExtension f)
 isHaskellUserSrcFilename f = isHaskellUserSrcSuffix (drop 1 $ takeExtension f)
 isSourceFilename         f = isSourceSuffix         (drop 1 $ takeExtension f)
+isHaskellSigFilename     f = isHaskellSigSuffix     (drop 1 $ takeExtension f)
 
 isObjectFilename, isDynLibFilename :: Platform -> FilePath -> Bool
 isObjectFilename platform f = isObjectSuffix platform (drop 1 $ takeExtension f)

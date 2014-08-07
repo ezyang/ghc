@@ -213,6 +213,11 @@ data TcGblEnv
         tcg_mod     :: Module,         -- ^ Module being compiled
         tcg_src     :: HscSource,
           -- ^ What kind of module (regular Haskell, hs-boot, ext-core)
+        tcg_sig_of  :: Maybe Module,
+          -- ^ Are we being compiled as a signature of an implementation?
+        tcg_impl_rdr_env :: Maybe GlobalRdrEnv,
+          -- ^ Environment used only during -sig-of for resolving top level
+          -- bindings
 
         tcg_rdr_env :: GlobalRdrEnv,   -- ^ Top level envt; used during renaming
         tcg_default :: Maybe [Type],
