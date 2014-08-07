@@ -838,6 +838,22 @@ reportCCSProfiling( void )
     
     if (RtsFlags.CcFlags.doCostCentres == 0) return;
 
+    // ToDo: Output information about cost-centre stacks
+    // ToDo: If retainer profiling is turned on, it could tack extra gunk onto
+    // the file, which is not good.
+    if (RtsFlags.MiscFlags.machineReadable) {
+        CostCentre *cc, *next;
+        aggregateCCCosts(CCS_MAIN);
+        fprintf(prof_file, "cc,module,time,alloc\n");
+        for (cc = CC_LIST; cc != NULL; cc = next) {
+            next = cc->link;
+            fprintf(prof_file, "%s,%s,%" FMT_Word64 ",%" FMT_Word64 "\n",
+                    cc->label, cc->module,
+                    (StgWord64)cc->time_ticks, cc->mem_alloc*sizeof(W_));
+        }
+        return;
+    }
+
     fprintf(prof_file, "\t%s Time and Allocation Profiling Report  (%s)\n", 
 	    time_str(), "Final");
 
