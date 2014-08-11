@@ -235,8 +235,8 @@ doRegister directory distDir ghc ghcpkg topdir
                 updateComponentLocalBuildInfo clbi
                     = clbi {
                           componentPackageDeps =
-                              [ (fixupPackageId instInfos ipid, pid)
-                              | (ipid,pid) <- componentPackageDeps clbi ]
+                              [ (fixupPackageId instInfos ipid, pid, rns)
+                              | (ipid,pid,rns) <- componentPackageDeps clbi ]
                       }
                 ccs' = map updateComponentConfig (componentsConfigs lbi)
                 lbi' = lbi {
@@ -397,7 +397,7 @@ generate directory distdir dll0Modules config_args
                         -- the RTS's library-dirs here.
               _ -> error "No (or multiple) ghc rts package is registered!!"
 
-          dep_ids  = map snd (externalPackageDeps lbi)
+          dep_ids  = map (\(_,x,_) -> x) (externalPackageDeps lbi)
           deps     = map display dep_ids
           dep_keys
             | packageKeySupported comp
@@ -406,7 +406,7 @@ generate directory distdir dll0Modules config_args
                         . fromMaybe (error "ghc-cabal: dep_keys failed")
                         . PackageIndex.lookupInstalledPackageId
                                                            (installedPkgs lbi)
-                        . fst)
+                        . (\(x,_,_) -> x))
                    . externalPackageDeps
                    $ lbi
             | otherwise = deps
