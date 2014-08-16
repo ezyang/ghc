@@ -1,5 +1,5 @@
 
 Q.hs:3:8:
     Could not find module ‘Data.Set’
-    It is a member of the hidden package ‘containers-0.5.5.1@conta_4P4dHnD3A89EkvERxmaFmd’.
+    It is a member of the hidden package ‘containers-0.5.5.1@conta_H86yNO5PBHLBaSuhe6Ii1A’.
     Use -v to see a list of the files searched for.
