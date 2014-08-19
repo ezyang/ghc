@@ -46,6 +46,7 @@ import System.Exit ( exitWith, ExitCode(..) )
 import System.Environment ( getArgs, getProgName, getEnv )
 import System.IO
 import System.IO.Error
+import GHC.IO.Exception (IOErrorType(InappropriateType))
 import Data.List
 import Control.Concurrent
 
@@ -672,9 +673,12 @@ readParseDatabase verbosity mb_user_conf use_cache path
   | otherwise
   = do e <- tryIO $ getDirectoryContents path
        case e of
-         Left _   -> do
-              pkgs <- parseMultiPackageConf verbosity path
-              mkPackageDB pkgs
+         Left err
+           | ioeGetErrorType err == InappropriateType ->
+              die ("ghc no longer supports single-file style package databases ("
+                ++ path ++ ") use 'ghc-pkg init' to create the database with "
+                ++ "the correct format.")
+           | otherwise -> ioError err
          Right fs
            | not use_cache -> ignore_cache (const $ return ())
            | otherwise -> do
@@ -741,15 +745,6 @@ myReadBinPackageDB filepath = do
   b <- B.hGet h (fromIntegral sz)
   hClose h
   return $ Bin.runGet Bin.get b
-
-parseMultiPackageConf :: Verbosity -> FilePath -> IO [InstalledPackageInfo]
-parseMultiPackageConf verbosity file = do
-  when (verbosity > Normal) $ infoLn ("reading package database: " ++ file)
-  str <- readUTF8File file
-  let pkgs = map convertPackageInfoIn $ read str
-  Exception.evaluate pkgs
-    `catchError` \e->
-       die ("error while parsing " ++ file ++ ": " ++ show e)
   
 parseSingletonPackageConf :: Verbosity -> FilePath -> IO InstalledPackageInfo
 parseSingletonPackageConf verbosity file = do
