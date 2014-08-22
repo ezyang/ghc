@@ -89,6 +89,7 @@ data InstalledPackageInfo instpkgid srcpkgid srcpkgname pkgkey modulename
        exposedModules     :: [modulename],
        hiddenModules      :: [modulename],
        reexportedModules  :: [ModuleExport instpkgid modulename],
+       instantiatedWith   :: [(modulename, (instpkgid, modulename))],
        exposed            :: Bool,
        trusted            :: Bool
      }
@@ -132,6 +133,7 @@ emptyInstalledPackageInfo =
        exposedModules     = [],
        hiddenModules      = [],
        reexportedModules  = [],
+       instantiatedWith   = [],
        exposed            = False,
        trusted            = False
   }
@@ -279,7 +281,7 @@ instance (BinaryStringRep a, BinaryStringRep b, BinaryStringRep c,
          ldOptions ccOptions
          includes includeDirs
          haddockInterfaces haddockHTMLs
-         exposedModules hiddenModules reexportedModules
+         exposedModules hiddenModules reexportedModules instantiatedWith
          exposed trusted) = do
     put (toStringRep installedPackageId)
     put (toStringRep sourcePackageId)
@@ -303,6 +305,7 @@ instance (BinaryStringRep a, BinaryStringRep b, BinaryStringRep c,
     put (map toStringRep exposedModules)
     put (map toStringRep hiddenModules)
     put reexportedModules
+    put (map (\(k,(p,n)) -> (toStringRep k, (toStringRep p, toStringRep n))) instantiatedWith)
     put exposed
     put trusted
 
@@ -329,6 +332,7 @@ instance (BinaryStringRep a, BinaryStringRep b, BinaryStringRep c,
     exposedModules     <- get
     hiddenModules      <- get
     reexportedModules  <- get
+    instantiatedWith   <- get
     exposed            <- get
     trusted            <- get
     return (InstalledPackageInfo
@@ -346,6 +350,7 @@ instance (BinaryStringRep a, BinaryStringRep b, BinaryStringRep c,
               (map fromStringRep exposedModules)
               (map fromStringRep hiddenModules)
               reexportedModules
+              (map (\(k,(p,n)) -> (fromStringRep k, (fromStringRep p, fromStringRep n))) instantiatedWith)
               exposed trusted)
 
 instance Binary Version where

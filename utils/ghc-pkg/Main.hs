@@ -1059,6 +1059,7 @@ convertPackageInfoToCacheFormat pkg =
                                        exportCachedTrueOrig = Just (InstalledPackageId ipid', m')
                                      } <- reexportedModules pkg
                                    ],
+       GhcPkg.instantiatedWith   = [], -- TODO FIXME
        GhcPkg.exposed            = exposed pkg,
        GhcPkg.trusted            = trusted pkg
     }
@@ -2010,6 +2011,7 @@ putInstalledPackageInfo ipi = do
   put (exposedModules ipi)
   put (reexportedModules ipi)
   put (hiddenModules ipi)
+  put (instantiatedWith ipi)
   put (trusted ipi)
   put (importDirs ipi)
   put (libraryDirs ipi)
@@ -2046,6 +2048,7 @@ getInstalledPackageInfo = do
   exposedModules <- get
   reexportedModules <- get
   hiddenModules <- get
+  instantiatedWith <- get
   trusted <- get
   importDirs <- get
   libraryDirs <- get
