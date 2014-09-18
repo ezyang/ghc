@@ -102,8 +102,10 @@ test('T3738',
      ['-O'])
 
 test('MethSharing',
-     [stats_num_field('peak_megabytes_allocated', (1, 0)),
-                                 # expected value: 1 (amd64/Linux)
+     [stats_num_field('peak_megabytes_allocated', (2, 0)),
+                                 # expected value: 2 (amd64/Linux)
+                                 # prev:
+                                 # 2014-09-18:     1 (amd64/Linux)
       stats_num_field('bytes allocated',
                       [(wordsize(32), 360940756, 5),
                     # expected value: 2685858140 (x86/OS X)
