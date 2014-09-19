@@ -1321,7 +1321,8 @@ runPhase (RealPhase SplitAs) _input_fn dflags
         --
         -- To that end, we make a DANGEROUS ASSUMPTION here: the data
         -- that needs to be initialised is all in the LAST split
-        -- object.  See Note [codegen-split-init].
+        -- object.  This is arranged for in deferInitData; se
+        -- Note [codegen-split-init].
 
         PipeState{maybe_stub_o} <- getPipeState
         case maybe_stub_o of

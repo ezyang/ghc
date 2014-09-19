@@ -11,6 +11,7 @@
 module StgCmmUtils (
         cgLit, mkSimpleLit,
         emitDataLits, mkDataLits,
+        emitInitDataLits,
         emitRODataLits, mkRODataLits,
         emitStaticClosure,
         emitRtsCall, emitRtsCallWithResult, emitRtsCallGen,
@@ -317,6 +318,11 @@ baseRegOffset _      reg            = pprPanic "baseRegOffset:" (ppr reg)
 emitDataLits :: CLabel -> [CmmLit] -> FCode ()
 -- Emit a data-segment data block
 emitDataLits lbl lits = emitDecl (mkDataLits Data lbl lits)
+
+emitInitDataLits :: CLabel -> [CmmLit] -> FCode ()
+-- Emit a data-segment data block which is guaranteed to be colocated
+-- with static initializers, even when split-objs is used
+emitInitDataLits lbl lits = emitDecl (mkDataLits InitData lbl lits)
 
 emitRODataLits :: CLabel -> [CmmLit] -> FCode ()
 -- Emit a read-only data block

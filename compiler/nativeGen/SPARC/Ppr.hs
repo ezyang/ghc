@@ -330,6 +330,7 @@ pprSectionHeader seg
  = case seg of
         Text                    -> ptext (sLit ".text\n\t.align 4")
         Data                    -> ptext (sLit ".data\n\t.align 8")
+        InitData                -> ptext (sLit ".data\n\t.align 8")
         ReadOnlyData            -> ptext (sLit ".text\n\t.align 8")
         RelocatableReadOnlyData -> ptext (sLit ".text\n\t.align 8")
         UninitialisedData       -> ptext (sLit ".bss\n\t.align 8")

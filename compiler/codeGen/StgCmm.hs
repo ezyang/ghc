@@ -93,10 +93,9 @@ codeGen dflags this_mod data_tycons
 
         ; mapM_ do_tycon data_tycons
 
-               -- Note [codegen-split-init] the cmm_init block must come
-               -- LAST.  This is because when -split-objs is on we need to
-               -- combine this block with its initialisation routines; see
-               -- Note [pipeline-split-init].
+               -- Note [codegen-split-init] all the data in this section
+               -- is labeled CmmInitData because it needs to be put with
+               -- static initializers; see Note [pipeline-split-init].
         ; cg (mkModuleInit cost_centre_info this_mod hpc_info)
         }
 
@@ -194,7 +193,8 @@ mkModuleInit cost_centre_info this_mod hpc_info
         ; initCostCentres cost_centre_info
             -- For backwards compatibility: user code may refer to this
             -- label for calling hs_add_root().
-        ; emitDecl (CmmData Data (Statics (mkPlainModuleInitLabel this_mod) []))
+        ; emitDecl (CmmData InitData
+                            (Statics (mkPlainModuleInitLabel this_mod) []))
         }
 
 

@@ -157,6 +157,7 @@ pprSection :: Section -> SDoc
 pprSection s = case s of
     Text              -> section <+> doubleQuotes (ptext (sLit "text"))
     Data              -> section <+> doubleQuotes (ptext (sLit "data"))
+    InitData          -> section <+> doubleQuotes (ptext (sLit "data"))
     ReadOnlyData      -> section <+> doubleQuotes (ptext (sLit "readonly"))
     ReadOnlyData16    -> section <+> doubleQuotes (ptext (sLit "readonly16"))
     RelocatableReadOnlyData

@@ -384,6 +384,7 @@ pprSectionHeader seg
        case seg of
            Text                    -> ptext (sLit ".text\n\t.align 2")
            Data                    -> ptext (sLit ".data\n\t.align 2")
+           InitData                -> ptext (sLit ".data\n\t.align 2")
            ReadOnlyData            -> ptext (sLit ".const\n.align 2")
            RelocatableReadOnlyData -> ptext (sLit ".const_data\n.align 2")
            UninitialisedData       -> ptext (sLit ".data\n\t.align 2")
@@ -395,6 +396,7 @@ pprSectionHeader seg
        case seg of
            Text                    -> ptext (sLit ".text\n.align 3")
            Data                    -> ptext (sLit ".data\n.align 3")
+           InitData                -> ptext (sLit ".data\n.align 3")
            ReadOnlyData            -> ptext (sLit ".const\n.align 3")
            RelocatableReadOnlyData -> ptext (sLit ".const_data\n.align 3")
            UninitialisedData       -> ptext (sLit ".data\n\t.align 3")
@@ -407,6 +409,7 @@ pprSectionHeader seg
        case seg of
            Text                    -> ptext (sLit ".text\n\t.align 4,0x90")
            Data                    -> ptext (sLit ".data\n\t.align 4")
+           InitData                -> ptext (sLit ".data\n\t.align 4")
            ReadOnlyData            -> ptext (sLit ".section .rodata\n\t.align 4")
            RelocatableReadOnlyData -> ptext (sLit ".section .data\n\t.align 4")
            UninitialisedData       -> ptext (sLit ".section .bss\n\t.align 4")
@@ -418,6 +421,7 @@ pprSectionHeader seg
        case seg of
            Text                    -> ptext (sLit ".text\n\t.align 8")
            Data                    -> ptext (sLit ".data\n\t.align 8")
+           InitData                -> ptext (sLit ".data\n\t.align 8")
            ReadOnlyData            -> ptext (sLit ".section .rodata\n\t.align 8")
            RelocatableReadOnlyData -> ptext (sLit ".section .data\n\t.align 8")
            UninitialisedData       -> ptext (sLit ".section .bss\n\t.align 8")

@@ -166,6 +166,7 @@ needsSRT (C_SRT _ _ _) = True
 data Section
   = Text
   | Data
+  | InitData -- like data, but we are sure to keep it with static initializers
   | ReadOnlyData
   | RelocatableReadOnlyData
   | UninitialisedData

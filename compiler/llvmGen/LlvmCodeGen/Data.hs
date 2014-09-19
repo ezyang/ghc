@@ -56,6 +56,7 @@ isSecConstant ReadOnlyData            = True
 isSecConstant RelocatableReadOnlyData = True
 isSecConstant ReadOnlyData16          = True
 isSecConstant Data                    = False
+isSecConstant InitData                = False
 isSecConstant StaticClosures          = False
 isSecConstant StaticClosureInds       = False
 isSecConstant UninitialisedData       = False

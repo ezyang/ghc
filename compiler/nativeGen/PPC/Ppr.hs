@@ -279,6 +279,7 @@ pprSectionHeader seg
    in   case seg of
         Text                    -> ptext (sLit ".text\n.align 2")
         Data                    -> ptext (sLit ".data\n.align 2")
+        InitData                -> ptext (sLit ".data\n.align 2")
         ReadOnlyData
          | osDarwin             -> ptext (sLit ".const\n.align 2")
          | otherwise            -> ptext (sLit ".section .rodata\n\t.align 2")

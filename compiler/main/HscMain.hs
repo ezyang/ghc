@@ -1682,37 +1682,17 @@ showModuleIndex (i,n) = "[" ++ padded ++ " of " ++ n_str ++ "] "
     i_str = show i
     padded = replicate (length n_str - length i_str) ' ' ++ i_str
 
--- Note [Static closure initializers and split-objs]
--- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
--- Why do we need to defer code generation of static closures until the
--- end of the object file?  The answer has to do with split objects.
--- When we split objects, we need to place static initializers for the
--- static closures in a well known place so that they will get loaded if
--- some code which depends on the static closure is pulled in.  When
--- static initializers were interleaved with the rest of the code, it's
--- easy to accidentally drop one (even though we have a reference to the
--- static closure), and then segfault!  So we collect up all the static
--- initializers and put them in a well known place so split-objs can put
--- them in the right object file.
---
--- By the way, previously, split-objs assumed that the FIRST object was
--- the one which collected all the initializers.  However, this would
--- prevent us from streaming C-- generation, since we'd have to traverse
--- the entire stream to grab the initializers.  We moved it to the back
--- so that we can collect static initializers as we go along, and then
--- print them all out.
-
--- This function is *expensive*: we need to retain static closures,
--- and we also need to look one CmmGroup ahead to tell if we need
--- to emit the static closures NOW (if the stream ends, we won't hear
--- about it!)
-deferStaticClosures :: Monad m =>
+-- See Note [codegen-split-init] and Note [pipeline-split-init];
+-- deferInitData is responsible for making sure all of the static
+-- initializer data is in the last CmmGroup so that it gets bundled
+-- up properly.
+deferInitData :: Monad m =>
        Either CLabel Module
     -> Stream m [GenCmmDecl CmmStatics info stmt] b
     -> [GenCmmDecl CmmStatics info stmt]
     -> [GenCmmDecl CmmStatics info stmt]
     -> Stream m [GenCmmDecl CmmStatics info stmt] b
-deferStaticClosures lbl_or_mod str prev closures = Stream.Stream $ do
+deferInitData lbl_or_mod str closures init_data = Stream.Stream $ do
     r <- Stream.runStream str
     case r of
         Left x -> do
@@ -1720,29 +1700,25 @@ deferStaticClosures lbl_or_mod str prev closures = Stream.Stream $ do
                     mkDataLits StaticClosureInds
                                (mkStaticClosureIndsLabel lbl_or_mod starts)
                                []
-            return (Right (addLabel True : closures ++ [addLabel False] ++ prev,
-                           Stream.Stream (return (Left x))))
+            -- NB: init_data should *not* be placed between the label
+            -- markers, since we rely on the indirections being contiguous
+            -- with no junk in the RTS
+            return (Right (addLabel True : closures ++ [addLabel False]
+                            ++ init_data, Stream.Stream (return (Left x))))
         Right (next, str') -> do
-            let isStaticClosure (CmmData StaticClosureInds _) = True
-                isStaticClosure (CmmData StaticClosures _) = True
-                isStaticClosure _ = False
-                -- inlined partition so we don't recompute closures
-                select :: (a -> Bool) -> a -> ([a], [a]) -> ([a], [a])
-                select p x ~(ts,fs) | p x       = (x:ts,fs)
-                                    | otherwise = (ts, x:fs)
-                (closures', next')
-                    = foldr (select isStaticClosure) (closures, []) next
-            closures' `seqList` if null prev
-                then Stream.runStream
-                        (deferStaticClosures lbl_or_mod str' next' closures')
-                else return (Right (prev,
-                         deferStaticClosures lbl_or_mod str' next' closures'))
+            let select x@(CmmData StaticClosureInds _) (a,b,c) = (x:a,b,c)
+                select x@(CmmData StaticClosures _)    (a,b,c) = (x:a,b,c)
+                select x@(CmmData InitData _)          (a,b,c) = (a,x:b,c)
+                select x                               (a,b,c) = (a,b,x:c)
+                (cls', init', next')
+                    = foldr select (closures, init_data, []) next
+            return (Right (next', deferInitData lbl_or_mod str' cls' init'))
 
 prepareStaticClosures :: Monad m => Either CLabel Module
      -> Stream m [GenCmmDecl CmmStatics info stmt] b -> ForeignStubs
      -> (Stream m [GenCmmDecl CmmStatics info stmt] b, ForeignStubs)
 prepareStaticClosures lbl_or_mod cmms0 foreign_stubs0 =
-    let cmms = deferStaticClosures lbl_or_mod cmms0 [] []
+    let cmms = deferInitData lbl_or_mod cmms0 [] [] -- NB: *always* do this
         foreign_stubs = foreign_stubs0 `appendStubC` static_closure_inds_init
         tag = case lbl_or_mod of
                 Left lbl -> text "cmm_" <> ppr lbl
