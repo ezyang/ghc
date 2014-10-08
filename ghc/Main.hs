@@ -826,11 +826,12 @@ abiHash strs = do
          let modname = mkModuleName str
          r <- findImportedModule hsc_env modname Nothing
          case r of
-           Found _ m -> return m
+           Found (FoundModule _ m) -> return [m]
+           Found (FoundSigs ms) -> return (map snd ms)
            _error    -> throwGhcException $ CmdLineError $ showSDoc dflags $
                           cannotFindInterface dflags modname r
 
-  mods <- mapM find_it strs
+  mods <- fmap concat (mapM find_it strs)
 
   let get_iface modl = loadUserInterface False (text "abiHash") modl
   ifaces <- initIfaceCheck hsc_env $ mapM get_iface mods

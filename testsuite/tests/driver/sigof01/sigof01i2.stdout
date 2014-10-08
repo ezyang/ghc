@@ -1,0 +1,13 @@
+GHCi, version 7.9.20141126: http://www.haskell.org/ghc/  :? for help
+Prelude> [1 of 2] Compiling A                ( A.hs, interpreted )
+[2 of 2] Compiling B[sig of A]      ( B.hsig, interpreted )
+Ok, modules loaded: B, A.
+*B> class Foo a where
+  foo :: a -> a
+data T = A.T
+mkT :: T
+x :: Bool
+*B> Trust type is (Module: Safe, Package: trusted)
+Package Trust: Off
+B is trusted!
+*B> Leaving GHCi.

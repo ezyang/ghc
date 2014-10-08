@@ -274,7 +274,7 @@ import HscMain
 import GhcMake
 import DriverPipeline   ( compileOne' )
 import GhcMonad
-import TcRnMonad        ( finalSafeMode )
+import TcRnMonad        ( finalSafeMode, initIfaceCheck )
 import TcRnTypes
 import Packages
 import NameSet
@@ -289,6 +289,7 @@ import TysPrim          ( alphaTyVars )
 import TyCon
 import Class
 import DataCon
+import LoadIface        ( loadSysInterface )
 import Name             hiding ( varName )
 import Avail
 import InstEnv
@@ -1323,30 +1324,61 @@ showRichTokenStream ts = go startLoc ts ""
 -- -----------------------------------------------------------------------------
 -- Interactive evaluation
 
+findGetModuleInterface :: HscEnv -> Module -> IO ModIface
+findGetModuleInterface hsc_env m =
+    -- Using this initializer is a little bit of a hack, but we're only
+    -- going to look at mi_sigof so it should be OK.
+    initIfaceCheck hsc_env
+        $ loadSysInterface (text "find/lookupModule") m
+
 -- | Takes a 'ModuleName' and possibly a 'PackageKey', and consults the
 -- filesystem and package database to find the corresponding 'Module', 
 -- using the algorithm that is used for an @import@ declaration.
+--
+-- However, there is a twist for local modules, see #2682.
+--
+-- The full algorithm:
+-- IF it's a package qualified import for a REMOTE package (not @this_pkg@ or
+-- this), do a normal lookup.
+-- OTHERWISE see if it is ALREADY loaded, and use it if it is.
+-- OTHERWISE do a normal lookup, but reject the result if the found result
+-- is from the LOCAL package (@this_pkg@).
+--
+-- For signatures, we return the BACKING implementation to keep the API
+-- consistent with what we had before. (ToDo: create a new GHC API which
+-- can deal with signatures.)
+--
 findModule :: GhcMonad m => ModuleName -> Maybe FastString -> m Module
 findModule mod_name maybe_pkg = withSession $ \hsc_env -> do
-  let 
+  let
     dflags   = hsc_dflags hsc_env
     this_pkg = thisPackage dflags
-  --
+    find_backing_impl m = do
+        iface <- findGetModuleInterface hsc_env m
+        case mi_sig_of iface of
+            Nothing -> panic "findModule: not a signature"
+            Just m -> return m
   case maybe_pkg of
     Just pkg | fsToPackageKey pkg /= this_pkg && pkg /= fsLit "this" -> liftIO $ do
       res <- findImportedModule hsc_env mod_name maybe_pkg
       case res of
-        Found _ m -> return m
+        Found (FoundModule _ m) -> return m
+        Found (FoundSigs ((_, m):_)) -> find_backing_impl m
         err       -> throwOneError $ noModError dflags noSrcSpan mod_name err
     _otherwise -> do
       home <- lookupLoadedHomeModule mod_name
       case home of
+        -- TODO: This COULD be a signature
         Just m  -> return m
         Nothing -> liftIO $ do
            res <- findImportedModule hsc_env mod_name maybe_pkg
            case res of
-             Found loc m | modulePackageKey m /= this_pkg -> return m
-                         | otherwise -> modNotLoadedError dflags m loc
+             Found (FoundModule loc m)
+                | modulePackageKey m /= this_pkg -> return m
+                | otherwise -> modNotLoadedError dflags m loc
+             Found (FoundSigs ((loc,m):_))
+                | modulePackageKey m /= this_pkg -> find_backing_impl m
+                | otherwise -> modNotLoadedError dflags m loc
              err -> throwOneError $ noModError dflags noSrcSpan mod_name err
 
 modNotLoadedError :: DynFlags -> Module -> ModLocation -> IO a
@@ -1367,11 +1399,17 @@ lookupModule mod_name (Just pkg) = findModule mod_name (Just pkg)
 lookupModule mod_name Nothing = withSession $ \hsc_env -> do
   home <- lookupLoadedHomeModule mod_name
   case home of
+    -- TODO: This COULD be a signature
     Just m  -> return m
     Nothing -> liftIO $ do
       res <- findExposedPackageModule hsc_env mod_name Nothing
       case res of
-        Found _ m -> return m
+        Found (FoundModule _ m) -> return m
+        Found (FoundSigs ((_,m):_)) -> do
+            iface <- findGetModuleInterface hsc_env m
+            case mi_sig_of iface of
+                Nothing -> panic "lookupModule: not a signature"
+                Just m -> return m
         err       -> throwOneError $ noModError (hsc_dflags hsc_env) noSrcSpan mod_name err
 
 lookupLoadedHomeModule :: GhcMonad m => ModuleName -> m (Maybe Module)
