@@ -72,7 +72,7 @@ module Module
         ModuleNameEnv,
 
         -- * Sets of Modules
-        ModuleSet,
+        ModuleSet, VisibleModules,
         emptyModuleSet, mkModuleSet, moduleSetElts, extendModuleSet, elemModuleSet
     ) where
 
@@ -511,5 +511,8 @@ UniqFM.
 \begin{code}
 -- | A map keyed off of 'ModuleName's (actually, their 'Unique's)
 type ModuleNameEnv elt = UniqFM elt
+
+-- | Set of visible modules, according to what interfaces have been loaded.
+type VisibleModules = Maybe ModuleSet
 \end{code}
 

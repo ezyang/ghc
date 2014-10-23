@@ -1940,7 +1940,7 @@ tcRnGetInfo hsc_env name
 
 lookupInsts :: TyThing -> TcM ([ClsInst],[FamInst])
 lookupInsts (ATyCon tc)
-  = do  { (pkg_ie, home_ie) <- tcGetInstEnvs
+  = do  { (pkg_ie, home_ie, vis_mods) <- tcGetInstEnvs
         ; (pkg_fie, home_fie) <- tcGetFamInstEnvs
                 -- Load all instances for all classes that are
                 -- in the type environment (which are all the ones
@@ -1951,6 +1951,7 @@ lookupInsts (ATyCon tc)
         ; let cls_insts =
                  [ ispec        -- Search all
                  | ispec <- instEnvElts home_ie ++ instEnvElts pkg_ie
+                 , instIsVisible vis_mods ispec
                  , tc_name `elemNameSet` orphNamesOfClsInst ispec ]
         ; let fam_insts =
                  [ fispec

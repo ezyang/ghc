@@ -26,6 +26,7 @@ module TcRnTypes(
         Env(..),
         TcGblEnv(..), TcLclEnv(..),
         IfGblEnv(..), IfLclEnv(..),
+        IfaceGblEnv(..),
 
         -- Ranamer types
         ErrCtxt, RecFieldEnv(..),
@@ -158,6 +159,15 @@ type IfM lcl  = TcRnIf IfGblEnv lcl         -- Iface stuff
 type IfG  = IfM ()                          -- Top level
 type IfL  = IfM IfLclEnv                    -- Nested
 
+class IfaceGblEnv a where
+    getLoadedIfaces :: TcRnIf a b (TcRef ModuleSet)
+
+instance IfaceGblEnv IfGblEnv where
+    getLoadedIfaces = fmap (if_loaded_ifaces . env_gbl) getEnv
+
+instance IfaceGblEnv TcGblEnv where
+    getLoadedIfaces = fmap (tcg_loaded_ifaces. env_gbl) getEnv
+
 -- | Type-checking and renaming monad: the main monad that most type-checking
 -- takes place in.  The global environment is 'TcGblEnv', which tracks
 -- all of the top-level type-checking information we've accumulated while
@@ -263,6 +273,10 @@ data TcGblEnv
           -- Includes the dfuns in tcg_insts
         tcg_fam_inst_env :: FamInstEnv, -- ^ Ditto for family instances
         tcg_ann_env      :: AnnEnv,     -- ^ And for annotations
+
+        tcg_loaded_ifaces :: TcRef ModuleSet,
+          -- ^ The set of interfaces which were directly loaded by this module.
+          -- We use this to figure out if a hit in the global InstEnv is valid.
 
                 -- Now a bunch of things about this module that are simply
                 -- accumulated, but never consulted until the end.
@@ -474,10 +488,12 @@ data IfGblEnv
         -- was originally a hi-boot file.
         -- We need the module name so we can test when it's appropriate
         -- to look in this env.
-        if_rec_types :: Maybe (Module, IfG TypeEnv)
+        if_rec_types :: Maybe (Module, IfG TypeEnv),
                 -- Allows a read effect, so it can be in a mutable
                 -- variable; c.f. handling the external package type env
                 -- Nothing => interactive stuff, no loops possible
+        if_loaded_ifaces :: TcRef ModuleSet
+        -- ^ Tracks the set of interface files which we've loaded.
     }
 
 data IfLclEnv

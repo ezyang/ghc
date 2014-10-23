@@ -114,7 +114,8 @@ deSugar hsc_env
                                           (typeEnvTyCons type_env) binds
                               else return (binds, hpcInfo, emptyModBreaks)
 
-        ; (msgs, mb_res) <- initDs hsc_env mod rdr_env type_env fam_inst_env $
+        ; (msgs, mb_res) <- initDs hsc_env mod rdr_env type_env fam_inst_env
+                                   (tcg_loaded_ifaces tcg_env) $
                        do { ds_ev_binds <- dsEvBinds ev_binds
                           ; core_prs <- dsTopLHsBinds binds_cvr
                           ; (spec_prs, spec_rules) <- dsImpSpecs imp_specs
@@ -238,10 +239,12 @@ deSugarExpr hsc_env tc_expr
              -- This stuff is a half baked version of TcRnDriver.setInteractiveContext
 
        ; showPass dflags "Desugar"
+       ; loaded_ifaces_var <- newIORef emptyModuleSet
 
          -- Do desugaring
        ; (msgs, mb_core_expr) <- initDs hsc_env (icInteractiveModule icntxt) rdr_env
-                                        type_env fam_inst_env $
+                                        type_env fam_inst_env
+                                        loaded_ifaces_var $
                                  dsLExpr tc_expr
 
        ; case mb_core_expr of

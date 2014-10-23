@@ -42,6 +42,8 @@ import Id
 import Name
 import ErrUtils
 import Outputable
+import Module
+import Data.IORef
 
 
 -- |Run a vectorisation computation.
@@ -55,9 +57,12 @@ initV hsc_env guts info thing_inside
   = do { dumpIfVtTrace "Incoming VectInfo" (ppr info)
 
        ; let type_env = typeEnvFromEntities ids (mg_tcs guts) (mg_fam_insts guts)
+       ; loaded_ifaces_var <- newIORef emptyModuleSet
        ; (_, Just res) <- initDs hsc_env (mg_module guts)
                                          (mg_rdr_env guts) type_env
-                                         (mg_fam_inst_env guts) go
+                                         (mg_fam_inst_env guts)
+                                         loaded_ifaces_var
+                                         go
 
        ; case res of
            Nothing
@@ -85,7 +90,9 @@ initV hsc_env guts info thing_inside
                -- set up class and type family envrionments
            ; eps <- liftIO $ hscEPS hsc_env
            ; let famInstEnvs = (eps_fam_inst_env eps, mg_fam_inst_env guts)
-                 instEnvs    = (eps_inst_env     eps, mg_inst_env     guts)
+                 instEnvs    = (eps_inst_env     eps,
+                                mg_inst_env     guts,
+                                Nothing)
                  builtin_pas = initClassDicts instEnvs (paClass builtins)  -- grab all 'PA' and..
                  builtin_prs = initClassDicts instEnvs (prClass builtins)  -- ..'PR' class instances
 
@@ -114,7 +121,7 @@ initV hsc_env guts info thing_inside
     -- instance dfun for that type constructor and class.  (DPH class instances cannot overlap in
     -- head constructors.)
     --
-    initClassDicts :: (InstEnv, InstEnv) -> Class -> [(Name, Var)]
+    initClassDicts :: InstEnvs -> Class -> [(Name, Var)]
     initClassDicts insts cls = map find $ classInstances insts cls
       where
         find i | [Just tc] <- instanceRoughTcs i = (tc, instanceDFunId i)

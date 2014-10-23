@@ -220,6 +220,12 @@ loadInterface doc_str mod from
 
         ; traceIf (text "Considering whether to load" <+> ppr mod <+> ppr from)
 
+                -- Record that the interface file was requested
+        ; env <- getGblEnv
+        ; updTcRef (if_loaded_ifaces env) (\s -> extendModuleSet s mod)
+        ; x <- readTcRef (if_loaded_ifaces env)
+        ; traceIf (text "Here's what's active:" <+> ppr x)
+
                 -- Check whether we have the interface already
         ; dflags <- getDynFlags
         ; case lookupIfaceByModule dflags hpt (eps_PIT eps) mod of {

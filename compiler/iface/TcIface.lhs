@@ -264,7 +264,7 @@ knot.  Remember, the decls aren't necessarily in dependency order --
 and even if they were, the type decls might be mutually recursive.
 
 \begin{code}
-typecheckIface :: ModIface      -- Get the decls from here
+typecheckIface :: IfaceGblEnv gbl => ModIface      -- Get the decls from here
                -> TcRnIf gbl lcl ModDetails
 typecheckIface iface
   = initIfaceTc iface $ \ tc_env_var -> do
@@ -731,11 +731,14 @@ look at it.
 \begin{code}
 tcIfaceInst :: IfaceClsInst -> IfL ClsInst
 tcIfaceInst (IfaceClsInst { ifDFun = dfun_occ, ifOFlag = oflag
-                          , ifInstCls = cls, ifInstTys = mb_tcs })
+                          , ifInstCls = cls, ifInstTys = mb_tcs
+                          , ifInstOrph = orph })
   = do { dfun <- forkM (ptext (sLit "Dict fun") <+> ppr dfun_occ) $
                  tcIfaceExtId dfun_occ
        ; let mb_tcs' = map (fmap ifaceTyConName) mb_tcs
-       ; return (mkImportedInstance cls mb_tcs' dfun oflag) }
+       ; (_, lcl_env) <- getEnvs
+       ; return (mkImportedInstance cls mb_tcs' dfun oflag (if_mod lcl_env)
+                                    (orph == Nothing)) }
 
 tcIfaceFamInst :: IfaceFamInst -> IfL FamInst
 tcIfaceFamInst (IfaceFamInst { ifFamInstFam = fam, ifFamInstTys = mb_tcs

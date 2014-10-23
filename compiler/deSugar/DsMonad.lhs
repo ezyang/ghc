@@ -190,15 +190,17 @@ data DsMetaVal
                         -- the PendingSplices on a HsBracketOut
 
 initDs :: HscEnv
-       -> Module -> GlobalRdrEnv -> TypeEnv -> FamInstEnv
+       -> Module -> GlobalRdrEnv -> TypeEnv -> FamInstEnv -> TcRef ModuleSet
        -> DsM a
        -> IO (Messages, Maybe a)
 -- Print errors and warnings, if any arise
 
-initDs hsc_env mod rdr_env type_env fam_inst_env thing_inside
+initDs hsc_env mod rdr_env type_env fam_inst_env loaded_ifaces_var thing_inside
   = do  { msg_var <- newIORef (emptyBag, emptyBag)
         ; let dflags                   = hsc_dflags hsc_env
-              (ds_gbl_env, ds_lcl_env) = mkDsEnvs dflags mod rdr_env type_env fam_inst_env msg_var
+              (ds_gbl_env, ds_lcl_env) = mkDsEnvs dflags mod rdr_env type_env
+                                                  fam_inst_env msg_var
+                                                  loaded_ifaces_var
 
         ; either_res <- initTcRnIf 'd' hsc_env ds_gbl_env ds_lcl_env $
                           loadDAP $
@@ -276,13 +278,22 @@ initDsTc thing_inside
         ; let type_env = tcg_type_env tcg_env
               rdr_env  = tcg_rdr_env tcg_env
               fam_inst_env = tcg_fam_inst_env tcg_env
-              ds_envs  = mkDsEnvs dflags this_mod rdr_env type_env fam_inst_env msg_var
+              ds_envs  = mkDsEnvs dflags this_mod rdr_env type_env fam_inst_env
+                                  msg_var (tcg_loaded_ifaces tcg_env)
         ; setEnvs ds_envs thing_inside
         }
 
-mkDsEnvs :: DynFlags -> Module -> GlobalRdrEnv -> TypeEnv -> FamInstEnv -> IORef Messages -> (DsGblEnv, DsLclEnv)
-mkDsEnvs dflags mod rdr_env type_env fam_inst_env msg_var
-  = let if_genv = IfGblEnv { if_rec_types = Just (mod, return type_env) }
+mkDsEnvs :: DynFlags
+         -> Module
+         -> GlobalRdrEnv
+         -> TypeEnv
+         -> FamInstEnv
+         -> IORef Messages
+         -> TcRef ModuleSet
+         -> (DsGblEnv, DsLclEnv)
+mkDsEnvs dflags mod rdr_env type_env fam_inst_env msg_var loaded_ifaces_var
+  = let if_genv = IfGblEnv { if_rec_types = Just (mod, return type_env)
+                           , if_loaded_ifaces = loaded_ifaces_var }
         if_lenv = mkIfLclEnv mod (ptext (sLit "GHC error in desugarer lookup in") <+> ppr mod)
         gbl_env = DsGblEnv { ds_mod     = mod
                            , ds_fam_inst_env = fam_inst_env

@@ -17,15 +17,18 @@ module InstEnv (
         instanceDFunId, tidyClsInstDFun, instanceRoughTcs,
         fuzzyClsInstCmp,
 
-        InstEnv, emptyInstEnv, extendInstEnv, deleteFromInstEnv, identicalInstHead, 
+        IsOrphan,
+
+        InstEnv, InstEnvs, emptyInstEnv, extendInstEnv, deleteFromInstEnv, identicalInstHead, 
         extendInstEnvList, lookupUniqueInstEnv, lookupInstEnv', lookupInstEnv, instEnvElts,
-        memberInstEnv,
+        memberInstEnv, instIsVisible,
         classInstances, orphNamesOfClsInst, instanceBindFun,
         instanceCantMatch, roughMatchTcs
     ) where
 
 #include "HsVersions.h"
 
+import Module
 import Class
 import Var
 import VarSet
@@ -53,6 +56,7 @@ import Data.Maybe       ( isJust, isNothing )
 %************************************************************************
 
 \begin{code}
+type IsOrphan = Bool
 data ClsInst 
   = ClsInst {   -- Used for "rough matching"; see Note [Rough-match field]
                 -- INVARIANT: is_tcs = roughMatchTcs is_tys
@@ -75,6 +79,8 @@ data ClsInst
 
              , is_flag :: OverlapFlag   -- See detailed comments with
                                         -- the decl of BasicTypes.OverlapFlag
+             , is_cls_mod :: Maybe Module -- Source module, or Nothing if local
+             , is_orphan :: IsOrphan -- Is this instance an orphan?
     }
   deriving (Data, Typeable)
 
@@ -212,18 +218,22 @@ mkLocalInstance dfun oflag tvs cls tys
   = ClsInst { is_flag = oflag, is_dfun = dfun
             , is_tvs = tvs
             , is_cls = cls, is_cls_nm = className cls
-            , is_tys = tys, is_tcs = roughMatchTcs tys }
+            , is_tys = tys, is_tcs = roughMatchTcs tys
+            , is_cls_mod = Nothing
+            , is_orphan = False -- HACK
+            }
 
 mkImportedInstance :: Name -> [Maybe Name]
-                   -> DFunId -> OverlapFlag -> ClsInst
+                   -> DFunId -> OverlapFlag -> Module -> IsOrphan -> ClsInst
 -- Used for imported instances, where we get the rough-match stuff
 -- from the interface file
 -- The bound tyvars of the dfun are guaranteed fresh, because
 -- the dfun has been typechecked out of the same interface file
-mkImportedInstance cls_nm mb_tcs dfun oflag
+mkImportedInstance cls_nm mb_tcs dfun oflag mod orphan
   = ClsInst { is_flag = oflag, is_dfun = dfun
             , is_tvs = tvs, is_tys = tys
-            , is_cls_nm = cls_nm, is_cls = cls, is_tcs = mb_tcs }
+            , is_cls_nm = cls_nm, is_cls = cls, is_tcs = mb_tcs
+            , is_cls_mod = Just mod, is_orphan = orphan }
   where
     (tvs, _, cls, tys) = tcSplitDFunTy (idType dfun)
 
@@ -387,6 +397,11 @@ or, to put it another way, we have
 ---------------------------------------------------
 type InstEnv = UniqFM ClsInstEnv        -- Maps Class to instances for that class
 
+-- | 'InstEnvs' represents the combination of the global type class instance
+-- environment, the local type class instance environment, and the set of
+-- visible modules (according to what interfaces have been loaded.
+type InstEnvs = (InstEnv, InstEnv, VisibleModules)
+
 newtype ClsInstEnv 
   = ClsIE [ClsInst]    -- The instances for a particular class, in any order
 
@@ -408,9 +423,19 @@ emptyInstEnv = emptyUFM
 instEnvElts :: InstEnv -> [ClsInst]
 instEnvElts ie = [elt | ClsIE elts <- eltsUFM ie, elt <- elts]
 
-classInstances :: (InstEnv,InstEnv) -> Class -> [ClsInst]
-classInstances (pkg_ie, home_ie) cls 
-  = get home_ie ++ get pkg_ie
+-- | Test if an instance is visible, by checking that its origin module
+-- is in 'VisibleModules'.
+instIsVisible :: VisibleModules -> ClsInst -> Bool
+instIsVisible vis_mods ispec
+  | is_orphan ispec =
+    case (is_cls_mod ispec, vis_mods) of
+        (Just m, Just ms) -> m `elemModuleSet` ms
+        _ -> True
+  | otherwise = True
+
+classInstances :: InstEnvs -> Class -> [ClsInst]
+classInstances (pkg_ie, home_ie, vis_mods) cls
+  = filter (instIsVisible vis_mods) (get home_ie ++ get pkg_ie)
   where
     get env = case lookupUFM env cls of
                 Just (ClsIE insts) -> insts
@@ -552,7 +577,7 @@ where the 'Nothing' indicates that 'b' can be freely instantiated.
 -- one instance and the match may not contain any flexi type variables.  If the lookup is unsuccessful,
 -- yield 'Left errorMessage'.
 --
-lookupUniqueInstEnv :: (InstEnv, InstEnv) 
+lookupUniqueInstEnv :: InstEnvs
                     -> Class -> [Type]
                     -> Either MsgDoc (ClsInst, [Type])
 lookupUniqueInstEnv instEnv cls tys
@@ -567,6 +592,7 @@ lookupUniqueInstEnv instEnv cls tys
       _other -> Left $ ptext (sLit "instance not found") <+> (ppr $ mkTyConApp (classTyCon cls) tys)
 
 lookupInstEnv' :: InstEnv          -- InstEnv to look in
+               -> VisibleModules   -- But filter against this
                -> Class -> [Type]  -- What we are looking for
                -> ([InstMatch],    -- Successful matches
                    [ClsInst])     -- These don't match but do unify
@@ -580,7 +606,7 @@ lookupInstEnv' :: InstEnv          -- InstEnv to look in
 -- but Foo [Int] is a unifier.  This gives the caller a better chance of
 -- giving a suitable error message
 
-lookupInstEnv' ie cls tys
+lookupInstEnv' ie vis_mods cls tys
   = lookup ie
   where
     rough_tcs  = roughMatchTcs tys
@@ -594,6 +620,8 @@ lookupInstEnv' ie cls tys
     find ms us [] = (ms, us)
     find ms us (item@(ClsInst { is_tcs = mb_tcs, is_tvs = tpl_tvs
                               , is_tys = tpl_tys, is_flag = oflag }) : rest)
+      | not (instIsVisible vis_mods item)
+      = find ms us rest
         -- Fast check for no match, uses the "rough match" fields
       | instanceCantMatch rough_tcs mb_tcs
       = find ms us rest
@@ -629,15 +657,15 @@ lookupInstEnv' ie cls tys
 
 ---------------
 -- This is the common way to call this function.
-lookupInstEnv :: (InstEnv, InstEnv)     -- External and home package inst-env
+lookupInstEnv :: InstEnvs     -- External and home package inst-env
               -> Class -> [Type]   -- What we are looking for
               -> ClsInstLookupResult
 -- ^ See Note [Rules for instance lookup]
-lookupInstEnv (pkg_ie, home_ie) cls tys
+lookupInstEnv (pkg_ie, home_ie, vis_mods) cls tys
   = (final_matches, final_unifs, safe_fail)
   where
-    (home_matches, home_unifs) = lookupInstEnv' home_ie cls tys
-    (pkg_matches,  pkg_unifs)  = lookupInstEnv' pkg_ie  cls tys
+    (home_matches, home_unifs) = lookupInstEnv' home_ie vis_mods cls tys
+    (pkg_matches,  pkg_unifs)  = lookupInstEnv' pkg_ie  vis_mods cls tys
     all_matches = home_matches ++ pkg_matches
     all_unifs   = home_unifs   ++ pkg_unifs
     pruned_matches = foldr insert_overlapping [] all_matches

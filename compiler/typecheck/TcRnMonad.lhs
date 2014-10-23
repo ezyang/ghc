@@ -97,6 +97,7 @@ initTc hsc_env hsc_src keep_rn_syntax mod do_this
                            Nothing             -> newIORef emptyNameEnv } ;
 
         dependent_files_var <- newIORef [] ;
+        loaded_ifaces_var   <- newIORef emptyModuleSet ;
 #ifdef GHCI
         th_topdecls_var      <- newIORef [] ;
         th_topnames_var      <- newIORef emptyNameSet ;
@@ -132,6 +133,7 @@ initTc hsc_env hsc_src keep_rn_syntax mod do_this
                 tcg_inst_env       = emptyInstEnv,
                 tcg_fam_inst_env   = emptyFamInstEnv,
                 tcg_ann_env        = emptyAnnEnv,
+                tcg_loaded_ifaces  = loaded_ifaces_var,
                 tcg_th_used        = th_var,
                 tcg_th_splice_used = th_splice_var,
                 tcg_exports        = [],
@@ -1256,7 +1258,10 @@ mkIfLclEnv mod loc = IfLclEnv { if_mod     = mod,
 initIfaceTcRn :: IfG a -> TcRn a
 initIfaceTcRn thing_inside
   = do  { tcg_env <- getGblEnv
-        ; let { if_env = IfGblEnv { if_rec_types = Just (tcg_mod tcg_env, get_type_env) }
+        ; let { if_env = IfGblEnv {
+                            if_rec_types = Just (tcg_mod tcg_env, get_type_env),
+                            if_loaded_ifaces = tcg_loaded_ifaces tcg_env
+                         }
               ; get_type_env = readTcRef (tcg_type_env_var tcg_env) }
         ; setEnvs (if_env, ()) thing_inside }
 
@@ -1264,19 +1269,25 @@ initIfaceCheck :: HscEnv -> IfG a -> IO a
 -- Used when checking the up-to-date-ness of the old Iface
 -- Initialise the environment with no useful info at all
 initIfaceCheck hsc_env do_this
- = do let rec_types = case hsc_type_env_var hsc_env of
+ = do loaded_ifaces_var <- newIORef emptyModuleSet
+      let rec_types = case hsc_type_env_var hsc_env of
                          Just (mod,var) -> Just (mod, readTcRef var)
                          Nothing        -> Nothing
-          gbl_env = IfGblEnv { if_rec_types = rec_types }
+          gbl_env = IfGblEnv { if_rec_types = rec_types
+                             , if_loaded_ifaces = loaded_ifaces_var }
       initTcRnIf 'i' hsc_env gbl_env () do_this
 
-initIfaceTc :: ModIface
+initIfaceTc :: IfaceGblEnv gbl => ModIface
             -> (TcRef TypeEnv -> IfL a) -> TcRnIf gbl lcl a
 -- Used when type-checking checking an up-to-date interface file
 -- No type envt from the current module, but we do know the module dependencies
 initIfaceTc iface do_this
  = do   { tc_env_var <- newTcRef emptyTypeEnv
-        ; let { gbl_env = IfGblEnv { if_rec_types = Just (mod, readTcRef tc_env_var) } ;
+        ; loaded_ifaces_var <- getLoadedIfaces
+        ; let { gbl_env = IfGblEnv {
+                            if_rec_types = Just (mod, readTcRef tc_env_var),
+                            if_loaded_ifaces = loaded_ifaces_var
+                          } ;
               ; if_lenv = mkIfLclEnv mod doc
            }
         ; setEnvs (gbl_env, if_lenv) (do_this tc_env_var)
