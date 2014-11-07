@@ -42,7 +42,9 @@ import SrcLoc
 import DynFlags
 import StaticFlags      ( opt_PprStyle_Debug )
 import ListSetOps       ( equivClasses )
+import LoadIface
 
+import Control.Monad
 import Data.Maybe
 import Data.List        ( partition, mapAccumL, zip4, nub )
 \end{code}
@@ -987,7 +989,11 @@ Warn of loopy local equalities that were dropped.
 mkDictErr :: ReportErrCtxt -> [Ct] -> TcM ErrMsg
 mkDictErr ctxt cts
   = ASSERT( not (null cts) )
-    do { inst_envs <- tcGetInstEnvs
+    do { forM_ cts $ \ct -> do
+            let (clas, tys) = getClassPredTys (ctPred ct)
+            tys_flat <- mapM quickFlattenTy tys
+            loadOrphansForInstance clas tys_flat
+       ; inst_envs <- tcGetInstEnvs
        ; fam_envs  <- tcGetFamInstEnvs
        ; let (ct1:_) = cts  -- ct1 just for its location
              min_cts = elim_superclasses cts

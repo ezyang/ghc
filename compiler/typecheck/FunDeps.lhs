@@ -203,10 +203,17 @@ pprEquation (FDEqn { fd_qtvs = qtvs, fd_eqs = pairs })
   = vcat [ptext (sLit "forall") <+> braces (pprWithCommas ppr qtvs),
           nest 2 (vcat [ ppr t1 <+> ptext (sLit "~") <+> ppr t2 | (FDEq _ t1 t2) <- pairs])]
 
+-- | Given a predicate type @pred@ (e.g. @C Int b => ...@) and the global/local
+-- instance environment @inst_env@, generate a list of 'Equation' induced by
+-- functional dependencies (e.g. if we had the fundep @a -> b@ and an instance
+-- @C Int Bool@, then produce an equation unifying @b@ with @Bool).
+--
+-- Note for orphans: Conservatively, the instance environment must include all
+-- instances which may match against @pred@.
 improveFromInstEnv :: (InstEnv,InstEnv)
                    -> PredType
                    -> [Equation SrcSpan] -- Needs to be an Equation because
-                                         -- of quantified variables
+                                             -- of quantified variables
 -- Post: Equations oriented from the template (matching instance) to the workitem!
 improveFromInstEnv _inst_env pred
   | not (isClassPred pred)
@@ -522,11 +529,17 @@ if s1 matches
 
 
 \begin{code}
+-- | Check whether adding an instance @ispec@ would break functional-dependency
+-- constraints, given the current instance environment @inst_envs@.
+-- Used only for instance declarationss defined in the module being compiled.
+-- Returns @Nothing@ if the instance is OK and @Just dfs@ if there is a conflict
+-- (@dfs@ is a list of conflicting instances.)
+--
+-- Note for orphans: Conservatively, the instance environment must include all
+-- instances with the same class as @ispec@.  (NB: Don't match, because a
+-- non-matching instance may still induces a functional dependency conflict.)
 checkFunDeps :: (InstEnv, InstEnv) -> ClsInst
-             -> Maybe [ClsInst] -- Nothing  <=> ok
-                                -- Just dfs <=> conflict with dfs
--- Check whether adding DFunId would break functional-dependency constraints
--- Used only for instance decls defined in the module being compiled
+             -> Maybe [ClsInst]
 checkFunDeps inst_envs ispec
   | null bad_fundeps = Nothing
   | otherwise        = Just bad_fundeps
@@ -536,6 +549,11 @@ checkFunDeps inst_envs ispec
     cls_inst_env = classInstances inst_envs clas
     bad_fundeps  = badFunDeps cls_inst_env clas ins_tv_set ins_tys
 
+-- | Given a type class @clas@ with existing instances @cls_insts@, check
+-- if a proposed new instance @ins_tys@ (with type variables @ins_tv_set@)
+-- conflicts due to functional dependencies.  If so, return a list of bad
+-- functional dependencies (or an empty list if there is no problem).  (This
+-- is the worker function for 'checkFunDeps').
 badFunDeps :: [ClsInst] -> Class
            -> TyVarSet -> [Type]        -- Proposed new instance type
            -> [ClsInst]

@@ -130,6 +130,7 @@ data IfaceTyCon
   = IfaceTc              { ifaceTyConName :: IfExtName }
   | IfacePromotedDataCon { ifaceTyConName :: IfExtName }
   | IfacePromotedTyCon   { ifaceTyConName :: IfExtName }
+  deriving ( Eq )
 
 data IfaceCoercion
   = IfaceReflCo      Role IfaceType

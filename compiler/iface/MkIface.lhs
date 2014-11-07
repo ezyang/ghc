@@ -230,7 +230,11 @@ mkDependencies
 
       return Deps { dep_mods   = sortBy (stableModuleNameCmp `on` fst) dep_mods,
                     dep_pkgs   = dep_pkgs',
-                    dep_orphs  = sortBy stableModuleCmp (imp_orphs  imports),
+                    dep_eager_orph_mods = sortBy stableModuleCmp
+                                                 (imp_eager_orph_mods imports),
+                    -- TODO: sort snd as well!
+                    dep_orph_insts  = sortBy (stableModuleCmp `on` fst)
+                                             (imp_orph_insts imports),
                     dep_finsts = sortBy stableModuleCmp (imp_finsts imports) }
                     -- sort to get into canonical order
                     -- NB. remember to use lexicographic ordering
@@ -310,8 +314,8 @@ mkIface_ hsc_env maybe_old_fingerprint
               mi_exp_hash    = fingerprint0,
               mi_used_th     = used_th,
               mi_orphan_hash = fingerprint0,
-              mi_orphan      = False, -- Always set by addFingerprints, but
-                                      -- it's a strict field, so we can't omit it.
+              mi_eager_orphan = False, -- Always set by addFingerprints, but
+                                 -- it's a strict field, so we can't omit it.
               mi_finsts      = False, -- Ditto
               mi_decls       = deliberatelyOmitted "decls",
               mi_hash_fn     = deliberatelyOmitted "hash_fn",
@@ -564,7 +568,9 @@ addFingerprints hsc_env mb_old_fingerprint iface0 new_decls
    -- package, because changes to orphans outside this package will be
    -- tracked by the usage on the ABI hash of package modules that we import.
    let orph_mods = filter ((== this_pkg) . modulePackageKey)
-                   $ dep_orphs sorted_deps
+                 $ dep_eager_orph_mods sorted_deps
+                 -- TODO THIS SEEMS DODGY
+                 -- ++ map fst (dep_orph_insts sorted_deps)
    dep_orphan_hashes <- getOrphanHashes hsc_env orph_mods
 
    orphan_hash <- computeFingerprint (mk_put_name local_env)
@@ -627,9 +633,8 @@ addFingerprints hsc_env mb_old_fingerprint iface0 new_decls
                 mi_exp_hash    = export_hash,
                 mi_orphan_hash = orphan_hash,
                 mi_flag_hash   = flag_hash,
-                mi_orphan      = not (   all ifRuleAuto orph_rules
+                mi_eager_orphan      = not (   all ifRuleAuto orph_rules
                                            -- See Note [Orphans and auto-generated rules]
-                                      && null orph_insts
                                       && null orph_fis
                                       && isNoIfaceVectInfo (mi_vect_info iface0)),
                 mi_finsts      = not . null $ mi_fam_insts iface0,
@@ -667,7 +672,11 @@ sortDependencies :: Dependencies -> Dependencies
 sortDependencies d
  = Deps { dep_mods   = sortBy (compare `on` (moduleNameFS.fst)) (dep_mods d),
           dep_pkgs   = sortBy (stablePackageKeyCmp `on` fst) (dep_pkgs d),
-          dep_orphs  = sortBy stableModuleCmp (dep_orphs d),
+          dep_eager_orph_mods =
+            sortBy stableModuleCmp (dep_eager_orph_mods d),
+          dep_orph_insts  =
+            -- TODO: Sort the snd list too!
+            sortBy (stableModuleCmp `on` fst) (dep_orph_insts d),
           dep_finsts = sortBy stableModuleCmp (dep_finsts d) }
 \end{code}
 

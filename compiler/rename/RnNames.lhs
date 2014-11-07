@@ -23,6 +23,7 @@ import TcEnv            ( isBrackStage )
 import RnEnv
 import RnHsDoc          ( rnHsDoc )
 import LoadIface        ( loadSrcInterface )
+import IfaceSyn
 import TcRnMonad
 import PrelNames
 import Module
@@ -261,7 +262,6 @@ calculateAvails :: DynFlags
                 -> ImportAvails
 calculateAvails dflags iface mod_safe' want_boot =
   let imp_mod    = mi_module iface
-      orph_iface = mi_orphan iface
       has_finsts = mi_finsts iface
       deps       = mi_deps iface
       trust      = getSafeMode $ mi_trust iface
@@ -288,9 +288,18 @@ calculateAvails dflags iface mod_safe' want_boot =
 
       -- Compute new transitive dependencies
 
-      orphans | orph_iface = ASSERT( not (imp_mod `elem` dep_orphs deps) )
-                             imp_mod : dep_orphs deps
-              | otherwise  = dep_orphs deps
+      eager_orph_mods | mi_eager_orphan iface
+                      = ASSERT( not (imp_mod `elem` dep_eager_orph_mods deps) )
+                        imp_mod : dep_eager_orph_mods deps
+                      | otherwise
+                      = dep_eager_orph_mods deps
+
+      imp_mod_orphs = map (\inst -> (ifInstCls inst,
+                                     map (fmap ifaceTyConName)
+                                         (ifInstTys inst)))
+                    . filter (isNothing . ifInstOrph)
+                    $ mi_insts iface
+      orph_insts = (imp_mod, imp_mod_orphs) : dep_orph_insts deps
 
       finsts | has_finsts = ASSERT( not (imp_mod `elem` dep_finsts deps) )
                             imp_mod : dep_finsts deps
@@ -327,7 +336,8 @@ calculateAvails dflags iface mod_safe' want_boot =
 
   in ImportAvails {
           imp_mods       = emptyModuleEnv, -- this gets filled in later
-          imp_orphs      = orphans,
+          imp_eager_orph_mods = eager_orph_mods,
+          imp_orph_insts = orph_insts,
           imp_finsts     = finsts,
           imp_dep_mods   = mkModDeps dependent_mods,
           imp_dep_pkgs   = map fst $ dependent_pkgs,

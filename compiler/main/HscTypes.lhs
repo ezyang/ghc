@@ -84,7 +84,7 @@ module HscTypes (
         MonadThings(..),
 
         -- * Information on imports and exports
-        WhetherHasOrphans, IsBootInterface, Usage(..),
+        WhetherHasEagerOrphans, IsBootInterface, Usage(..),
         Dependencies(..), noDependencies,
         NameCache(..), OrigNameCache,
         IfaceExport,
@@ -690,7 +690,11 @@ data ModIface
         mi_flag_hash  :: !Fingerprint,        -- ^ Hash of the important flags
                                               -- used when compiling this module
 
-        mi_orphan     :: !WhetherHasOrphans,  -- ^ Whether this module has orphans
+        mi_eager_orphan :: !WhetherHasEagerOrphans,
+                -- ^ Whether this module has eager orphans: these orphans cause
+                -- the module to be eagerly loaded if it is transitively
+                -- reachable from another module. (See also
+                -- 'WhetherHasEagerOrphans')
         mi_finsts     :: !WhetherHasFamInst,  -- ^ Whether this module has family instances
         mi_boot       :: !IsBootInterface,    -- ^ Read from an hi-boot file?
 
@@ -798,7 +802,7 @@ instance Binary ModIface where
                  mi_iface_hash= iface_hash,
                  mi_mod_hash  = mod_hash,
                  mi_flag_hash = flag_hash,
-                 mi_orphan    = orphan,
+                 mi_eager_orphan= orphan,
                  mi_finsts    = hasFamInsts,
                  mi_deps      = deps,
                  mi_usages    = usages,
@@ -876,7 +880,7 @@ instance Binary ModIface where
                  mi_iface_hash  = iface_hash,
                  mi_mod_hash    = mod_hash,
                  mi_flag_hash   = flag_hash,
-                 mi_orphan      = orphan,
+                 mi_eager_orphan= orphan,
                  mi_finsts      = hasFamInsts,
                  mi_deps        = deps,
                  mi_usages      = usages,
@@ -912,7 +916,7 @@ emptyModIface mod
                mi_iface_hash  = fingerprint0,
                mi_mod_hash    = fingerprint0,
                mi_flag_hash   = fingerprint0,
-               mi_orphan      = False,
+               mi_eager_orphan= False,
                mi_finsts      = False,
                mi_boot        = False,
                mi_deps        = noDependencies,
@@ -1932,7 +1936,7 @@ lookupFixity env n = case lookupNameEnv env n of
 %************************************************************************
 
 \begin{code}
--- | Records whether a module has orphans. An \"orphan\" is one of:
+-- | Records whether a module has eager orphans. An \"orphan\" is one of:
 --
 -- * An instance declaration in a module other than the definition
 --   module for one of the type constructors or classes in the instance head
@@ -1941,7 +1945,13 @@ lookupFixity env n = case lookupNameEnv env n of
 --   the function in the head of the rule
 --
 -- * A vectorisation pragma
-type WhetherHasOrphans   = Bool
+--
+-- We further distinguish orphans as either 'lazy' or 'eager'; an eager
+-- orphan causes it's defining module to be eagerly loaded if it is transitively
+-- reachable from the import set; a lazy orphan might be deferred.  All
+-- orphans are currently eager except for type class instance orphans, which we
+-- have optimized to be lazy.
+type WhetherHasEagerOrphans = Bool
 
 -- | Does this module define family instances?
 type WhetherHasFamInst = Bool
@@ -1969,10 +1979,17 @@ data Dependencies
                         -- trusted when the module is imported as a safe import
                         -- (Safe Haskell). See Note [RnNames . Tracking Trust Transitively]
 
-         , dep_orphs  :: [Module]
+         , dep_eager_orph_mods :: [Module]
                         -- ^ Orphan modules (whether home or external pkg),
                         -- *not* including family instance orphans as they
                         -- are anyway included in 'dep_finsts'
+                        -- NB: Actually, this does include family instance
+                        -- orphans at the moment.
+
+         , dep_orph_insts :: [(Module, [(Name, [Maybe Name])])]
+                        -- ^ Orphan type class instances (whether home or
+                        -- external package).  With a little extra info to
+                        -- make it easier to compile.
 
          , dep_finsts :: [Module]
                         -- ^ Modules that contain family instances (whether the
@@ -1985,18 +2002,21 @@ data Dependencies
 instance Binary Dependencies where
     put_ bh deps = do put_ bh (dep_mods deps)
                       put_ bh (dep_pkgs deps)
-                      put_ bh (dep_orphs deps)
+                      put_ bh (dep_eager_orph_mods deps)
+                      put_ bh (dep_orph_insts deps)
                       put_ bh (dep_finsts deps)
 
     get bh = do ms <- get bh
                 ps <- get bh
+                oms <- get bh
                 os <- get bh
                 fis <- get bh
-                return (Deps { dep_mods = ms, dep_pkgs = ps, dep_orphs = os,
+                return (Deps { dep_mods = ms, dep_pkgs = ps,
+                               dep_eager_orph_mods = oms, dep_orph_insts = os,
                                dep_finsts = fis })
 
 noDependencies :: Dependencies
-noDependencies = Deps [] [] [] []
+noDependencies = Deps [] [] [] [] []
 
 -- | Records modules for which changes may force recompilation of this module
 -- See wiki: http://ghc.haskell.org/trac/ghc/wiki/Commentary/Compiler/RecompilationAvoidance
@@ -2169,6 +2189,11 @@ data ExternalPackageState
                                                -- from all the external-package modules
         eps_ann_env      :: !PackageAnnEnv,    -- ^ The total 'AnnEnv' accumulated
                                                -- from all the external-package modules
+
+        eps_loaded_orphans :: !ModuleSet,      -- ^ Modules who we've loaded
+                                               -- orphans for
+        eps_waiting_orphans :: UniqFM [(Module, [Maybe Name])],
+            -- ^ Modules which may need tob e loaded to handle an orphan
 
         eps_mod_fam_inst_env :: !(ModuleEnv FamInstEnv), -- ^ The family instances accumulated from external
                                                          -- packages, keyed off the module that declared them

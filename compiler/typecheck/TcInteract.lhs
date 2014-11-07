@@ -1431,7 +1431,8 @@ doTopReactDict inerts work_item@(CDictCan { cc_ev = fl, cc_class = cls
      -- instance environment, there might be a unique match, and if
      -- so we make sure we get on and solve it first. See Note [Weird fundeps]
      try_fundeps_and_return
-       = do { instEnvs <- getInstEnvs
+       = do { tcsLoadOrphansForPredType pred
+            ; instEnvs <- getInstEnvs
             ; let fd_eqns :: [Equation CtLoc]
                   fd_eqns = [ fd { fd_loc = loc { ctl_origin = FunDepOrigin2 pred (ctl_origin loc)
                                                                              inst_pred inst_loc } }
@@ -1872,6 +1873,7 @@ matchClassInst inerts clas tys loc
         ; traceTcS "matchClassInst" $ vcat [ text "pred =" <+> ppr pred
                                            , text "inerts=" <+> ppr inerts
                                            , text "untouchables=" <+> ppr untch ]
+        ; tcsLoadOrphansForInstance clas tys
         ; instEnvs <- getInstEnvs
         ; case lookupInstEnv instEnvs clas tys of
             ([], _, _)               -- Nothing matches
