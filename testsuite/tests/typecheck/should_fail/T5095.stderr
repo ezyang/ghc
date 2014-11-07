@@ -3,7 +3,6 @@ T5095.hs:9:11:
     Overlapping instances for Eq a arising from a use of ‘==’
     Matching instances:
       instance [overlappable] Show a => Eq a -- Defined at T5095.hs:5:31
-      instance Eq a => Eq (Maybe a) -- Defined in ‘GHC.Base’
       instance Eq () -- Defined in ‘GHC.Classes’
       instance (Eq a, Eq b) => Eq (a, b) -- Defined in ‘GHC.Classes’
       instance (Eq a, Eq b, Eq c) => Eq (a, b, c)
@@ -56,17 +55,9 @@ T5095.hs:9:11:
       instance Eq Ordering -- Defined in ‘GHC.Classes’
       instance Eq Word -- Defined in ‘GHC.Classes’
       instance Eq a => Eq [a] -- Defined in ‘GHC.Classes’
-      instance Eq integer-gmp-1.0.0.0:GHC.Integer.Type.BigNat
-        -- Defined in ‘integer-gmp-1.0.0.0:GHC.Integer.Type’
       instance Eq Integer
-        -- Defined in ‘integer-gmp-1.0.0.0:GHC.Integer.Type’
-      instance forall (k :: BOX) (s :: k). Eq (Data.Proxy.Proxy s)
-        -- Defined in ‘Data.Proxy’
-      instance (Eq a, Eq b) => Eq (Either a b)
-        -- Defined in ‘Data.Either’
-      instance (GHC.Arr.Ix i, Eq e) => Eq (GHC.Arr.Array i e)
-        -- Defined in ‘GHC.Arr’
-      instance Eq (GHC.Arr.STArray s i e) -- Defined in ‘GHC.Arr’
+        -- Defined in ‘integer-gmp-0.5.1.0:GHC.Integer.Type’
+      instance Eq a => Eq (Maybe a) -- Defined in ‘GHC.Base’
     (The choice depends on the instantiation of ‘a’
      To pick the first instance above, use IncoherentInstances
      when compiling the other instance declarations)

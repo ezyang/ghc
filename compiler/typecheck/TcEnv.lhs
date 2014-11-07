@@ -87,6 +87,7 @@ import HscTypes
 import DynFlags
 import SrcLoc
 import BasicTypes hiding( SuccessFlag(..) )
+import LoadIface
 import Module
 import Outputable
 import Encoding
@@ -210,7 +211,8 @@ tcLookupLocatedTyCon = addLocM tcLookupTyCon
 --
 tcLookupInstance :: Class -> [Type] -> TcM ClsInst
 tcLookupInstance cls tys
-  = do { instEnv <- tcGetInstEnvs
+  = do { loadOrphansForInstance cls tys
+       ; instEnv <- tcGetInstEnvs
        ; case lookupUniqueInstEnv instEnv cls tys of
            Left err             -> failWithTc $ ptext (sLit "Couldn't match instance:") <+> err 
            Right (inst, tys) 

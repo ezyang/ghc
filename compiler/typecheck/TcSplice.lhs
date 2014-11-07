@@ -1024,7 +1024,8 @@ reifyInstances th_nm th_tys
         ; case splitTyConApp_maybe ty of   -- This expands any type synonyms
             Just (tc, tys)                 -- See Trac #7910
                | Just cls <- tyConClass_maybe tc
-               -> do { inst_envs <- tcGetInstEnvs
+               -> do { loadOrphansForInstance cls tys
+                     ; inst_envs <- tcGetInstEnvs
                      ; let (matches, unifies, _) = lookupInstEnv inst_envs cls tys
                      ; traceTc "reifyInstances1" (ppr matches)
                      ; reifyClassInstances cls (map fst matches ++ unifies) }
@@ -1307,6 +1308,7 @@ reifyDataCon tys dc
 reifyClass :: Class -> TcM TH.Info
 reifyClass cls
   = do  { cxt <- reifyCxt theta
+        ; loadOrphansForClass cls
         ; inst_envs <- tcGetInstEnvs
         ; insts <- reifyClassInstances cls (InstEnv.classInstances inst_envs cls)
         ; ops <- concatMapM reify_op op_stuff

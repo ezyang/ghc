@@ -910,9 +910,15 @@ data ImportAvails
           -- a Trustworthy module that resides in the same package as it.
           -- See Note [RnNames . Trust Own Package]
 
-        imp_orphs :: [Module],
-          -- ^ Orphan modules below us in the import tree (and maybe including
-          -- us for imported modules)
+        imp_eager_orph_mods :: [Module],
+          -- ^ Eager orphan modules below us in the import tree (and maybe
+          -- including us for imported modules)
+
+        imp_orph_insts :: [(Module, [(Name, [Maybe Name])])],
+          -- ^ Orphan type class instances below us in the import tree.
+          -- Modules which are only orphaned because of orphan type class
+          -- instances are only included in this list, and not in
+          -- 'imp_eager_orphs'
 
         imp_finsts :: [Module]
           -- ^ Family instance modules below us in the import tree (and maybe
@@ -931,7 +937,8 @@ emptyImportAvails = ImportAvails { imp_mods          = emptyModuleEnv,
                                    imp_dep_pkgs      = [],
                                    imp_trust_pkgs    = [],
                                    imp_trust_own_pkg = False,
-                                   imp_orphs         = [],
+                                   imp_eager_orph_mods = [],
+                                   imp_orph_insts    = [],
                                    imp_finsts        = [] }
 
 -- | Union two ImportAvails
@@ -944,17 +951,20 @@ plusImportAvails
   (ImportAvails { imp_mods = mods1,
                   imp_dep_mods = dmods1, imp_dep_pkgs = dpkgs1,
                   imp_trust_pkgs = tpkgs1, imp_trust_own_pkg = tself1,
-                  imp_orphs = orphs1, imp_finsts = finsts1 })
+                  imp_eager_orph_mods = omods1,
+                  imp_orph_insts = orphs1, imp_finsts = finsts1 })
   (ImportAvails { imp_mods = mods2,
                   imp_dep_mods = dmods2, imp_dep_pkgs = dpkgs2,
                   imp_trust_pkgs = tpkgs2, imp_trust_own_pkg = tself2,
-                  imp_orphs = orphs2, imp_finsts = finsts2 })
+                  imp_eager_orph_mods = omods2,
+                  imp_orph_insts = orphs2, imp_finsts = finsts2 })
   = ImportAvails { imp_mods          = plusModuleEnv_C (++) mods1 mods2,
                    imp_dep_mods      = plusUFM_C plus_mod_dep dmods1 dmods2,
                    imp_dep_pkgs      = dpkgs1 `unionLists` dpkgs2,
                    imp_trust_pkgs    = tpkgs1 `unionLists` tpkgs2,
                    imp_trust_own_pkg = tself1 || tself2,
-                   imp_orphs         = orphs1 `unionLists` orphs2,
+                   imp_eager_orph_mods = omods1 `unionLists` omods2,
+                   imp_orph_insts    = orphs1 `unionLists` orphs2,
                    imp_finsts        = finsts1 `unionLists` finsts2 }
   where
     plus_mod_dep (m1, boot1) (m2, boot2)

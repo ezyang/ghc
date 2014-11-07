@@ -95,6 +95,8 @@ module TcSMonad (
 
     matchFam,
     checkWellStagedDFun,
+    tcsLoadOrphansForInstance,
+    tcsLoadOrphansForPredType,
     pprEq                                    -- Smaller utils, re-exported from TcM
                                              -- TODO (DV): these are only really used in the
                                              -- instance matcher in TcSimplify. I am wondering
@@ -151,6 +153,8 @@ import MonadUtils
 import Data.IORef
 import Data.List ( partition, foldl' )
 import Pair
+
+import LoadIface
 
 #ifdef DEBUG
 import Digraph
@@ -2000,5 +2004,11 @@ deferTcSForAllEq role loc (tvs1,body1) (tvs2,body2)
                          ; return (TcLetCo ev_binds new_co) }
 
         ; return $ EvCoercion (foldr mkTcForAllCo coe_inside skol_tvs) }
+
+tcsLoadOrphansForInstance :: Class -> [Type] -> TcS ()
+tcsLoadOrphansForInstance cls ty = wrapTcS (loadOrphansForInstance cls ty)
+
+tcsLoadOrphansForPredType :: PredType -> TcS ()
+tcsLoadOrphansForPredType = wrapTcS . loadOrphansForPredType
 \end{code}
 

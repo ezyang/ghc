@@ -435,11 +435,22 @@ tcRnImports hsc_env import_decls
 --      ; traceIf (text "rdr_env: " <+> ppr rdr_env)
         ; failIfErrsM
 
-                -- Load any orphan-module and family instance-module
-                -- interfaces, so that their rules and instance decls will be
-                -- found.
+                -- Load any eager orphan modules interfaces, so that their rules
+                -- and type family instance decls will be found.
         ; loadModuleInterfaces (ptext (sLit "Loading orphan modules"))
-                               (imp_orphs imports)
+                               (imp_eager_orph_mods imports)
+
+                -- Register orphan modules in EPS, so that we know to load
+                -- them if they become relevant.
+        ; updateEps_ $ \eps ->
+            eps { eps_waiting_orphans =
+                    addListToUFM_C (++)
+                       (eps_waiting_orphans eps)
+                       [ (n, [(m, tcs)])
+                       | (m, insts) <- imp_orph_insts imports
+                       , not (m `elemModuleSet` eps_loaded_orphans eps)
+                       , (n, tcs) <- insts ]
+                }
 
                 -- Check type-family consistency
         ; traceRn (text "rn1: checking family instance consistency")
@@ -1974,7 +1985,8 @@ tcRnGetInfo hsc_env name
 
 lookupInsts :: TyThing -> TcM ([ClsInst],[FamInst])
 lookupInsts (ATyCon tc)
-  = do  { InstEnvs pkg_ie home_ie vis_mods <- tcGetInstEnvs
+  = do  { loadOrphansForName tc_name
+        ; InstEnvs pkg_ie home_ie vis_mods <- tcGetInstEnvs
         ; (pkg_fie, home_fie) <- tcGetFamInstEnvs
                 -- Load all instances for all classes that are
                 -- in the type environment (which are all the ones

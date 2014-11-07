@@ -14,6 +14,10 @@ module LoadIface (
         loadSrcInterface, loadSrcInterface_maybe, 
         loadInterfaceForName, loadInterfaceForModule,
 
+        -- Orphan handling functions
+        loadOrphansForName, loadOrphansForInstance,
+        loadOrphansForPredType, loadOrphansForClass,
+
         -- IfM functions
         loadInterface, loadWiredInHomeIface, 
         loadSysInterface, loadUserInterface, loadPluginInterface,
@@ -33,6 +37,9 @@ import DynFlags
 import IfaceSyn
 import IfaceEnv
 import HscTypes
+
+import Class
+import Type
 
 import BasicTypes hiding (SuccessFlag(..))
 import TcRnMonad
@@ -186,6 +193,53 @@ loadInterfaceForModule doc m
       this_mod <- getModule
       MASSERT2( this_mod /= m, ppr m <+> parens doc )
     initIfaceTcRn $ loadSysInterface doc m
+
+
+loadOrphansForName :: Name -> TcRn ()
+loadOrphansForName n = do
+    traceIf (text "Considering whether to load orphans for type" <+> ppr n)
+    eps <- getEps
+    traceIf (text "waiting orphans:" <+> ppr (eps_waiting_orphans eps))
+    forM_ (concat (eltsUFM (eps_waiting_orphans eps))) $ \(m, mb_tcs) ->
+        if any (==Just n) mb_tcs
+            then loadModuleInterface (ppr "Loading orphan instance") m >>
+                 return ()
+            else return ()
+
+loadOrphansForInstance :: Class -> [Type] -> TcRn ()
+loadOrphansForInstance cls tys = do
+    traceIf (text "Considering whether to load orphans for instance" <+> ppr cls <+> ppr tys)
+    eps <- getEps
+    traceIf (text "waiting orphans:" <+> ppr (eps_waiting_orphans eps))
+    let rough_tcs = roughMatchTcs tys
+    case lookupUFM (eps_waiting_orphans eps) (className cls) of
+      Just insts ->
+        forM_ insts $ \(m, mb_tcs) ->
+            if instanceCantMatch rough_tcs mb_tcs
+                then return ()
+                else loadModuleInterface (ppr "Loading orphan instance") m >>
+                     return ()
+      _ -> return ()
+
+loadOrphansForClass :: Class -> TcRn ()
+loadOrphansForClass cls = do
+    traceIf (text "Considering whether to load orphans for class" <+> ppr cls)
+    eps <- getEps
+    traceIf (text "waiting orphans:" <+> ppr (eps_waiting_orphans eps))
+    case lookupUFM (eps_waiting_orphans eps) (className cls) of
+      Just insts ->
+        forM_ insts $ \(m, _) ->
+            loadModuleInterface (ppr "Loading orphan instance") m >>
+            return ()
+      _ -> return ()
+
+
+loadOrphansForPredType :: PredType -> TcRn ()
+loadOrphansForPredType pred
+  | Just (cls, tys) <- getClassPredTys_maybe pred
+  = loadOrphansForInstance cls tys
+  | otherwise
+  = return ()
 \end{code}
 
 
@@ -325,7 +379,10 @@ loadInterface doc_str mod from
 
         ; let { final_iface = iface {   
                                 mi_decls     = panic "No mi_decls in PIT",
-                                mi_insts     = panic "No mi_insts in PIT",
+                                -- XXX Want the orphan instances... but this
+                                -- is a hack, should introduce a new mi_ field
+                                -- to hold these.
+                                -- mi_insts     = panic "No mi_insts in PIT",
                                 mi_fam_insts = panic "No mi_fam_insts in PIT",
                                 mi_rules     = panic "No mi_rules in PIT",
                                 mi_anns      = panic "No mi_anns in PIT"
@@ -351,6 +408,12 @@ loadInterface doc_str mod from
                                                   new_eps_vect_info,
                   eps_ann_env      = extendAnnEnvList (eps_ann_env eps)
                                                       new_eps_anns,
+                  eps_loaded_orphans = extendModuleSet (eps_loaded_orphans eps)
+                                                       mod,
+                  -- TODO: do this more efficiently (Maybe look at the classes
+                  -- we pulled in this request? Maybe batch up the deletion?)
+                  eps_waiting_orphans = mapUFM (filter ((/=mod).fst))
+                                               (eps_waiting_orphans eps),
                   eps_mod_fam_inst_env
                                    = let
                                        fam_inst_env = 
@@ -701,6 +764,8 @@ initExternalPackageState
                        = emptyModuleEnv,
       eps_vect_info    = noVectInfo,
       eps_ann_env      = emptyAnnEnv,
+      eps_loaded_orphans = emptyModuleSet,
+      eps_waiting_orphans = emptyUFM,
       eps_stats = EpsStats { n_ifaces_in = 0, n_decls_in = 0, n_decls_out = 0
                            , n_insts_in = 0, n_insts_out = 0
                            , n_rules_in = length builtinRules, n_rules_out = 0 }
@@ -777,7 +842,7 @@ pprModIface :: ModIface -> SDoc
 pprModIface iface
  = vcat [ ptext (sLit "interface")
                 <+> ppr (mi_module iface) <+> pp_boot
-                <+> (if mi_orphan iface then ptext (sLit "[orphan module]") else Outputable.empty)
+                <+> (if mi_eager_orphan iface then ptext (sLit "[eager orphan module]") else Outputable.empty)
                 <+> (if mi_finsts iface then ptext (sLit "[family instance module]") else Outputable.empty)
                 <+> (if mi_hpc    iface then ptext (sLit "[hpc]") else Outputable.empty)
                 <+> integer hiVersion
@@ -847,11 +912,13 @@ pprUsageImport usage usg_mod'
              | otherwise      = ptext $ sLit " -/ "
 
 pprDeps :: Dependencies -> SDoc
-pprDeps (Deps { dep_mods = mods, dep_pkgs = pkgs, dep_orphs = orphs,
+pprDeps (Deps { dep_mods = mods, dep_pkgs = pkgs,
+                dep_eager_orph_mods = orph_mods, dep_orph_insts = orph_insts,
                 dep_finsts = finsts })
   = vcat [ptext (sLit "module dependencies:") <+> fsep (map ppr_mod mods),
           ptext (sLit "package dependencies:") <+> fsep (map ppr_pkg pkgs),
-          ptext (sLit "orphans:") <+> fsep (map ppr orphs),
+          ptext (sLit "eager orphan modules:") <+> fsep (map ppr orph_mods),
+          ptext (sLit "orphan class instances:") <+> fsep (map ppr orph_insts),
           ptext (sLit "family instance modules:") <+> fsep (map ppr finsts)
         ]
   where
