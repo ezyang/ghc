@@ -1259,6 +1259,9 @@ data InteractiveContext
              -- time we update the context, we just take the results
              -- from the instance code that already does that.
 
+         ic_loaded_ifaces :: ModuleSet,
+            -- ^ Loaded interfaces
+
          ic_fix_env :: FixityEnv,
             -- ^ Fixities declared in let statements
 
@@ -1302,6 +1305,7 @@ emptyInteractiveContext dflags
        ic_mod_index  = 1,
        ic_tythings   = [],
        ic_instances  = ([],[]),
+       ic_loaded_ifaces = emptyModuleSet,
        ic_fix_env    = emptyNameEnv,
        ic_monad      = ioTyConName,  -- IO monad by default
        ic_int_print  = printName,    -- System.IO.print by default

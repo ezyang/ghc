@@ -1459,6 +1459,7 @@ hscDeclsWithLocation hsc_env0 str source linenumber =
     -- (ic_instances) for more details.
     let finsts = tcg_fam_insts tc_gblenv
         insts  = tcg_insts     tc_gblenv
+    loaded_ifaces <- liftIO $ readIORef (tcg_loaded_ifaces tc_gblenv)
 
     let defaults = tcg_default tc_gblenv
 
@@ -1510,7 +1511,8 @@ hscDeclsWithLocation hsc_env0 str source linenumber =
     let icontext = hsc_IC hsc_env
         ictxt1   = extendInteractiveContext icontext tythings
         ictxt    = ictxt1 { ic_instances = (insts, finsts)
-                          , ic_default   = defaults }
+                          , ic_default   = defaults
+                          , ic_loaded_ifaces = loaded_ifaces }
 
     return (tythings, ictxt)
 

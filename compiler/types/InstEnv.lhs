@@ -46,6 +46,7 @@ import Id
 import FastString
 import Data.Data        ( Data, Typeable )
 import Data.Maybe       ( isJust, isNothing )
+import Data.Monoid      ( mappend, mconcat )
 \end{code}
 
 
@@ -80,7 +81,11 @@ data ClsInst
              , is_flag :: OverlapFlag   -- See detailed comments with
                                         -- the decl of BasicTypes.OverlapFlag
              , is_cls_mod :: Maybe Module -- Source module, or Nothing if local
-             , is_orphan :: IsOrphan -- Is this instance an orphan?
+             , is_orphan :: Maybe IsOrphan
+                 -- ^ Is this instance an orphan?  This field is 'Nothing' if
+                 -- the instance in question was locally defined; in that
+                 -- case, we neither know no care if the instance is an
+                 -- orphan.
     }
   deriving (Data, Typeable)
 
@@ -220,7 +225,9 @@ mkLocalInstance dfun oflag tvs cls tys
             , is_cls = cls, is_cls_nm = className cls
             , is_tys = tys, is_tcs = roughMatchTcs tys
             , is_cls_mod = Nothing
-            , is_orphan = False -- HACK
+            -- NB: We actually don't know if the instance we just created
+            -- is an orphan or not
+            , is_orphan = Nothing
             }
 
 mkImportedInstance :: Name -> [Maybe Name]
@@ -233,7 +240,7 @@ mkImportedInstance cls_nm mb_tcs dfun oflag mod orphan
   = ClsInst { is_flag = oflag, is_dfun = dfun
             , is_tvs = tvs, is_tys = tys
             , is_cls_nm = cls_nm, is_cls = cls, is_tcs = mb_tcs
-            , is_cls_mod = Just mod, is_orphan = orphan }
+            , is_cls_mod = Just mod, is_orphan = Just orphan }
   where
     (tvs, _, cls, tys) = tcSplitDFunTy (idType dfun)
 
@@ -427,11 +434,11 @@ instEnvElts ie = [elt | ClsIE elts <- eltsUFM ie, elt <- elts]
 -- is in 'VisibleModules'.
 instIsVisible :: VisibleModules -> ClsInst -> Bool
 instIsVisible vis_mods ispec
-  | is_orphan ispec =
+  | Just True <- is_orphan ispec =
     case (is_cls_mod ispec, vis_mods) of
         (Just m, Just ms) -> m `elemModuleSet` ms
         _ -> True
-  | otherwise = True
+  | otherwise = True -- covers local instances and remote non-orphan instances
 
 classInstances :: InstEnvs -> Class -> [ClsInst]
 classInstances (pkg_ie, home_ie, vis_mods) cls

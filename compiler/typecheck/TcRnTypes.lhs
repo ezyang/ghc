@@ -159,6 +159,10 @@ type IfM lcl  = TcRnIf IfGblEnv lcl         -- Iface stuff
 type IfG  = IfM ()                          -- Top level
 type IfL  = IfM IfLclEnv                    -- Nested
 
+-- | A mini-type class representing global environments of 'TcRnIf' which
+-- support querying the current list of loaded interfaces.  We need this
+-- because we have some code ('initIfaceTc') which is polymorphic in choice of
+-- monad (IfL and TcRn) but which needs to interact with this list.
 class IfaceGblEnv a where
     getLoadedIfaces :: TcRnIf a b (TcRef ModuleSet)
 
