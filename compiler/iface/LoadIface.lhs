@@ -200,11 +200,12 @@ loadOrphansForName n = do
     traceIf (text "Considering whether to load orphans for type" <+> ppr n)
     eps <- getEps
     traceIf (text "waiting orphans:" <+> ppr (eps_waiting_orphans eps))
-    forM_ (concat (eltsUFM (eps_waiting_orphans eps))) $ \(m, mb_tcs) ->
-        if any (==Just n) mb_tcs
-            then loadModuleInterface (ppr "Loading orphan instance") m >>
-                 return ()
-            else return ()
+    forM_ (eltsUFM (eps_waiting_orphans eps)) $ \(m, insts) ->
+        forM_ insts $ \(n, mb_tcs) ->
+            if any (==Just n) mb_tcs
+                then loadModuleInterface (ppr "Loading orphan instance") m >>
+                     return ()
+                else return ()
 
 loadOrphansForInstance :: Class -> [Type] -> TcRn ()
 loadOrphansForInstance cls tys = do
@@ -212,27 +213,24 @@ loadOrphansForInstance cls tys = do
     eps <- getEps
     traceIf (text "waiting orphans:" <+> ppr (eps_waiting_orphans eps))
     let rough_tcs = roughMatchTcs tys
-    case lookupUFM (eps_waiting_orphans eps) (className cls) of
-      Just insts ->
-        forM_ insts $ \(m, mb_tcs) ->
-            if instanceCantMatch rough_tcs mb_tcs
+    forM_ (eltsUFM (eps_waiting_orphans eps)) $ \(m, insts) ->
+        forM_ insts $ \(n, mb_tcs) ->
+            if className cls == n && instanceCantMatch rough_tcs mb_tcs
                 then return ()
                 else loadModuleInterface (ppr "Loading orphan instance") m >>
                      return ()
-      _ -> return ()
 
 loadOrphansForClass :: Class -> TcRn ()
 loadOrphansForClass cls = do
     traceIf (text "Considering whether to load orphans for class" <+> ppr cls)
     eps <- getEps
     traceIf (text "waiting orphans:" <+> ppr (eps_waiting_orphans eps))
-    case lookupUFM (eps_waiting_orphans eps) (className cls) of
-      Just insts ->
-        forM_ insts $ \(m, _) ->
-            loadModuleInterface (ppr "Loading orphan instance") m >>
-            return ()
-      _ -> return ()
-
+    forM_ (eltsUFM (eps_waiting_orphans eps)) $ \(m, insts) ->
+        forM_ insts $ \(n, _) ->
+            if className cls == n
+                then loadModuleInterface (ppr "Loading orphan instance") m >>
+                     return ()
+            else return ()
 
 loadOrphansForPredType :: PredType -> TcRn ()
 loadOrphansForPredType pred
@@ -412,8 +410,7 @@ loadInterface doc_str mod from
                                                        mod,
                   -- TODO: do this more efficiently (Maybe look at the classes
                   -- we pulled in this request? Maybe batch up the deletion?)
-                  eps_waiting_orphans = mapUFM (filter ((/=mod).fst))
-                                               (eps_waiting_orphans eps),
+                  eps_waiting_orphans = delFromUFM (eps_waiting_orphans eps) mod,
                   eps_mod_fam_inst_env
                                    = let
                                        fam_inst_env = 
