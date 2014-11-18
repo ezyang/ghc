@@ -2192,7 +2192,7 @@ data ExternalPackageState
 
         eps_loaded_orphans :: !ModuleSet,      -- ^ Modules who we've loaded
                                                -- orphans for
-        eps_waiting_orphans :: UniqFM [(Module, [Maybe Name])],
+        eps_waiting_orphans :: UniqFM (Module, [(Name, [Maybe Name])]),
             -- ^ Modules which may need tob e loaded to handle an orphan
 
         eps_mod_fam_inst_env :: !(ModuleEnv FamInstEnv), -- ^ The family instances accumulated from external

@@ -101,6 +101,7 @@ import Maybes
 import Util
 import Bag
 
+import Data.List (foldl')
 import Control.Monad
 
 #include "HsVersions.h"
@@ -433,12 +434,10 @@ tcRnImports hsc_env import_decls
                 -- them if they become relevant.
         ; updateEps_ $ \eps ->
             eps { eps_waiting_orphans =
-                    addListToUFM_C (++)
-                       (eps_waiting_orphans eps)
-                       [ (n, [(m, tcs)])
-                       | (m, insts) <- imp_orph_insts imports
-                       , not (m `elemModuleSet` eps_loaded_orphans eps)
-                       , (n, tcs) <- insts ]
+                  foldl' (\m (k, v) -> if elemUFM k m
+                                        then m
+                                        else addToUFM m k (k,v))
+                        (eps_waiting_orphans eps) (imp_orph_insts imports)
                 }
 
                 -- Check type-family consistency
