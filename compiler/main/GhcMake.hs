@@ -1877,7 +1877,7 @@ summariseModule hsc_env old_summary_map is_boot (L loc wanted_mod)
                         ASSERT(modulePackageKey mod /= thisPackage dflags)
                         return Nothing
 
-             Found (FoundSigs ms)
+             Found (FoundSigs ms _)
                 | Just (location, mod) <- find (isJust . ml_hs_file . fst) ms ->
                         just_found location mod
                 | otherwise ->

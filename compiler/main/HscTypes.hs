@@ -688,7 +688,7 @@ data FindExactResult
         }
 
 data FoundResult = FoundModule ModLocation Module
-                 | FoundSigs [(ModLocation, Module)]
+                 | FoundSigs [(ModLocation, Module)] Module
 
 -- | The result of searching for an imported module.
 data FindResult

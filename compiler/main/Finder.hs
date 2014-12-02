@@ -180,7 +180,7 @@ findExposedPackageModule hsc_env mod_name mb_pkg
   = case lookupModuleWithSuggestions (hsc_dflags hsc_env) mod_name mb_pkg of
      LookupFound (m, _) -> do
        fmap convFindExactResult (findPackageModule hsc_env m)
-     LookupFoundSigs ms _ -> do
+     LookupFoundSigs ms backing -> do
        locs <- mapM (findPackageModule hsc_env . fst) ms
        let (ok, missing) = partition foundExact locs
        case missing of
@@ -190,7 +190,7 @@ findExposedPackageModule hsc_env mod_name mb_pkg
         -- In any case, this REALLY shouldn't happen (it means there are
         -- broken packages in the database.)
         (m:_) -> return (convFindExactResult m)
-        _ -> return (Found (FoundSigs [(l, m) | FoundExact l m <- ok]))
+        _ -> return (Found (FoundSigs [(l, m) | FoundExact l m <- ok] backing))
      LookupMultiple rs ->
        return (FoundMultiple rs)
      LookupHidden pkg_hiddens mod_hiddens ->

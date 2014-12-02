@@ -274,7 +274,7 @@ import HscMain
 import GhcMake
 import DriverPipeline   ( compileOne' )
 import GhcMonad
-import TcRnMonad        ( finalSafeMode, initIfaceCheck )
+import TcRnMonad        ( finalSafeMode )
 import TcRnTypes
 import Packages
 import NameSet
@@ -289,7 +289,6 @@ import TysPrim          ( alphaTyVars )
 import TyCon
 import Class
 import DataCon
-import LoadIface        ( loadSysInterface )
 import Name             hiding ( varName )
 import Avail
 import InstEnv
@@ -1324,13 +1323,6 @@ showRichTokenStream ts = go startLoc ts ""
 -- -----------------------------------------------------------------------------
 -- Interactive evaluation
 
-findGetModuleInterface :: HscEnv -> Module -> IO ModIface
-findGetModuleInterface hsc_env m =
-    -- Using this initializer is a little bit of a hack, but we're only
-    -- going to look at mi_sigof so it should be OK.
-    initIfaceCheck hsc_env
-        $ loadSysInterface (text "find/lookupModule") m
-
 -- | Takes a 'ModuleName' and possibly a 'PackageKey', and consults the
 -- filesystem and package database to find the corresponding 'Module', 
 -- using the algorithm that is used for an @import@ declaration.
@@ -1353,17 +1345,12 @@ findModule mod_name maybe_pkg = withSession $ \hsc_env -> do
   let
     dflags   = hsc_dflags hsc_env
     this_pkg = thisPackage dflags
-    find_backing_impl m = do
-        iface <- findGetModuleInterface hsc_env m
-        case mi_sig_of iface of
-            Nothing -> panic "findModule: not a signature"
-            Just m -> return m
   case maybe_pkg of
     Just pkg | fsToPackageKey pkg /= this_pkg && pkg /= fsLit "this" -> liftIO $ do
       res <- findImportedModule hsc_env mod_name maybe_pkg
       case res of
         Found (FoundModule _ m) -> return m
-        Found (FoundSigs ((_, m):_)) -> find_backing_impl m
+        Found (FoundSigs _ backing) -> return backing
         err       -> throwOneError $ noModError dflags noSrcSpan mod_name err
     _otherwise -> do
       home <- lookupLoadedHomeModule mod_name
@@ -1376,8 +1363,8 @@ findModule mod_name maybe_pkg = withSession $ \hsc_env -> do
              Found (FoundModule loc m)
                 | modulePackageKey m /= this_pkg -> return m
                 | otherwise -> modNotLoadedError dflags m loc
-             Found (FoundSigs ((loc,m):_))
-                | modulePackageKey m /= this_pkg -> find_backing_impl m
+             Found (FoundSigs ((loc,m):_) backing)
+                | modulePackageKey m /= this_pkg -> return backing
                 | otherwise -> modNotLoadedError dflags m loc
              err -> throwOneError $ noModError dflags noSrcSpan mod_name err
 
@@ -1405,11 +1392,7 @@ lookupModule mod_name Nothing = withSession $ \hsc_env -> do
       res <- findExposedPackageModule hsc_env mod_name Nothing
       case res of
         Found (FoundModule _ m) -> return m
-        Found (FoundSigs ((_,m):_)) -> do
-            iface <- findGetModuleInterface hsc_env m
-            case mi_sig_of iface of
-                Nothing -> panic "lookupModule: not a signature"
-                Just m -> return m
+        Found (FoundSigs _ backing) -> return backing
         err       -> throwOneError $ noModError (hsc_dflags hsc_env) noSrcSpan mod_name err
 
 lookupLoadedHomeModule :: GhcMonad m => ModuleName -> m (Maybe Module)

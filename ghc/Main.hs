@@ -827,7 +827,7 @@ abiHash strs = do
          r <- findImportedModule hsc_env modname Nothing
          case r of
            Found (FoundModule _ m) -> return [m]
-           Found (FoundSigs ms) -> return (map snd ms)
+           Found (FoundSigs ms _) -> return (map snd ms)
            _error    -> throwGhcException $ CmdLineError $ showSDoc dflags $
                           cannotFindInterface dflags modname r
 

@@ -302,7 +302,7 @@ loadSrcInterface_maybe doc mod want_boot maybe_pkg
             -> fmap (fmap (:[]))
              . initIfaceTcRn
              $ loadInterface doc mod (ImportByUser want_boot)
-           Found (FoundSigs mods)
+           Found (FoundSigs mods _)
             -> initIfaceTcRn $ do
                ms <- forM mods $ \(_, mod) ->
                           loadInterface doc mod (ImportByUser want_boot)

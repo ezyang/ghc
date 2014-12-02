@@ -204,7 +204,7 @@ lookupRdrNameInModuleForPlugins hsc_env mod_name rdr_name = do
     found_module <- findImportedModule hsc_env mod_name Nothing
     case found_module of
         Found (FoundModule _ mod) -> check_mod mod
-        Found (FoundSigs ms) -> check_mods (map snd ms) -- (not tested)
+        Found (FoundSigs ms _) -> check_mods (map snd ms) -- (not tested)
         err -> throwCmdLineErrorS dflags $ cannotFindModule dflags mod_name err
   where
     dflags = hsc_dflags hsc_env
