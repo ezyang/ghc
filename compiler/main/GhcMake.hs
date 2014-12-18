@@ -1875,7 +1875,15 @@ summariseModule hsc_env old_summary_map is_boot (L loc wanted_mod)
                 | otherwise ->
                         -- Drop external-pkg
                         ASSERT(modulePackageKey mod /= thisPackage dflags)
-                        return Nothing
+                        -- However, DON'T drop it if we have a local signature:
+                        -- we should still compile that hsig to check if it's
+                        -- compatible
+                        -- (Possible minor optimization: call @homeSearchCache@
+                        -- immediately.)
+                        findHomeModule hsc_env wanted_mod >>= \found2 ->
+                        case found2 of
+                            FoundExact location mod -> just_found location mod
+                            _ -> return Nothing
 
              FoundSigs hs _backing
                 | Just (FoundHs { fr_loc = location, fr_mod = mod })

@@ -1,0 +1,4 @@
+
+Main.hs:1:1:
+    Ambiguous interface for ‘Data.Map’:
+      it was found in multiple packages: main containers-0.5.6.1

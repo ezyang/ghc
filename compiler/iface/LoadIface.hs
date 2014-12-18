@@ -780,7 +780,9 @@ findAndReadIface doc_str mod hi_boot_file
                        dflags <- getDynFlags
                        return (Failed (cannotFindInterface dflags
                                            (moduleName mod)
-                                           (convFindExactResult err)))
+                                           (convFindExactResult
+                                             (panic "cannotFindInterface/conv")
+                                             err)))
     where read_file file_path = do
               traceIf (ptext (sLit "readIFace") <+> text file_path)
               read_result <- readIface mod file_path

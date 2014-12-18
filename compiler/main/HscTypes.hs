@@ -690,7 +690,7 @@ data FindExactResult
 -- | A found module or signature; e.g. anything with an interface file
 data FoundHs = FoundHs { fr_loc :: ModLocation
                        , fr_mod :: Module
-                       -- , fr_origin :: ModuleOrigin
+                       , fr_origin :: ModuleOrigin
                        }
 
 -- | The result of searching for an imported module.
@@ -703,6 +703,8 @@ data FindResult
         -- ^ The requested package was not found
   | FoundMultiple [(Module, ModuleOrigin)]
         -- ^ _Error_: both in multiple packages
+  -- | HomeSigConflict
+        -- ^ _Error_: signature in home package conflicts with external packages
 
         -- | Not found
   | NotFound

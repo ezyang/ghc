@@ -4,7 +4,7 @@
 \section[Finder]{Module Finder}
 -}
 
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE CPP, TupleSections #-}
 
 module Finder (
     flushFinderCaches,
@@ -104,7 +104,9 @@ findImportedModule hsc_env mod_name mb_pkg =
         Just pkg | pkg == fsLit "this" -> home_import -- "this" is special
                  | otherwise           -> pkg_import
   where
-    home_import   = convFindExactResult `fmap` findHomeModule hsc_env mod_name
+    home_import   = convHomeFindExactResult (hsc_dflags hsc_env)
+                    `fmap`
+                    findHomeModule hsc_env mod_name
 
     pkg_import    = findExposedPackageModule hsc_env mod_name mb_pkg
 
@@ -128,10 +130,34 @@ findExactModule hsc_env mod =
 -- -----------------------------------------------------------------------------
 -- Helpers
 
+foundHsDropPath :: FoundHs -> (Module, ModuleOrigin)
+foundHsDropPath (FoundHs { fr_mod = m, fr_origin = o }) = (m, o)
+
 orIfNotFound :: IO FindResult -> IO FindResult -> IO FindResult
 orIfNotFound this or_this = do
   res <- this
   case res of
+    FoundSigs sigs impl
+        -> do res2 <- or_this
+              case res2 of
+                    FoundModule h@(FoundHs { fr_mod = mod })
+                        | mod == impl ->
+                            return res2
+                        | otherwise ->
+                            -- NB: sigs usually has a single element
+                            return (FoundMultiple ( foundHsDropPath h
+                                                  : map foundHsDropPath sigs))
+                    FoundSigs sigs' impl'
+                        | impl' == impl ->
+                            return (FoundSigs (sigs ++ sigs') impl)
+                        | otherwise ->
+                            return (FoundMultiple ( map foundHsDropPath sigs
+                                                 ++ map foundHsDropPath sigs'))
+                    FoundMultiple ms ->
+                            return (FoundMultiple ( map foundHsDropPath sigs
+                                                 ++ ms))
+                    NotFound{} -> return res
+                    NoPackage{} -> return res -- TODO: really shouldn't happen
     NotFound { fr_paths = paths1, fr_mods_hidden = mh1
              , fr_pkgs_hidden = ph1, fr_suggestions = s1 }
      -> do res2 <- or_this
@@ -161,14 +187,27 @@ homeSearchCache hsc_env mod_name do_this = do
   modLocationCache hsc_env mod do_this
 
 -- | Converts a 'FindExactResult' into a 'FindResult' in the obvious way.
-convFindExactResult :: FindExactResult -> FindResult
-convFindExactResult (FoundExact loc m) = FoundModule (FoundHs loc m)
-convFindExactResult (NoPackageExact pk) = NoPackage pk
-convFindExactResult NotFoundExact { fer_paths = paths, fer_pkg = pkg } =
+convFindExactResult :: ModuleOrigin -> FindExactResult -> FindResult
+convFindExactResult o (FoundExact loc m) = FoundModule (FoundHs loc m o)
+convFindExactResult _ (NoPackageExact pk) = NoPackage pk
+convFindExactResult _ NotFoundExact { fer_paths = paths, fer_pkg = pkg } =
     NotFound {
         fr_paths = paths, fr_pkg = pkg,
         fr_pkgs_hidden = [], fr_mods_hidden = [], fr_suggestions = []
     }
+
+-- | Converts a 'FindExactResult' into a 'FindResult', but since this is
+-- a HOME lookup, consult @-sig-of@ to determine if the module we found
+-- is actually a signature.
+convHomeFindExactResult :: DynFlags -> FindExactResult -> FindResult
+convHomeFindExactResult dflags (FoundExact loc m) =
+    case getSigOf dflags (moduleName m) of
+        -- TODO: or maybe home modules should be treated differently?
+        Nothing -> FoundModule (FoundHs loc m home_origin)
+        Just impl -> FoundSigs [FoundHs loc m home_origin] impl
+    where home_origin = fromExposed True
+convHomeFindExactResult _ f
+    = convFindExactResult (panic "convHomeFindExactResult") f
 
 foundExact :: FindExactResult -> Bool
 foundExact FoundExact{} = True
@@ -178,19 +217,23 @@ findExposedPackageModule :: HscEnv -> ModuleName -> Maybe FastString
                          -> IO FindResult
 findExposedPackageModule hsc_env mod_name mb_pkg
   = case lookupModuleWithSuggestions (hsc_dflags hsc_env) mod_name mb_pkg of
-     LookupFound (m, _) -> do
-       fmap convFindExactResult (findPackageModule hsc_env m)
+     LookupFound (m, origin) -> do
+       fmap (convFindExactResult origin) (findPackageModule hsc_env m)
      LookupFoundSigs ms backing -> do
-       locs <- mapM (findPackageModule hsc_env . fst) ms
-       let (ok, missing) = partition foundExact locs
+       locs <- mapM (\(m, origin) -> fmap (, origin)
+                                          (findPackageModule hsc_env m)) ms
+       let (ok, missing) = partition (foundExact . fst) locs
        case missing of
         -- At the moment, we return the errors one at a time.  It might be
         -- better if we collected them up and reported them all, but
         -- FindResult doesn't have enough information to support this.
         -- In any case, this REALLY shouldn't happen (it means there are
         -- broken packages in the database.)
-        (m:_) -> return (convFindExactResult m)
-        _ -> return (FoundSigs [FoundHs l m | FoundExact l m <- ok] backing)
+        (m:_) -> return (convFindExactResult
+                    (panic "findExposedPackageModule: convFindExactResult")
+                    (fst m))
+        _ -> return (FoundSigs [ FoundHs l m o
+                               | (FoundExact l m, o) <- ok] backing)
      LookupMultiple rs ->
        return (FoundMultiple rs)
      LookupHidden pkg_hiddens mod_hiddens ->

@@ -1,0 +1,5 @@
+
+Main.hs:1:18:
+    Ambiguous module name ‘Data.Map’:
+      it was found in multiple packages:
+      main@main containers-0.5.6.1@conta_BJuTF2p2ltS5Ld8wub0Trs

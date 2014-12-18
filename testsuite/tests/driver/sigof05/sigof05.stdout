@@ -1,0 +1,3 @@
+[1 of 1] Compiling Main             ( Main.hs, tmp_sigof05/Main.o )
+Linking tmp_sigof05/Main ...
+fromList []

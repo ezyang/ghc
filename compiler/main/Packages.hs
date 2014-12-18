@@ -25,6 +25,7 @@ module Packages (
         LookupResult(..),
         ModuleSuggestion(..),
         ModuleOrigin(..),
+        fromExposed,
 
         -- * Inspecting the set of packages in scope
         getPackageIncludePath,
