@@ -1868,7 +1868,7 @@ summariseModule hsc_env old_summary_map is_boot (L loc wanted_mod)
              -- TODO: When we add -alias support, we can validly find
              -- multiple signatures in the home package; need to make this
              -- logic more flexible in that case.
-             Found (FoundModule location mod)
+             FoundModule (FoundHs { fr_loc = location, fr_mod = mod })
                 | isJust (ml_hs_file location) ->
                         -- Home package
                          just_found location mod
@@ -1877,12 +1877,13 @@ summariseModule hsc_env old_summary_map is_boot (L loc wanted_mod)
                         ASSERT(modulePackageKey mod /= thisPackage dflags)
                         return Nothing
 
-             Found (FoundSigs ms _)
-                | Just (location, mod) <- find (isJust . ml_hs_file . fst) ms ->
+             FoundSigs hs _backing
+                | Just (FoundHs { fr_loc = location, fr_mod = mod })
+                  <- find (isJust . ml_hs_file . fr_loc) hs ->
                         just_found location mod
                 | otherwise ->
-                        ASSERT(all (\(_,mod) -> modulePackageKey mod
-                                                    /= thisPackage dflags) ms)
+                        ASSERT(all (\h -> modulePackageKey (fr_mod h)
+                                            /= thisPackage dflags) hs)
                         return Nothing
 
              err -> return $ Just $ Left $ noModError dflags loc wanted_mod err

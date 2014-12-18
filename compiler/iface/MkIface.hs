@@ -1324,8 +1324,8 @@ checkDependencies hsc_env summary iface
      find_res <- liftIO $ findImportedModule hsc_env mod pkg
      let reason = moduleNameString mod ++ " changed"
      case find_res of
-        Found (FoundModule _ mod) -> check_mod reason mod
-        Found (FoundSigs ms _) -> check_mods reason (map snd ms)
+        FoundModule h -> check_mod reason (fr_mod h)
+        FoundSigs hs _backing -> check_mods reason (map fr_mod hs)
         _otherwise  -> return (RecompBecause reason)
 
    check_mods _ [] = return UpToDate

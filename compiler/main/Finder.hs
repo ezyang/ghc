@@ -162,7 +162,7 @@ homeSearchCache hsc_env mod_name do_this = do
 
 -- | Converts a 'FindExactResult' into a 'FindResult' in the obvious way.
 convFindExactResult :: FindExactResult -> FindResult
-convFindExactResult (FoundExact loc m) = Found (FoundModule loc m)
+convFindExactResult (FoundExact loc m) = FoundModule (FoundHs loc m)
 convFindExactResult (NoPackageExact pk) = NoPackage pk
 convFindExactResult NotFoundExact { fer_paths = paths, fer_pkg = pkg } =
     NotFound {
@@ -190,7 +190,7 @@ findExposedPackageModule hsc_env mod_name mb_pkg
         -- In any case, this REALLY shouldn't happen (it means there are
         -- broken packages in the database.)
         (m:_) -> return (convFindExactResult m)
-        _ -> return (Found (FoundSigs [(l, m) | FoundExact l m <- ok] backing))
+        _ -> return (FoundSigs [FoundHs l m | FoundExact l m <- ok] backing)
      LookupMultiple rs ->
        return (FoundMultiple rs)
      LookupHidden pkg_hiddens mod_hiddens ->

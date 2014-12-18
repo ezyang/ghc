@@ -826,8 +826,8 @@ abiHash strs = do
          let modname = mkModuleName str
          r <- findImportedModule hsc_env modname Nothing
          case r of
-           Found (FoundModule _ m) -> return [m]
-           Found (FoundSigs ms _) -> return (map snd ms)
+           FoundModule h -> return [fr_mod h]
+           FoundSigs hs _ -> return (map fr_mod hs)
            _error    -> throwGhcException $ CmdLineError $ showSDoc dflags $
                           cannotFindInterface dflags modname r
 

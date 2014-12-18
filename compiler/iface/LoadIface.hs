@@ -298,13 +298,13 @@ loadSrcInterface_maybe doc mod want_boot maybe_pkg
   = do { hsc_env <- getTopEnv
        ; res <- liftIO $ findImportedModule hsc_env mod maybe_pkg
        ; case res of
-           Found (FoundModule _ mod)
+           FoundModule (FoundHs { fr_mod = mod })
             -> fmap (fmap (:[]))
              . initIfaceTcRn
              $ loadInterface doc mod (ImportByUser want_boot)
-           Found (FoundSigs mods _)
+           FoundSigs mods _backing
             -> initIfaceTcRn $ do
-               ms <- forM mods $ \(_, mod) ->
+               ms <- forM mods $ \(FoundHs { fr_mod = mod }) ->
                           loadInterface doc mod (ImportByUser want_boot)
                return (sequence ms)
            err         -> return (Failed (cannotFindInterface (hsc_dflags hsc_env) mod err)) }

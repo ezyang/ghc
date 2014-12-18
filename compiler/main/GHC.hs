@@ -1349,8 +1349,8 @@ findModule mod_name maybe_pkg = withSession $ \hsc_env -> do
     Just pkg | fsToPackageKey pkg /= this_pkg && pkg /= fsLit "this" -> liftIO $ do
       res <- findImportedModule hsc_env mod_name maybe_pkg
       case res of
-        Found (FoundModule _ m) -> return m
-        Found (FoundSigs _ backing) -> return backing
+        FoundModule h -> return (fr_mod h)
+        FoundSigs _ backing -> return backing
         err       -> throwOneError $ noModError dflags noSrcSpan mod_name err
     _otherwise -> do
       home <- lookupLoadedHomeModule mod_name
@@ -1360,10 +1360,10 @@ findModule mod_name maybe_pkg = withSession $ \hsc_env -> do
         Nothing -> liftIO $ do
            res <- findImportedModule hsc_env mod_name maybe_pkg
            case res of
-             Found (FoundModule loc m)
+             FoundModule (FoundHs { fr_mod = m, fr_loc = loc })
                 | modulePackageKey m /= this_pkg -> return m
                 | otherwise -> modNotLoadedError dflags m loc
-             Found (FoundSigs ((loc,m):_) backing)
+             FoundSigs (FoundHs { fr_loc = loc, fr_mod = m }:_) backing
                 | modulePackageKey m /= this_pkg -> return backing
                 | otherwise -> modNotLoadedError dflags m loc
              err -> throwOneError $ noModError dflags noSrcSpan mod_name err
@@ -1391,8 +1391,8 @@ lookupModule mod_name Nothing = withSession $ \hsc_env -> do
     Nothing -> liftIO $ do
       res <- findExposedPackageModule hsc_env mod_name Nothing
       case res of
-        Found (FoundModule _ m) -> return m
-        Found (FoundSigs _ backing) -> return backing
+        FoundModule (FoundHs { fr_mod = m }) -> return m
+        FoundSigs _ backing -> return backing
         err       -> throwOneError $ noModError (hsc_dflags hsc_env) noSrcSpan mod_name err
 
 lookupLoadedHomeModule :: GhcMonad m => ModuleName -> m (Maybe Module)

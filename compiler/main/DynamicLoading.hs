@@ -203,8 +203,8 @@ lookupRdrNameInModuleForPlugins hsc_env mod_name rdr_name = do
     -- First find the package the module resides in by searching exposed packages and home modules
     found_module <- findImportedModule hsc_env mod_name Nothing
     case found_module of
-        Found (FoundModule _ mod) -> check_mod mod
-        Found (FoundSigs ms _) -> check_mods (map snd ms) -- (not tested)
+        FoundModule h -> check_mod (fr_mod h)
+        FoundSigs hs _backing  -> check_mods (map fr_mod hs) -- (not tested)
         err -> throwCmdLineErrorS dflags $ cannotFindModule dflags mod_name err
   where
     dflags = hsc_dflags hsc_env

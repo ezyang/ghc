@@ -10,7 +10,7 @@
 module HscTypes (
         -- * compilation state
         HscEnv(..), hscEPS,
-        FinderCache, FindResult(..), FoundResult(..), FindExactResult(..),
+        FinderCache, FindResult(..), FoundHs(..), FindExactResult(..),
         Target(..), TargetId(..), pprTarget, pprTargetId,
         ModuleGraph, emptyMG,
         HscStatus(..),
@@ -687,13 +687,18 @@ data FindExactResult
         , fer_pkg       :: Maybe PackageKey
         }
 
-data FoundResult = FoundModule ModLocation Module
-                 | FoundSigs [(ModLocation, Module)] Module
+-- | A found module or signature; e.g. anything with an interface file
+data FoundHs = FoundHs { fr_loc :: ModLocation
+                       , fr_mod :: Module
+                       -- , fr_origin :: ModuleOrigin
+                       }
 
 -- | The result of searching for an imported module.
 data FindResult
-  = Found FoundResult
+  = FoundModule FoundHs
         -- ^ The module was found
+  | FoundSigs [FoundHs] Module
+        -- ^ Signatures were found, with some backing implementation
   | NoPackage PackageKey
         -- ^ The requested package was not found
   | FoundMultiple [(Module, ModuleOrigin)]
