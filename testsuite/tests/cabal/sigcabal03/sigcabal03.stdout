@@ -1,0 +1,4 @@
+[1 of 2] Compiling Map[sig of Data.Map.Lazy] ( Map.hsig, nothing )
+[2 of 2] Compiling Main             ( Main.hs, Main.o )
+Linking Main ...
+[("foo","bar")]

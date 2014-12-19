@@ -127,6 +127,11 @@ mk/ghcconfig*_inplace_bin_ghc-stage2.exe.mk
 /tests/cabal/sigcabal02/containers
 /tests/cabal/sigcabal02/tmp*
 /tests/cabal/sigcabal02/inst*
+/tests/cabal/sigcabal03/containers
+/tests/cabal/sigcabal03/containers_key
+/tests/cabal/sigcabal03/Main
+/tests/cabal/sigcabal03/p_ipid
+/tests/cabal/sigcabal03/inst-*
 /tests/cabal/local01.package.conf/
 /tests/cabal/local03.package.conf/
 /tests/cabal/local04.package.conf/
