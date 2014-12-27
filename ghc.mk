@@ -709,7 +709,7 @@ ifneq "$(BINDIST)" "YES"
 
 ifneq "$(BOOTSTRAPPING_CONF)" ""
 ifeq "$(wildcard $(BOOTSTRAPPING_CONF))" ""
-$(shell echo "[]" >$(BOOTSTRAPPING_CONF))
+$(shell $(GHC_PKG) init $(BOOTSTRAPPING_CONF))
 endif
 endif
 
@@ -1201,7 +1201,6 @@ sdist_%:
 
 .PHONY: clean
 
-CLEAN_FILES += libraries/bootstrapping.conf
 CLEAN_FILES += libraries/integer-gmp/cbits/GmpDerivedConstants.h
 
 # These are no longer generated, but we still clean them for a while
@@ -1220,6 +1219,7 @@ clean : clean_files clean_libraries
 .PHONY: clean_files
 clean_files :
 	$(call removeFiles,$(CLEAN_FILES))
+	$(call removeTrees,libraries/bootstrapping.conf)
 
 .PHONY: clean_libraries
 clean_libraries: $(patsubst %,clean_libraries/%_dist-install,$(PACKAGES_STAGE1) $(PACKAGES_STAGE2))
