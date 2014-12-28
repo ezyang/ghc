@@ -88,7 +88,7 @@ initV hsc_env guts info thing_inside
            ; let famInstEnvs = (eps_fam_inst_env eps, mg_fam_inst_env guts)
                  instEnvs    = InstEnvs (eps_inst_env     eps)
                                         (mg_inst_env     guts)
-                                        (mkModuleSet (dep_orphs (mg_deps guts)))
+                                        (mkModuleSet (dep_eager_orph_mods (mg_deps guts)))
                  builtin_pas = initClassDicts instEnvs (paClass builtins)  -- grab all 'PA' and..
                  builtin_prs = initClassDicts instEnvs (prClass builtins)  -- ..'PR' class instances
 

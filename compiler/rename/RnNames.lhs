@@ -41,6 +41,7 @@ import ErrUtils
 import Util
 import FastString
 import ListSetOps
+import InstEnv
 
 import Control.Monad
 import Data.Map         ( Map )
@@ -305,7 +306,7 @@ calculateAvails dflags iface mod_safe' want_boot =
       imp_mod_orphs = map (\inst -> (ifInstCls inst,
                                      map (fmap ifaceTyConName)
                                          (ifInstTys inst)))
-                    . filter (isNothing . ifInstOrph)
+                    . filter (isOrphan . ifInstOrph)
                     $ mi_insts iface
       orph_insts = (imp_mod, imp_mod_orphs) : dep_orph_insts deps
 

@@ -422,7 +422,7 @@ tcRnImports hsc_env import_decls
               tcg_rn_imports   = rn_imports,
               tcg_visible_orphan_mods = foldl extendModuleSet
                                               (tcg_visible_orphan_mods gbl)
-                                              (imp_orphs imports),
+                                              (imp_eager_orph_mods imports),
               tcg_inst_env     = extendInstEnvList (tcg_inst_env gbl) home_insts,
               tcg_fam_inst_env = extendFamInstEnvList (tcg_fam_inst_env gbl)
                                                       home_fam_insts,
@@ -1418,7 +1418,7 @@ runTcInteractive hsc_env thing_inside
                                                  , let local_gres = filter isLocalGRE gres
                                                  , not (null local_gres) ]) ]
        ; let getOrphans m = fmap (concatMap (\iface -> mi_module iface
-                                                 : dep_orphs (mi_deps iface)))
+                                                 : dep_eager_orph_mods (mi_deps iface)))
                                  (loadSrcInterface (text "runTcInteractive") m
                                                    False Nothing)
        ; ic_visible_mods <- fmap concat . forM (ic_imports icxt) $ \i ->

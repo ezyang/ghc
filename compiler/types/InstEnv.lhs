@@ -501,7 +501,7 @@ instIsVisible vis_mods ispec
   -- add interactive modules to the set since we keep creating new ones
   -- as a GHCi session progresses.
   | isInteractiveModule mod = True
-  | IsOrphan <- is_orphan ispec = mod `elemModuleSet` vis_mods
+  | IsOrphan <- is_orphan ispec = True -- mod `elemModuleSet` vis_mods
   | otherwise = True
   where mod = nameModule (idName (is_dfun ispec))
 
