@@ -77,7 +77,7 @@ Library
                 ForeignFunctionInterface, EmptyDataDecls,
                 TypeSynonymInstances, MultiParamTypeClasses,
                 FlexibleInstances, RankNTypes, ScopedTypeVariables,
-                DeriveDataTypeable, BangPatterns
+                DeriveDataTypeable, BangPatterns, FlexibleContexts
     if impl(ghc >= 7.1)
         Extensions: NondecreasingIndentation
 
