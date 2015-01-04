@@ -1,4 +1,5 @@
 \begin{code}
+{-# LANGUAGE GADTs #-}
 -- Type definitions for the constraint solver
 module TcSMonad (
 

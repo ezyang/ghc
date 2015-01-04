@@ -6,6 +6,8 @@
 --
 -----------------------------------------------------------------------------
 
+{-# LANGUAGE GADTs #-}
+
 #include "HsVersions.h"
 #include "nativeGen/NCG.h"
 

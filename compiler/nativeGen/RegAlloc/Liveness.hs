@@ -1,3 +1,4 @@
+{-# LANGUAGE GADTs #-}
 -----------------------------------------------------------------------------
 --
 -- The register liveness determinator

@@ -1,3 +1,4 @@
+{-# LANGUAGE GADTs #-}
 -- -----------------------------------------------------------------------------
 -- | This is the top-level module in the LLVM code generator.
 --
