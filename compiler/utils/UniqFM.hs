@@ -39,7 +39,7 @@ module UniqFM (
         listToUFM,
         listToUFM_Directly,
         listToUFM_C,
-        addToUFM,addToUFM_C,addToUFM_Acc,
+        addToUFM,addToUFM_C,addToUFM_Acc,addToUFM_CD,
         addListToUFM,addListToUFM_C,
         addToUFM_Directly,
         addListToUFM_Directly,
@@ -121,6 +121,12 @@ addToUFM_Acc    :: Uniquable key =>
                            -> UniqFM elts               -- old
                            -> key -> elt                -- new
                            -> UniqFM elts               -- result
+addToUFM_CD :: Uniquable key =>
+                              (elt -> elts -> elts)     -- Add function
+                           -> elts                      -- Zero element
+                           -> UniqFM elts               -- old
+                           -> key -> elt                -- new
+                           -> UniqFM elts
 
 alterUFM        :: Uniquable key =>
                               (Maybe elt -> Maybe elt)  -- How to adjust
@@ -235,6 +241,8 @@ addToUFM_Directly (UFM m) u v = UFM (M.insert (getKey u) v m)
 -- Arguments of combining function of M.insertWith and addToUFM_C are flipped.
 addToUFM_C f (UFM m) k v =
   UFM (M.insertWith (flip f) (getKey $ getUnique k) v m)
+addToUFM_CD f d (UFM m) k v =
+  UFM (M.insertWith (\_new old -> f v old) (getKey $ getUnique k) (f v d) m)
 addToUFM_Acc exi new (UFM m) k v =
   UFM (M.insertWith (\_new old -> exi v old) (getKey $ getUnique k) (new v) m)
 addListToUFM_C f = foldl (\m (k, v) -> addToUFM_C f m k v)

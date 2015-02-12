@@ -9,9 +9,13 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 module TrieMap(
    CoreMap, emptyCoreMap, extendCoreMap, lookupCoreMap, foldCoreMap,
    TypeMap, emptyTypeMap, extendTypeMap, lookupTypeMap, foldTypeMap,
+   InstMap, emptyInstMap, extendInstMap, lookupExactInstMap, deleteExactInstMap,
+   eltsInstMap, matchInstMap,
    CoercionMap,
    MaybeMap,
    ListMap,
@@ -38,6 +42,7 @@ import VarEnv
 import NameEnv
 import Outputable
 import Control.Monad( (>=>) )
+import Data.Maybe ( maybeToList, fromMaybe )
 
 {-
 This module implements TrieMaps, which are finite mappings
@@ -74,6 +79,9 @@ insertTM k v m = alterTM k (\_ -> Just v) m
 
 deleteTM :: TrieMap m => Key m -> m a -> m a
 deleteTM k m = alterTM k (\_ -> Nothing) m
+
+eltsTM :: TrieMap m => m a -> [a]
+eltsTM m = foldTM (:) m []
 
 ----------------------
 -- Recall that
@@ -944,7 +952,11 @@ instance Eq (DeBruijn Type) where
         (TyVarTy v, TyVarTy v')
             -> case (lookupCME env v, lookupCME env' v') of
                 (Just bv, Just bv') -> bv == bv'
-                (Nothing, Nothing)  -> v == v'
+                (Nothing, Nothing)
+                  -> case (lookupTmpl env v, lookupTmpl env' v') of
+                      (Just tv, Just tv') -> tv == tv'
+                      (Nothing, Nothing)  -> v == v'
+                      _ -> False
                 _ -> False
         (AppTy t1 t2, AppTy t1' t2')
             -> D env t1 == D env' t1' && D env t2 == D env' t2'
@@ -1068,21 +1080,66 @@ foldTyLit l m = flip (Map.fold l) (tlm_string m)
 type BoundVar = Int  -- Bound variables are deBruijn numbered
 type BoundVarMap a = IntMap.IntMap a
 
+lookupBoundVarMap :: BoundVarMap a -> BoundVar -> Maybe a
+extendBoundVarMap :: BoundVarMap a -> BoundVar -> a -> BoundVarMap a
+emptyBoundVarMap :: BoundVarMap a
+
+lookupBoundVarMap m k = IntMap.lookup k m
+extendBoundVarMap m k v = IntMap.insert k v m
+emptyBoundVarMap = IntMap.empty
+
+type TmplVar = Int   -- Template variables are deBruijn numbered, but in
+                     -- a different namespace.  See Note [Template variables]
+type TmplVarMap a = IntMap.IntMap a
+
+-- Note [Template variables]
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Template variables are unification variables inside the *key* of a TrieMap
+-- which are unified during lookup.  They are currently only used in instance
+-- environments, e.g. if you have the instance:
+--
+--      instance C (F a a) where
+--
+-- then this instance is recorded in the TrieMap with @a@ treated as a template
+-- variable (and NOT a free variable), treating the expression as if it had
+-- implicit quantifiers.
+--
+-- The 'vm_tvar' field in 'VarMap' is a little bit of hack, because 'lkVar',
+-- 'xtVar', and most other functions ignore template variable entries.
+--
+-- Why is vm_tvar a 'BoundVarMap' and not a 'VarEnv'?  Suppose we have an
+-- instance @F a Int@ and another instance @F b Bool@; without de Bruijnization,
+-- the 'VarMap' for the first parameter of @F@ will contain two entries; whereas
+-- with de Bruijnization we have a single entry, improving sharing.  We use the
+-- convention that the variable that occurs first is numbered 0, and so forth.
+-- Note that it doesn't help to give the same index to variable @b@ with the
+-- instances @F a b@ and @F Int b@; since TrieMap keys are left-biased there
+-- will already have been two entries in the TrieMap for the first argument of
+-- @F@ and no possibility of sharing.
+--
+-- Nota bene: for best efficiency, you need to know the correct ordering of
+-- quantifiers BEFORE you do any operations on the template variable: order of
+-- template variables matters!  TODO: ASSERT that accordingly
+
 data CmEnv = CME { cme_next :: BoundVar
-                 , cme_env  :: VarEnv BoundVar }
+                 , cme_env  :: VarEnv BoundVar
+                 , cme_tmpl :: VarEnv TmplVar }
 
 emptyCME :: CmEnv
-emptyCME = CME { cme_next = 0, cme_env = emptyVarEnv }
+emptyCME = CME { cme_next = 0, cme_env = emptyVarEnv, cme_tmpl = emptyVarEnv }
 
 extendCME :: CmEnv -> Var -> CmEnv
-extendCME (CME { cme_next = bv, cme_env = env }) v
-  = CME { cme_next = bv+1, cme_env = extendVarEnv env v bv }
+extendCME cme@(CME { cme_next = bv, cme_env = env }) v
+  = cme { cme_next = bv+1, cme_env = extendVarEnv env v bv }
 
 extendCMEs :: CmEnv -> [Var] -> CmEnv
 extendCMEs env vs = foldl extendCME env vs
 
 lookupCME :: CmEnv -> Var -> Maybe BoundVar
 lookupCME (CME { cme_env = env }) v = lookupVarEnv env v
+
+lookupTmpl :: CmEnv -> Var -> Maybe TmplVar
+lookupTmpl (CME { cme_tmpl = tmpl }) v = lookupVarEnv tmpl v
 
 -- | @DeBruijn a@ represents @a@ modulo alpha-renaming.  This is achieved
 -- by equipping the value with a 'CmEnv', which tracks an on-the-fly deBruijn
@@ -1127,36 +1184,222 @@ xtBndr env v f = xtG (D env (varType v)) f
 
 --------- Variable occurrence -------------
 data VarMap a = VM { vm_bvar   :: BoundVarMap a  -- Bound variable
-                   , vm_fvar   :: VarEnv a }      -- Free variable
+                   , vm_fvar   :: VarEnv a       -- Free variable
+                   , vm_tvar   :: TmplVarMap a   -- Template variable
+                   }
 
 instance TrieMap VarMap where
    type Key VarMap = Var
-   emptyTM  = VM { vm_bvar = IntMap.empty, vm_fvar = emptyVarEnv }
+   emptyTM  = VM { vm_bvar = emptyBoundVarMap
+                 , vm_fvar = emptyVarEnv
+                 , vm_tvar = emptyBoundVarMap }
    lookupTM = lkVar emptyCME
    alterTM  = xtVar emptyCME
    foldTM   = fdVar
    mapTM    = mapVar
 
 mapVar :: (a->b) -> VarMap a -> VarMap b
-mapVar f (VM { vm_bvar = bv, vm_fvar = fv })
-  = VM { vm_bvar = mapTM f bv, vm_fvar = mapVarEnv f fv }
+mapVar f (VM { vm_bvar = bv, vm_fvar = fv, vm_tvar = tv })
+  = VM { vm_bvar = mapTM f bv, vm_fvar = mapVarEnv f fv, vm_tvar = mapTM f tv }
 
 lkVar :: CmEnv -> Var -> VarMap a -> Maybe a
 lkVar env v
-  | Just bv <- lookupCME env v = vm_bvar >.> lookupTM bv
-  | otherwise                  = vm_fvar >.> lkFreeVar v
+  | Just bv <- lookupCME env v  = vm_bvar >.> lookupTM bv
+  | Just tv <- lookupTmpl env v = vm_tvar >.> lookupTM tv
+  | otherwise                   = vm_fvar >.> lkFreeVar v
 
 xtVar :: CmEnv -> Var -> XT a -> VarMap a -> VarMap a
 xtVar env v f m
-  | Just bv <- lookupCME env v = m { vm_bvar = vm_bvar m |> xtInt bv f }
-  | otherwise                  = m { vm_fvar = vm_fvar m |> xtFreeVar v f }
+  | Just bv <- lookupCME env v  = m { vm_bvar = vm_bvar m |> xtInt bv f }
+  | Just tv <- lookupTmpl env v = m { vm_tvar = vm_tvar m |> xtInt tv f }
+  | otherwise                   = m { vm_fvar = vm_fvar m |> xtFreeVar v f }
 
 fdVar :: (a -> b -> b) -> VarMap a -> b -> b
 fdVar k m = foldTM k (vm_bvar m)
           . foldTM k (vm_fvar m)
+          . foldTM k (vm_tvar m)
 
 lkFreeVar :: Var -> VarEnv a -> Maybe a
 lkFreeVar var env = lookupVarEnv env var
 
 xtFreeVar :: Var -> XT a -> VarEnv a -> VarEnv a
 xtFreeVar v f m = alterVarEnv f m v
+
+{-
+************************************************************************
+*                                                                      *
+                   Instance map
+*                                                                      *
+************************************************************************
+-}
+
+-- | @InstMap a@ is a map from @([Type], [TyVar])@ to @a@, where @[TyVar]@
+-- indicates template variables (see Note [Template variable]) which can be used
+-- to perform a unifying match against a 'Type'.  It's primary use is for type
+-- class instance lookup.
+newtype InstMap a = InstMap (ListMap TypeMapG [a])
+
+emptyInstMap :: InstMap a
+emptyInstMap = InstMap emptyTM
+
+eltsInstMap :: InstMap a -> [a]
+eltsInstMap (InstMap m) = concat (eltsTM m)
+
+extendInstMap :: InstMap a -> ([Type], [TyVar]) -> a -> InstMap a
+extendInstMap (InstMap m) k v = InstMap (alterTM (deBruijnizeTmpl k) f m)
+    where f Nothing = Just [v]
+          f (Just vs) = Just (v:vs)
+
+lookupExactInstMap :: InstMap a -> ([Type], [TyVar]) -> [a]
+lookupExactInstMap (InstMap m) k = fromMaybe [] (lookupTM (deBruijnizeTmpl k) m)
+
+deleteExactInstMap :: InstMap a -> ([Type], [TyVar]) -> InstMap a
+deleteExactInstMap (InstMap m) k = InstMap (deleteTM (deBruijnizeTmpl k) m)
+
+matchInstMap :: InstMap a -> [Type] -> [(TmplSubstEnv, a)]
+matchInstMap (InstMap m) ts =
+    concatMap f (matchListG (map deBruijnize ts) (emptyBoundVarMap, m))
+  where f (subst, vs) = map (subst, ) vs
+
+-- InstMap is NOT a TrieMap
+
+deBruijnizeTmpl :: ([Type], [TyVar]) -> [DeBruijn Type]
+deBruijnizeTmpl (t, ts) = map (D (emptyCME { cme_tmpl = zipVarEnv ts [0..] })) t
+
+type TmplSubstEnv = BoundVarMap Type
+
+matchListG :: [DeBruijn Type]
+           -> (TmplSubstEnv, ListMap TypeMapG a)
+           -> [(TmplSubstEnv, a)]
+matchListG []     (subst, m) = lm_nil m |> maybeToList >.> fmap (subst, )
+matchListG (t:ts) (subst, m) = matchG t (subst, lm_cons m) >>= matchListG ts
+
+-- Slightly odd type signature to help out function chaining
+matchG :: DeBruijn Type
+       -> (TmplSubstEnv, TypeMapG a)
+       -> [(TmplSubstEnv, a)]
+matchG k (subst, m) = go m
+  where
+    go EmptyMap = []
+    go (SingletonMap k' v) | Just subst' <- matchT k k' subst = [(subst', v)]
+                           | otherwise                        = []
+    go (MultiMap m) = matchX k (subst, m)
+
+-- A bit tiresome, we want tcMatchTy but it's a bit inconvenient
+matchT :: DeBruijn Type -> DeBruijn Type -> TmplSubstEnv -> Maybe TmplSubstEnv
+-- t1 has template variables, t2 does not
+matchT (D env1 t1) (D env2 t2) subst = go t1 t2 subst where
+  accept = Just
+  reject = const Nothing
+  acceptIf b = if b then accept else reject
+  acceptWith k v = \subst -> accept (extendBoundVarMap subst k v)
+
+  go t1 t2 | Just t1' <- coreView t1 = go t1' t2
+           | Just t2' <- coreView t2 = go t1 t2'
+  go (TyVarTy v1) _ | Just k <- lookupTmpl env1 v1 =
+    case lookupBoundVarMap subst k of
+      Just t' -> acceptIf (D emptyCME t2 == D emptyCME t')
+      -- TODO: occurs check
+      Nothing -> acceptWith k t2
+  go (TyVarTy v1) (TyVarTy v2) =
+    case (lookupCME env1 v1, lookupCME env2 v2) of
+      (Just b1, Just b2) | b1 == b2  -> accept
+                         | otherwise -> reject
+                         -- NB: guaranteed not to be tmpl
+      (Nothing, Nothing) | v1 == v2  -> accept
+                         | otherwise -> reject
+      _ -> reject
+  go (AppTy t1a t1b) (AppTy t2a t2b)
+    = matchT (D env1 t1a) (D env2 t2a) >=> matchT (D env1 t1b) (D env2 t2b)
+  go (FunTy t1a t1b) (FunTy t2a t2b)
+    = matchT (D env1 t1a) (D env2 t2a) >=> matchT (D env1 t1b) (D env2 t2b)
+  go (TyConApp tc1 tys1) (TyConApp tc2 tys2)
+    = acceptIf (tc1 == tc2)
+        >=> matchListT (map (D env1) tys1) (map (D env2) tys2)
+  go (LitTy l1) (LitTy l2)
+    = acceptIf (l1 == l2)
+  go (ForAllTy tv1 ty1) (ForAllTy tv2 ty2)
+    = matchT (D (extendCME env1 tv1) ty1) (D (extendCME env2 tv2) ty2)
+        >=> matchT (D env1 (varType tv1)) (D env2 (varType tv2))
+  go _ _ = reject
+
+matchListT :: [DeBruijn Type]
+           -> [DeBruijn Type]
+           -> TmplSubstEnv
+           -> Maybe TmplSubstEnv
+matchListT [] [] = Just
+matchListT (t1:ts1) (t2:ts2) = matchT t1 t2 >=> matchListT ts1 ts2
+matchListT _ _ = const Nothing
+
+matchX :: forall a. DeBruijn Type
+       -> (TmplSubstEnv, TypeMapX a)
+       -> [(TmplSubstEnv, a)]
+matchX (D env t) (subst, m) = go t m ++ templateMatches
+  -- go = matches resulting from unifying against the structure,
+  -- templateMatches = matches resulting from unifying template variables
+  where
+    templateMatches = IntMap.foldrWithKey templateMatch [] (vm_tvar (tm_var m))
+    templateMatch :: BoundVar -> a -> [(TmplSubstEnv, a)] -> [(TmplSubstEnv, a)]
+    templateMatch k v r
+      -- Do we already have a substitution for this template variable?
+      | Just t' <- lookupBoundVarMap subst k
+      -- NB: t' is guaranteed to not have any bound variables or template
+      -- variables, so we can *discard* the 'CmEnv'.
+      = if D emptyCME t == D emptyCME t' then (subst, v) : r else r
+      -- No substitution, so accept the substitution.
+      -- TODO: occurs check, prevent bound variables from being captured
+      | otherwise
+      = (extendBoundVarMap subst k t, v) : r
+
+    accept :: forall b. Maybe b -> [(TmplSubstEnv, b)]
+    accept = maybeToList >.> fmap (subst, )
+
+    go ty | Just ty' <- coreView ty = go ty'
+    go (TyVarTy v)       = tm_var >.> lkVar env v >.> accept
+    go (AppTy t1 t2)     = tm_app >.> (subst, ) >.> matchG (D env t1)
+                                                     >=> matchG (D env t2)
+    go (FunTy t1 t2)     = tm_fun >.> (subst, ) >.> matchG (D env t1)
+                                                     >=> matchG (D env t2)
+    go (TyConApp tc tys) = tm_tc_app >.> lkNamed tc >.> accept
+                                                    >=> matchListG
+                                                            (map (D env) tys)
+    go (LitTy l)         = tm_tylit  >.> lkTyLit l >.> accept
+    go (ForAllTy tv ty)  = tm_forall >.> (subst, )
+                                     >.> matchG (D (extendCME env tv) ty)
+                                     >=> matchG (D env (varType tv))
+
+{-
+instance Eq (DeBruijn TmplType) where
+  env_t@(D env (T t tmpl)) == env_t'@(D env' (T t' tmpl'))
+    | Just new_t  <- coreView t  = D env (T new_t tmpl) == env_t'
+    | Just new_t' <- coreView t' = env_t == D env' (T new_t' tmpl')
+    | otherwise                  =
+      case (t, t') of
+        (TyVarTy v, TyVarTy v')
+            -> case (lookupCME env v, lookupCME env' v') of
+                (Just bv, Just bv') -> bv == bv'
+                (Nothing, Nothing)  ->
+                    case (lookupTmpl tmpl v, lookupTmpl tmpl' v') of
+                        (Just tv, Just tv') -> tv == tv'
+                        (Nothing, Nothing)  -> v == v'
+                        _                   -> False
+                _ -> False
+        (AppTy t1 t2, AppTy t1' t2')
+            -> D env (T t1 tmpl) == D env' (T t1' tmpl') &&
+               D env (T t2 tmpl) == D env' (T t2' tmpl')
+        (FunTy t1 t2, FunTy t1' t2')
+            -> D env (T t1 tmpl) == D env' (T t1' tmpl') &&
+               D env (T t2 tmpl) == D env' (T t2' tmpl')
+        (TyConApp tc tys, TyConApp tc' tys')
+            -> tc == tc' && D env  (map (flip T tmpl) tys) -- Hmmm
+                         == D env' (map (flip T tmpl') tys')
+        (LitTy l, LitTy l')
+            -> l == l'
+        (ForAllTy tv ty, ForAllTy tv' ty')
+            -> D env (T (tyVarKind tv) tmpl)
+                    == D env' (T (tyVarKind tv') tmpl') &&
+               D (extendCME env tv) (T ty tmpl)
+                    == D (extendCME env' tv') (T ty' tmpl')
+        _ -> False
+-}
+

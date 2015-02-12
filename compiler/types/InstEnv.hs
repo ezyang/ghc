@@ -7,7 +7,7 @@
 The bits common to TcInstDcls and TcDeriv.
 -}
 
-{-# LANGUAGE CPP, DeriveDataTypeable #-}
+{-# LANGUAGE CPP, DeriveDataTypeable, TupleSections #-}
 
 module InstEnv (
         DFunId, InstMatch, ClsInstLookupResult,
@@ -45,9 +45,10 @@ import UniqFM
 import Util
 import Id
 import Binary
+import TrieMap
 import FastString
 import Data.Data        ( Data, Typeable )
-import Data.Maybe       ( isJust, isNothing )
+import Data.Maybe       ( isJust, isNothing, fromMaybe )
 #if __GLASGOW_HASKELL__ < 709
 import Data.Monoid
 #endif
@@ -423,11 +424,13 @@ data InstEnvs = InstEnvs {
 -- transitively reachable orphan modules (modules that define orphan instances).
 type VisibleOrphanModules = ModuleSet
 
+-- The instances for a particular class, a map from instance heads to list
+-- of instances (since there may be syntactically overlapping instances)
 newtype ClsInstEnv
-  = ClsIE [ClsInst]    -- The instances for a particular class, in any order
+  = ClsIE (InstMap ClsInst)
 
 instance Outputable ClsInstEnv where
-  ppr (ClsIE is) = pprInstances is
+  ppr (ClsIE is) = pprInstances (eltsInstMap is)
 
 -- INVARIANTS:
 --  * The is_tvs are distinct in each ClsInst
@@ -442,7 +445,7 @@ emptyInstEnv :: InstEnv
 emptyInstEnv = emptyUFM
 
 instEnvElts :: InstEnv -> [ClsInst]
-instEnvElts ie = [elt | ClsIE elts <- eltsUFM ie, elt <- elts]
+instEnvElts ie = [elt | ClsIE elts <- eltsUFM ie, elt <- eltsInstMap elts]
 
 -- | Test if an instance is visible, by checking that its origin module
 -- is in 'VisibleOrphanModules'.
@@ -463,7 +466,8 @@ classInstances (InstEnvs { ie_global = pkg_ie, ie_local = home_ie, ie_visible = 
   = get home_ie ++ get pkg_ie
   where
     get env = case lookupUFM env cls of
-                Just (ClsIE insts) -> filter (instIsVisible vis_mods) insts
+                Just (ClsIE insts) -> filter (instIsVisible vis_mods)
+                                             (eltsInstMap insts)
                 Nothing            -> []
 
 -- | Collects the names of concrete types and type constructors that make
@@ -479,24 +483,26 @@ orphNamesOfClsInst = orphNamesOfDFunHead . idType . instanceDFunId
 -- | Checks for an exact match of ClsInst in the instance environment.
 -- We use this when we do signature checking in TcRnDriver
 memberInstEnv :: InstEnv -> ClsInst -> Bool
-memberInstEnv inst_env ins_item@(ClsInst { is_cls_nm = cls_nm } ) =
-    maybe False (\(ClsIE items) -> any (identicalClsInstHead ins_item) items)
-          (lookupUFM inst_env cls_nm)
+memberInstEnv inst_env ins_item@(ClsInst { is_cls_nm = cls_nm, is_tys = tys, is_tvs = tvs } ) =
+    fromMaybe False $ do
+        ClsIE items <- lookupUFM inst_env cls_nm
+        return (not (null (lookupExactInstMap items (tys, tvs))))
 
 extendInstEnvList :: InstEnv -> [ClsInst] -> InstEnv
 extendInstEnvList inst_env ispecs = foldl extendInstEnv inst_env ispecs
 
 extendInstEnv :: InstEnv -> ClsInst -> InstEnv
-extendInstEnv inst_env ins_item@(ClsInst { is_cls_nm = cls_nm })
-  = addToUFM_C add inst_env cls_nm (ClsIE [ins_item])
+extendInstEnv inst_env ins_item@(ClsInst { is_cls_nm = cls_nm, is_tys = tys, is_tvs = tvs })
+  = addToUFM_CD add (ClsIE emptyInstMap) inst_env cls_nm ins_item
   where
-    add (ClsIE cur_insts) _ = ClsIE (ins_item : cur_insts)
+    add inst_item (ClsIE cur_insts)
+        = ClsIE (extendInstMap cur_insts (tys, tvs) ins_item)
 
 deleteFromInstEnv :: InstEnv -> ClsInst -> InstEnv
-deleteFromInstEnv inst_env ins_item@(ClsInst { is_cls_nm = cls_nm })
+deleteFromInstEnv inst_env ins_item@(ClsInst { is_cls_nm = cls_nm, is_tvs = tvs, is_tys = tys })
   = adjustUFM adjust inst_env cls_nm
   where
-    adjust (ClsIE items) = ClsIE (filterOut (identicalClsInstHead ins_item) items)
+    adjust (ClsIE items) = ClsIE (deleteExactInstMap items (tys, tvs))
 
 identicalClsInstHead :: ClsInst -> ClsInst -> Bool
 -- ^ True when when the instance heads are the same
@@ -786,7 +792,7 @@ lookupInstEnv' ie vis_mods cls tys
     --------------
     lookup env = case lookupUFM env cls of
                    Nothing -> ([],[])   -- No instances for this class
-                   Just (ClsIE insts) -> find [] [] insts
+                   Just (ClsIE insts) -> find [] [] (eltsInstMap insts) -- TODO: (matchInstMap insts tys)
 
     --------------
     find ms us [] = (ms, us)
