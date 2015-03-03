@@ -150,6 +150,8 @@ Library
         vectorise
 
     Exposed-Modules:
+        Backpack
+        BackpackParser
         Avail
         BasicTypes
         ConLike
