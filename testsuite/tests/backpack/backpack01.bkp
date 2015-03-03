@@ -1,0 +1,20 @@
+package p where
+    includes: base
+    exposed-modules: P
+    required-signatures: Hole
+    source-dir: "p"
+
+package q where
+    includes: base,
+              p (Hole as Data.String, P)
+    exposed-modules: Q A
+    reexported-modules: A as B, Data.String as X
+    source-dir: "q"
+
+executable foo2 where
+    includes: q (X, Q), base, p (Hole as X, P)
+    main-is: foo
+
+executable foo1 where
+    includes: q, base, p (Hole as Data.String, P)
+    main-is: foo

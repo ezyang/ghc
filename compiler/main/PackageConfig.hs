@@ -18,6 +18,7 @@ module PackageConfig (
         InstalledPackageId(..),
         SourcePackageId(..),
         PackageName(..),
+        mkPackageName,
         Version(..),
         defaultPackageConfig,
         installedPackageIdString,
@@ -54,6 +55,9 @@ type PackageConfig = InstalledPackageInfo
 newtype InstalledPackageId = InstalledPackageId FastString deriving (Eq, Ord)
 newtype SourcePackageId    = SourcePackageId    FastString deriving (Eq, Ord)
 newtype PackageName        = PackageName        FastString deriving (Eq, Ord)
+
+mkPackageName :: String -> PackageName
+mkPackageName = PackageName . mkFastString
 
 instance BinaryStringRep InstalledPackageId where
   fromStringRep = InstalledPackageId . mkFastStringByteString

@@ -13,6 +13,7 @@ module Packages (
         getPackageConfRefs,
         resolvePackageConfig,
         readPackageConfig,
+        listPackageConfigMap,
 
         -- * Querying the package config
         lookupPackage,
@@ -317,7 +318,7 @@ extendPackageConfigMap pkg_map new_pkgs
 -- not found
 getPackageDetails :: DynFlags -> PackageKey -> PackageConfig
 getPackageDetails dflags pid =
-    expectJust "getPackageDetails" (lookupPackage dflags pid)
+    expectJust (showSDoc dflags $ text "getPackageDetails" <+> ppr pid) (lookupPackage dflags pid)
 
 -- | Get a list of entries from the package database.  NB: be careful with
 -- this function, although all packages in this map are "visible", this
@@ -1079,16 +1080,16 @@ mkModuleNameDb dflags pkg_db ipid_map vis_map =
     newBindings :: Bool
                 -> [(ModuleName, ModuleName)]
                 -> [(ModuleName, ModuleDb)]
-    newBindings e rns  = es e ++ hiddens ++ map rnBinding rns
+    newBindings e rns  = es e ++ hiddens ++ concatMap rnBinding rns
 
     rnBinding :: (ModuleName, ModuleName)
-              -> (ModuleName, ModuleDb)
-    rnBinding (orig, new) = (new, fmap applyFlag origEntry)
+              -> [(ModuleName, ModuleDb)]
+    rnBinding (orig, new) = map (\o -> (new, fmap applyFlag o)) origEntry
      where origEntry = case lookupUFM esmap orig of
-            Just r -> r
-            Nothing -> throwGhcException (CmdLineError (showSDoc dflags
+            Just r -> [r]
+            Nothing -> [] {- throwGhcException (CmdLineError (showSDoc dflags
                         (text "package flag: could not find module name" <+>
-                            ppr orig <+> text "in package" <+> ppr pk)))
+                            ppr orig <+> text "in package" <+> ppr pk))) -}
 
     applyFlag (MD _ sigs) = MD fromFlag (fmap (const fromFlag) sigs)
 
@@ -1439,7 +1440,7 @@ missingDependencyMsg (Just parent)
 packageKeyPackageIdString :: DynFlags -> PackageKey -> String
 packageKeyPackageIdString dflags pkg_key
     | pkg_key == mainPackageKey = "main"
-    | otherwise = maybe "(unknown)"
+    | otherwise = maybe (packageKeyString pkg_key)
                       sourcePackageIdString
                       (lookupPackage dflags pkg_key)
 

@@ -24,6 +24,7 @@ import LoadIface        ( showIface )
 import HscMain          ( newHscEnv )
 import DriverPipeline   ( oneShot, compileFile )
 import DriverMkDepend   ( doMkDependHS )
+import DriverBackpack   ( doBackpack )
 #ifdef GHCI
 import InteractiveUI    ( interactiveUI, ghciWelcomeMsg, defaultGhciSettings )
 #endif
@@ -131,6 +132,8 @@ main = do
 main' :: PostLoadMode -> DynFlags -> [Located String] -> [Located String]
       -> Ghc ()
 main' postLoadMode dflags0 args flagWarnings = do
+  -- TODO ezyang: DoBackpack, some of these dynflag twiddles are useless
+
   -- set the default GhcMode, HscTarget and GhcLink.  The HscTarget
   -- can be further adjusted on a module by module basis, using only
   -- the -fvia-C and -fasm flags.  If the default HscTarget is not
@@ -141,6 +144,7 @@ main' postLoadMode dflags0 args flagWarnings = do
                DoInteractive   -> (CompManager, HscInterpreted, LinkInMemory)
                DoEval _        -> (CompManager, HscInterpreted, LinkInMemory)
                DoMake          -> (CompManager, dflt_target,    LinkBinary)
+               DoBackpack _    -> (CompManager, dflt_target,    LinkBinary)
                DoMkDependHS    -> (MkDepend,    dflt_target,    LinkBinary)
                DoAbiHash       -> (OneShot,     dflt_target,    LinkBinary)
                _               -> (OneShot,     dflt_target,    LinkBinary)
@@ -206,6 +210,7 @@ main' postLoadMode dflags0 args flagWarnings = do
   -- we've finished manipulating the DynFlags, update the session
   _ <- GHC.setSessionDynFlags dflags5
   dflags6 <- GHC.getSessionDynFlags
+  liftIO $ setUnsafeGlobalDynFlags dflags6
   hsc_env <- GHC.getSession
 
         ---------------- Display configuration -----------
@@ -238,6 +243,7 @@ main' postLoadMode dflags0 args flagWarnings = do
        DoEval exprs           -> ghciUI srcs $ Just $ reverse exprs
        DoAbiHash              -> abiHash (map fst srcs)
        ShowPackages           -> liftIO $ showPackages dflags6
+       DoBackpack b           -> doBackpack b (map fst srcs)
 
   liftIO $ dumpFinalStats dflags6
 
@@ -433,6 +439,7 @@ data PostLoadMode
   | StopBefore Phase        -- ghc -E | -C | -S
                             -- StopBefore StopLn is the default
   | DoMake                  -- ghc --make
+  | DoBackpack String       -- ghc --backpack Foo.bkp
   | DoInteractive           -- ghc --interactive
   | DoEval [String]         -- ghc -e foo -e bar => DoEval ["bar", "foo"]
   | DoAbiHash               -- ghc --abi-hash
@@ -454,6 +461,9 @@ stopBeforeMode phase = mkPostLoadMode (StopBefore phase)
 
 doEvalMode :: String -> Mode
 doEvalMode str = mkPostLoadMode (DoEval [str])
+
+doBackpackMode :: String -> Mode
+doBackpackMode str = mkPostLoadMode (DoBackpack str)
 
 mkPostLoadMode :: PostLoadMode -> Mode
 mkPostLoadMode = Right . Right
@@ -577,6 +587,7 @@ mode_flags =
   , defFlag "C"            (PassFlag (setMode (stopBeforeMode HCc)))
   , defFlag "S"            (PassFlag (setMode (stopBeforeMode (As False))))
   , defFlag "-make"        (PassFlag (setMode doMakeMode))
+  , defFlag "-backpack"    (SepArg   (\s -> setMode (doBackpackMode s) "-backpack"))
   , defFlag "-interactive" (PassFlag (setMode doInteractiveMode))
   , defFlag "-abi-hash"    (PassFlag (setMode doAbiHashMode))
   , defFlag "e"            (SepArg   (\s -> setMode (doEvalMode s) "-e"))
@@ -676,7 +687,6 @@ doMake srcs  = do
 
     when (failed ok_flag) (liftIO $ exitWith (ExitFailure 1))
     return ()
-
 
 -- ---------------------------------------------------------------------------
 -- --show-iface mode

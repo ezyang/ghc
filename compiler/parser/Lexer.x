@@ -56,7 +56,7 @@
 {-# OPTIONS_GHC -funbox-strict-fields #-}
 
 module Lexer (
-   Token(..), lexer, pragState, mkPState, PState(..),
+   Token(..), lexer, pragState, mkPState, mkBackpackPState, PState(..),
    P(..), ParseResult(..), getSrcLoc,
    getPState, getDynFlags, withThisPackage,
    failLocMsgP, failSpanMsgP, srcParseFail,
@@ -157,6 +157,7 @@ $binit     = 0-1
 $octit     = 0-7
 $hexit     = [$decdigit A-F a-f]
 $idchar    = [$small $large $digit \']
+$backpackchar = [$small $large $digit]
 
 $pragmachar = [$small $large $digit]
 
@@ -171,6 +172,8 @@ $docsym    = [\| \^ \* \$]
 
 @varsym    = ($symbol # \:) $symbol*  -- variable (operator) symbol
 @consym    = \: $symbol*              -- constructor (operator) symbol
+
+@backpackid = $backpackchar+ (\- $backpackchar+)*
 
 @decimal     = $decdigit+
 @binary      = $binit+
@@ -422,6 +425,11 @@ $tab+         { warn Opt_WarnTabs (text "Tab character") }
 
   \{                                    { open_brace }
   \}                                    { close_brace }
+}
+
+-- Backpack lexemes, these are EARLY so they override
+<0> {
+  @backpackid / { ifExtension backpackEnabled } { varid }
 }
 
 <0,option_prags> {
@@ -696,6 +704,20 @@ data Token
   | ITlineComment     String     -- comment starting by "--"
   | ITblockComment    String     -- comment in {- -}
 
+  -- Backpack keywords
+  | ITpackage
+  | ITinstalled
+  | ITexecutable
+  | ITmain_is
+  | ITincludes
+  | ITexposed_modules
+  | ITother_modules
+  | ITexposed_signatures
+  | ITrequired_signatures
+  | ITsource_dir
+  | ITreexported_modules
+  | ITinstalled_id
+
   deriving Show
 
 instance Outputable Token where
@@ -766,7 +788,20 @@ reservedWordsFM = listToUFM $
 
          ( "rec",            ITrec,           xbit ArrowsBit .|.
                                               xbit RecursiveDoBit),
-         ( "proc",           ITproc,          xbit ArrowsBit)
+         ( "proc",           ITproc,          xbit ArrowsBit),
+
+         ( "includes",            ITincludes,            xbit BackpackBit),
+         ( "exposed-modules",     ITexposed_modules,     xbit BackpackBit),
+         ( "other-modules",       ITother_modules,       xbit BackpackBit),
+         ( "exposed-signatures",  ITexposed_signatures,  xbit BackpackBit),
+         ( "required-signatures", ITrequired_signatures, xbit BackpackBit),
+         ( "reexported-modules",  ITreexported_modules,  xbit BackpackBit),
+         ( "source-dir",          ITsource_dir,          xbit BackpackBit),
+         ( "installed-id",        ITinstalled_id,        xbit BackpackBit),
+         ( "package",             ITpackage,             xbit BackpackBit),
+         ( "installed",           ITinstalled,           xbit BackpackBit),
+         ( "executable",          ITexecutable,          xbit BackpackBit),
+         ( "main-is",             ITmain_is,             xbit BackpackBit)
      ]
 
 {-----------------------------------
@@ -2009,6 +2044,7 @@ data ExtBits
   | LambdaCaseBit
   | BinaryLiteralsBit
   | NegativeLiteralsBit
+  | BackpackBit
   deriving Enum
 
 
@@ -2067,6 +2103,8 @@ negativeLiteralsEnabled :: ExtsBitmap -> Bool
 negativeLiteralsEnabled = xtest NegativeLiteralsBit
 patternSynonymsEnabled :: ExtsBitmap -> Bool
 patternSynonymsEnabled = xtest PatternSynonymsBit
+backpackEnabled :: ExtsBitmap -> Bool
+backpackEnabled = xtest BackpackBit
 
 -- PState for parsing options pragmas
 --
@@ -2074,6 +2112,12 @@ pragState :: DynFlags -> StringBuffer -> RealSrcLoc -> PState
 pragState dynflags buf loc = (mkPState dynflags buf loc) {
                                  lex_state = [bol, option_prags, 0]
                              }
+
+-- create a parse state for parsing Backpack files
+-- (essentially the same, but set the extension bitmap to just be Backpack)
+mkBackpackPState :: DynFlags -> StringBuffer -> RealSrcLoc -> PState
+mkBackpackPState flags buf loc =
+  (mkPState flags buf loc) { extsBitmap = xbit BackpackBit }
 
 -- create a parse state
 --

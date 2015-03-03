@@ -1,0 +1,2 @@
+module Hole where
+lines :: String -> [String]

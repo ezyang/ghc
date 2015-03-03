@@ -1,0 +1,16 @@
+
+BUILDING package p [p_0pGVquHcc3Y514DjCMqrDd]:
+[1 of 2] Compiling Hole[sig of Data.String] ( p/Hole.hsig, nothing )
+[2 of 2] Compiling P                ( p/P.hs, p/out_p_0pGVquHcc3Y514DjCMqrDd/P.o )
+
+BUILDING package q [q_6JosentJQf4K0ocJRv0iGz]:
+[1 of 2] Compiling A                ( q/A.hs, q/A.o )
+[2 of 2] Compiling Q                ( q/Q.hs, q/Q.o )
+
+BUILDING executable foo:
+[1 of 1] Compiling Main             ( foo.hs, out_foo2/Main.o )
+Linking foo2 ...
+
+BUILDING executable foo:
+[1 of 1] Compiling Main             ( foo.hs, out_foo1/Main.o )
+Linking foo1 ...

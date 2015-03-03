@@ -152,6 +152,7 @@ Library
     Exposed-Modules:
         Backpack
         BackpackParser
+        DriverBackpack
         Avail
         BasicTypes
         ConLike
