@@ -1108,8 +1108,8 @@ data PackageArg = PackageArg String
                 | PackageKeyArg String
   deriving (Eq, Show)
 
-data ModRenaming = ModRenaming Bool [(String, String)]
-  deriving (Eq, Show)
+data ModRenaming = ModRenaming Bool [(ModuleName, ModuleName)]
+  deriving (Eq)
 
 data PackageFlag
   = ExposePackage   PackageArg ModRenaming
@@ -1117,7 +1117,7 @@ data PackageFlag
   | IgnorePackage   String
   | TrustPackage    String
   | DistrustPackage String
-  deriving (Eq, Show)
+  deriving (Eq)
 
 defaultHscTarget :: Platform -> HscTarget
 defaultHscTarget = defaultObjectTarget
@@ -1927,12 +1927,12 @@ parseSigOf str = case filter ((=="").snd) (readP_to_S parse str) of
             -- ToDo: deprecate this 'is' syntax?
             tok $ ((string "is" >> return ()) +++ (R.char '=' >> return ()))
             m <- tok $ parseModule
-            return (mkModuleName n, m)
+            return (n, m)
         parseModule = do
             pk <- munch1 (\c -> isAlphaNum c || c `elem` "-_")
             _ <- R.char ':'
             m <- parseModuleName
-            return (mkModule (stringToPackageKey pk) (mkModuleName m))
+            return (mkModule (stringToPackageKey pk) m)
         tok m = skipSpaces >> m
 
 setSigOf :: String -> DynFlags -> DynFlags
@@ -3681,8 +3681,9 @@ removeGlobalPkgConf = upd $ \s -> s { extraPkgConfs = filter isNotGlobal . extra
 clearPkgConf :: DynP ()
 clearPkgConf = upd $ \s -> s { extraPkgConfs = const [] }
 
-parseModuleName :: ReadP String
-parseModuleName = munch1 (\c -> isAlphaNum c || c `elem` ".")
+parseModuleName :: ReadP ModuleName
+parseModuleName = fmap mkModuleName
+                $ munch1 (\c -> isAlphaNum c || c `elem` ".")
 
 parsePackageFlag :: (String -> PackageArg) -- type of argument
                  -> String                 -- string to parse
