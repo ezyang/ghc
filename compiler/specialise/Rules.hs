@@ -1114,16 +1114,17 @@ ruleAppCheck_help env fn args rules
     i_args = args `zip` [1::Int ..]
     rough_args = map roughTopName args
 
-    check_rule rule = sdocWithDynFlags $ \dflags ->
-                      rule_herald rule <> colon <+> rule_info dflags rule
+    check_rule rule = sdocWithPprFlags $ \pflags ->
+                      rule_herald rule <> colon <+> rule_info pflags rule
 
     rule_herald (BuiltinRule { ru_name = name })
         = ptext (sLit "Builtin rule") <+> doubleQuotes (ftext name)
     rule_herald (Rule { ru_name = name })
         = ptext (sLit "Rule") <+> doubleQuotes (ftext name)
 
-    rule_info dflags rule
-        | Just _ <- matchRule dflags (emptyInScopeSet, rc_id_unf env)
+    rule_info pflags rule
+        -- TODO CAN'T DO THIS
+        | Just _ <- matchRule (error "THIS IS VERY PECULIAR") (emptyInScopeSet, rc_id_unf env)
                               noBlackList fn args rough_args rule
         = text "matches (which is very peculiar!)"
 

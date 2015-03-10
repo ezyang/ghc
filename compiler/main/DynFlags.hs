@@ -56,6 +56,8 @@ module DynFlags (
         Way(..), mkBuildTag, wayRTSOnly, addWay', updateWays,
         wayGeneralFlags, wayUnsetGeneralFlags,
 
+        pprFlags,
+
         -- ** Safe Haskell
         SafeHaskellMode(..),
         safeHaskellOn, safeImportsOn, safeLanguageOn, safeInferOn,
@@ -170,6 +172,7 @@ import qualified Pretty
 import SrcLoc
 import FastString
 import Outputable
+import qualified PprFlags as P
 #ifdef GHCI
 import Foreign.C        ( CInt(..) )
 import System.IO.Unsafe ( unsafeDupablePerformIO )
@@ -1613,7 +1616,7 @@ defaultLogActionHPutStrDoc dflags h d sty
   = Pretty.printDoc_ Pretty.PageMode (pprCols dflags) h doc
   where   -- Don't add a newline at the end, so that successive
           -- calls to this log-action can output all on the same line
-    doc = runSDoc d (initSDocContext dflags sty)
+    doc = runSDoc d (initSDocContext (pprFlags dflags) sty)
 
 newtype FlushOut = FlushOut (IO ())
 
@@ -4277,3 +4280,26 @@ decodeSize str
 
 foreign import ccall unsafe "setHeapSize"       setHeapSize       :: Int -> IO ()
 foreign import ccall unsafe "enableTimingStats" enableTimingStats :: IO ()
+
+-- | Convert 'DynFlags' into 'PprFlags' (TODO: just embed it)
+pprFlags :: DynFlags -> P.PprFlags
+pprFlags dflags = P.PprFlags {
+    P.pprUserLength = pprUserLength dflags,
+    P.pprCols = pprCols dflags,
+    P.useUnicode = useUnicode dflags,
+    P.useUnicodeSyntax = useUnicodeSyntax dflags,
+    P.targetPlatform = targetPlatform dflags,
+    P.suppressUniques = gopt Opt_SuppressUniques dflags,
+    P.errorSpans = gopt Opt_ErrorSpans dflags,
+    P.suppressModulePrefixes = gopt Opt_SuppressModulePrefixes dflags,
+    P.printExplicitKinds = gopt Opt_PrintExplicitKinds dflags,
+    P.printExplicitForalls = gopt Opt_PrintExplicitForalls dflags,
+    P.suppressTypeSignatures = gopt Opt_SuppressTypeSignatures dflags,
+    P.suppressIdInfo = gopt Opt_SuppressIdInfo dflags,
+    P.suppressCoercions = gopt Opt_SuppressCoercions dflags,
+    P.pprCaseAsLet = gopt Opt_PprCaseAsLet dflags,
+    P.pprShowTicks = gopt Opt_PprShowTicks dflags,
+    P.suppressTypeApplications = gopt Opt_SuppressTypeApplications dflags,
+    P.sccProfilingOn = gopt Opt_SccProfilingOn dflags,
+    P.dummy = ()
+    }

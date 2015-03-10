@@ -555,6 +555,7 @@ compiler_stage2_dll0_MODULES = \
 	Platform \
 	PlatformConstants \
 	PprCore \
+	PprFlags \
 	PrelNames \
 	PrelRules \
 	Pretty \

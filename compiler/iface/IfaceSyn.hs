@@ -620,16 +620,16 @@ pprIfaceDecl ss (IfaceData { ifName = tycon, ifCType = ctype,
       | IfDataInstance _ tc tys <- parent
       = (con_univ_tvs, pprIfaceType (IfaceTyConApp tc (substIfaceTcArgs gadt_subst tys)))
       | otherwise
-      = (con_univ_tvs, sdocWithDynFlags (ppr_tc_app gadt_subst))
+      = (con_univ_tvs, sdocWithPprFlags (ppr_tc_app gadt_subst))
       where
         gadt_subst = mkFsEnv eq_spec
         done_univ_tv (tv,_) = isJust (lookupFsEnv gadt_subst tv)
         con_univ_tvs = filterOut done_univ_tv tc_tyvars
 
-    ppr_tc_app gadt_subst dflags
+    ppr_tc_app gadt_subst pflags
        = pprPrefixIfDeclBndr ss tycon
          <+> sep [ pprParendIfaceType (substIfaceTyVar gadt_subst tv)
-                 | (tv,_kind) <- stripIfaceKindVars dflags tc_tyvars ]
+                 | (tv,_kind) <- stripIfaceKindVars pflags tc_tyvars ]
 
     pp_nd = case condecls of
               IfAbstractTyCon d -> ptext (sLit "abstract") <> ppShowIface ss (parens (ppr d))
@@ -729,8 +729,8 @@ pprCType (Just cType) = ptext (sLit "C type:") <+> ppr cType
 -- output
 pprRoles :: (Role -> Bool) -> SDoc -> [IfaceTvBndr] -> [Role] -> SDoc
 pprRoles suppress_if tyCon tyvars roles
-  = sdocWithDynFlags $ \dflags ->
-      let froles = suppressIfaceKinds dflags tyvars roles
+  = sdocWithPprFlags $ \pflags ->
+      let froles = suppressIfaceKinds pflags tyvars roles
       in ppUnless (all suppress_if roles || null froles) $
          ptext (sLit "type role") <+> tyCon <+> hsep (map ppr froles)
 
@@ -770,16 +770,16 @@ pprIfaceTyConParent :: IfaceTyConParent -> SDoc
 pprIfaceTyConParent IfNoParent
   = Outputable.empty
 pprIfaceTyConParent (IfDataInstance _ tc tys)
-  = sdocWithDynFlags $ \dflags ->
-    let ftys = stripKindArgs dflags tys
+  = sdocWithPprFlags $ \pflags ->
+    let ftys = stripKindArgs pflags tys
     in pprIfaceTypeApp tc ftys
 
 pprIfaceDeclHead :: IfaceContext -> ShowSub -> OccName -> [IfaceTvBndr] -> SDoc
 pprIfaceDeclHead context ss tc_occ tv_bndrs
-  = sdocWithDynFlags $ \ dflags ->
+  = sdocWithPprFlags $ \ pflags ->
     sep [ pprIfaceContextArr context
         , pprPrefixIfDeclBndr ss tc_occ
-          <+> pprIfaceTvBndrs (stripIfaceKindVars dflags tv_bndrs) ]
+          <+> pprIfaceTvBndrs (stripIfaceKindVars pflags tv_bndrs) ]
 
 isVanillaIfaceConDecl :: IfaceConDecl -> Bool
 isVanillaIfaceConDecl (IfCon { ifConExTvs  = ex_tvs

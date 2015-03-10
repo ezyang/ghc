@@ -1,6 +1,6 @@
 module Packages where
 -- Well, this is kind of stupid...
 import {-# SOURCE #-} Module (PackageKey)
-import {-# SOURCE #-} DynFlags (DynFlags)
+import PprFlags (PprFlags)
 data PackageState
-packageKeyPackageIdString :: DynFlags -> PackageKey -> String
+packageKeyPackageIdString :: PprFlags -> PackageKey -> String

@@ -62,7 +62,7 @@ module Outputable (
         alwaysQualify, alwaysQualifyNames, alwaysQualifyModules,
         neverQualify, neverQualifyNames, neverQualifyModules,
         QualifyName(..), queryQual,
-        sdocWithDynFlags, sdocWithPlatform,
+        sdocWithPprFlags, sdocWithPlatform,
         getPprStyle, withPprStyle, withPprStyleDoc,
         pprDeeper, pprDeeperList, pprSetDepth,
         codeStyle, userStyle, debugStyle, dumpStyle, asmStyle,
@@ -77,10 +77,10 @@ module Outputable (
         pprDebugAndThen,
     ) where
 
-import {-# SOURCE #-}   DynFlags( DynFlags,
-                                  targetPlatform, pprUserLength, pprCols,
-                                  useUnicode, useUnicodeSyntax,
-                                  unsafeGlobalDynFlags )
+--  import {-# SOURCE #-}   DynFlags( DynFlags,
+--                                    targetPlatform, pprUserLength, pprCols,
+--                                    useUnicode, useUnicodeSyntax,
+--                                    unsafeGlobalDynFlags )
 import {-# SOURCE #-}   Module( PackageKey, Module, ModuleName, moduleName )
 import {-# SOURCE #-}   OccName( OccName )
 import {-# SOURCE #-}   StaticFlags( opt_PprStyle_Debug, opt_NoDebugOutput )
@@ -92,6 +92,7 @@ import Util
 import Platform
 import Pretty           ( Doc, Mode(..) )
 import Panic
+import PprFlags
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
@@ -109,6 +110,8 @@ import Data.Graph (SCC(..))
 
 import GHC.Fingerprint
 import GHC.Show         ( showMultiLineString )
+
+unsafeGlobalPprFlags = undefined
 
 {-
 ************************************************************************
@@ -229,16 +232,16 @@ mkDumpStyle :: PrintUnqualified -> PprStyle
 mkDumpStyle print_unqual | opt_PprStyle_Debug = PprDebug
                          | otherwise          = PprDump print_unqual
 
-defaultErrStyle :: DynFlags -> PprStyle
+defaultErrStyle :: PprFlags -> PprStyle
 -- Default style for error messages, when we don't know PrintUnqualified
 -- It's a bit of a hack because it doesn't take into account what's in scope
 -- Only used for desugarer warnings, and typechecker errors in interface sigs
 -- NB that -dppr-debug will still get into PprDebug style
-defaultErrStyle dflags = mkErrStyle dflags neverQualify
+defaultErrStyle pflags = mkErrStyle pflags neverQualify
 
 -- | Style for printing error messages
-mkErrStyle :: DynFlags -> PrintUnqualified -> PprStyle
-mkErrStyle dflags qual = mkUserStyle qual (PartWay (pprUserLength dflags))
+mkErrStyle :: PprFlags -> PrintUnqualified -> PprStyle
+mkErrStyle pflags qual = mkUserStyle qual (PartWay (pprUserLength pflags))
 
 cmdlineParserStyle :: PprStyle
 cmdlineParserStyle = mkUserStyle alwaysQualify AllTheWay
@@ -270,21 +273,21 @@ data SDocContext = SDC
   { sdocStyle      :: !PprStyle
   , sdocLastColour :: !PprColour
     -- ^ The most recently used colour.  This allows nesting colours.
-  , sdocDynFlags   :: !DynFlags
+  , sdocPprFlags   :: !PprFlags
   }
 
-initSDocContext :: DynFlags -> PprStyle -> SDocContext
-initSDocContext dflags sty = SDC
+initSDocContext :: PprFlags -> PprStyle -> SDocContext
+initSDocContext pflags sty = SDC
   { sdocStyle = sty
   , sdocLastColour = colReset
-  , sdocDynFlags = dflags
+  , sdocPprFlags = pflags
   }
 
 withPprStyle :: PprStyle -> SDoc -> SDoc
 withPprStyle sty d = SDoc $ \ctxt -> runSDoc d ctxt{sdocStyle=sty}
 
-withPprStyleDoc :: DynFlags -> PprStyle -> SDoc -> Doc
-withPprStyleDoc dflags sty d = runSDoc d (initSDocContext dflags sty)
+withPprStyleDoc :: PprFlags -> PprStyle -> SDoc -> Doc
+withPprStyleDoc pflags sty d = runSDoc d (initSDocContext pflags sty)
 
 pprDeeper :: SDoc -> SDoc
 pprDeeper d = SDoc $ \ctx -> case ctx of
@@ -320,11 +323,11 @@ pprSetDepth depth doc = SDoc $ \ctx ->
 getPprStyle :: (PprStyle -> SDoc) -> SDoc
 getPprStyle df = SDoc $ \ctx -> runSDoc (df (sdocStyle ctx)) ctx
 
-sdocWithDynFlags :: (DynFlags -> SDoc) -> SDoc
-sdocWithDynFlags f = SDoc $ \ctx -> runSDoc (f (sdocDynFlags ctx)) ctx
+sdocWithPprFlags :: (PprFlags -> SDoc) -> SDoc
+sdocWithPprFlags f = SDoc $ \ctx -> runSDoc (f (sdocPprFlags ctx)) ctx
 
 sdocWithPlatform :: (Platform -> SDoc) -> SDoc
-sdocWithPlatform f = sdocWithDynFlags (f . targetPlatform)
+sdocWithPlatform f = sdocWithPprFlags (f . targetPlatform)
 
 qualName :: PprStyle -> QueryQualifyName
 qualName (PprUser q _)  mod occ = queryQualifyName q mod occ
@@ -372,27 +375,27 @@ ifPprDebug d = SDoc $ \ctx ->
         SDC{sdocStyle=PprDebug} -> runSDoc d ctx
         _                       -> Pretty.empty
 
-printForUser :: DynFlags -> Handle -> PrintUnqualified -> SDoc -> IO ()
-printForUser dflags handle unqual doc
-  = Pretty.printDoc PageMode (pprCols dflags) handle
-      (runSDoc doc (initSDocContext dflags (mkUserStyle unqual AllTheWay)))
+printForUser :: PprFlags -> Handle -> PrintUnqualified -> SDoc -> IO ()
+printForUser pflags handle unqual doc
+  = Pretty.printDoc PageMode (pprCols pflags) handle
+      (runSDoc doc (initSDocContext pflags (mkUserStyle unqual AllTheWay)))
 
-printForUserPartWay :: DynFlags -> Handle -> Int -> PrintUnqualified -> SDoc
+printForUserPartWay :: PprFlags -> Handle -> Int -> PrintUnqualified -> SDoc
                     -> IO ()
-printForUserPartWay dflags handle d unqual doc
-  = Pretty.printDoc PageMode (pprCols dflags) handle
-      (runSDoc doc (initSDocContext dflags (mkUserStyle unqual (PartWay d))))
+printForUserPartWay pflags handle d unqual doc
+  = Pretty.printDoc PageMode (pprCols pflags) handle
+      (runSDoc doc (initSDocContext pflags (mkUserStyle unqual (PartWay d))))
 
 -- printForC, printForAsm do what they sound like
-printForC :: DynFlags -> Handle -> SDoc -> IO ()
-printForC dflags handle doc =
-  Pretty.printDoc LeftMode (pprCols dflags) handle
-    (runSDoc doc (initSDocContext dflags (PprCode CStyle)))
+printForC :: PprFlags -> Handle -> SDoc -> IO ()
+printForC pflags handle doc =
+  Pretty.printDoc LeftMode (pprCols pflags) handle
+    (runSDoc doc (initSDocContext pflags (PprCode CStyle)))
 
-printForAsm :: DynFlags -> Handle -> SDoc -> IO ()
-printForAsm dflags handle doc =
-  Pretty.printDoc LeftMode (pprCols dflags) handle
-    (runSDoc doc (initSDocContext dflags (PprCode AsmStyle)))
+printForAsm :: PprFlags -> Handle -> SDoc -> IO ()
+printForAsm pflags handle doc =
+  Pretty.printDoc LeftMode (pprCols pflags) handle
+    (runSDoc doc (initSDocContext pflags (PprCode AsmStyle)))
 
 pprCode :: CodeStyle -> SDoc -> SDoc
 pprCode cs d = withPprStyle (PprCode cs) d
@@ -403,47 +406,47 @@ mkCodeStyle = PprCode
 -- Can't make SDoc an instance of Show because SDoc is just a function type
 -- However, Doc *is* an instance of Show
 -- showSDoc just blasts it out as a string
-showSDoc :: DynFlags -> SDoc -> String
-showSDoc dflags sdoc = renderWithStyle dflags sdoc defaultUserStyle
+showSDoc :: PprFlags -> SDoc -> String
+showSDoc pflags sdoc = renderWithStyle pflags sdoc defaultUserStyle
 
 showSDocSimple :: SDoc -> String
-showSDocSimple sdoc = showSDoc unsafeGlobalDynFlags sdoc
+showSDocSimple sdoc = showSDoc unsafeGlobalPprFlags sdoc
 
-showPpr :: Outputable a => DynFlags -> a -> String
-showPpr dflags thing = showSDoc dflags (ppr thing)
+showPpr :: Outputable a => PprFlags -> a -> String
+showPpr pflags thing = showSDoc pflags (ppr thing)
 
-showSDocUnqual :: DynFlags -> SDoc -> String
+showSDocUnqual :: PprFlags -> SDoc -> String
 -- Only used by Haddock
-showSDocUnqual dflags sdoc = showSDoc dflags sdoc
+showSDocUnqual pflags sdoc = showSDoc pflags sdoc
 
-showSDocForUser :: DynFlags -> PrintUnqualified -> SDoc -> String
+showSDocForUser :: PprFlags -> PrintUnqualified -> SDoc -> String
 -- Allows caller to specify the PrintUnqualified to use
-showSDocForUser dflags unqual doc
- = renderWithStyle dflags doc (mkUserStyle unqual AllTheWay)
+showSDocForUser pflags unqual doc
+ = renderWithStyle pflags doc (mkUserStyle unqual AllTheWay)
 
-showSDocDump :: DynFlags -> SDoc -> String
-showSDocDump dflags d = renderWithStyle dflags d defaultDumpStyle
+showSDocDump :: PprFlags -> SDoc -> String
+showSDocDump pflags d = renderWithStyle pflags d defaultDumpStyle
 
-showSDocDebug :: DynFlags -> SDoc -> String
-showSDocDebug dflags d = renderWithStyle dflags d PprDebug
+showSDocDebug :: PprFlags -> SDoc -> String
+showSDocDebug pflags d = renderWithStyle pflags d PprDebug
 
-renderWithStyle :: DynFlags -> SDoc -> PprStyle -> String
-renderWithStyle dflags sdoc sty
-  = Pretty.showDoc PageMode (pprCols dflags) $
-    runSDoc sdoc (initSDocContext dflags sty)
+renderWithStyle :: PprFlags -> SDoc -> PprStyle -> String
+renderWithStyle pflags sdoc sty
+  = Pretty.showDoc PageMode (pprCols pflags) $
+    runSDoc sdoc (initSDocContext pflags sty)
 
 -- This shows an SDoc, but on one line only. It's cheaper than a full
 -- showSDoc, designed for when we're getting results like "Foo.bar"
 -- and "foo{uniq strictness}" so we don't want fancy layout anyway.
-showSDocOneLine :: DynFlags -> SDoc -> String
-showSDocOneLine dflags d
- = Pretty.showDoc OneLineMode (pprCols dflags) $
-   runSDoc d (initSDocContext dflags defaultUserStyle)
+showSDocOneLine :: PprFlags -> SDoc -> String
+showSDocOneLine pflags d
+ = Pretty.showDoc OneLineMode (pprCols pflags) $
+   runSDoc d (initSDocContext pflags defaultUserStyle)
 
-showSDocDumpOneLine :: DynFlags -> SDoc -> String
-showSDocDumpOneLine dflags d
+showSDocDumpOneLine :: PprFlags -> SDoc -> String
+showSDocDumpOneLine pflags d
  = Pretty.showDoc OneLineMode irrelevantNCols $
-   runSDoc d (initSDocContext dflags defaultDumpStyle)
+   runSDoc d (initSDocContext pflags defaultDumpStyle)
 
 irrelevantNCols :: Int
 -- Used for OneLineMode and LeftMode when number of cols isn't used
@@ -498,8 +501,8 @@ cparen b d     = SDoc $ Pretty.cparen b . runSDoc d
 -- but it omits them if the thing begins or ends in a single quote
 -- so that we don't get `foo''.  Instead we just have foo'.
 quotes d =
-      sdocWithDynFlags $ \dflags ->
-      if useUnicode dflags
+      sdocWithPprFlags $ \pflags ->
+      if useUnicode pflags
       then char '‘' <> d <> char '’'
       else SDoc $ \sty ->
            let pp_d = runSDoc d sty
@@ -540,8 +543,8 @@ forAllLit :: SDoc
 forAllLit = unicodeSyntax (char '∀') (ptext (sLit "forall"))
 
 unicodeSyntax :: SDoc -> SDoc -> SDoc
-unicodeSyntax unicode plain = sdocWithDynFlags $ \dflags ->
-    if useUnicode dflags && useUnicodeSyntax dflags
+unicodeSyntax unicode plain = sdocWithPprFlags $ \pflags ->
+    if useUnicode pflags && useUnicodeSyntax pflags
     then unicode
     else plain
 
@@ -1023,7 +1026,7 @@ pprTrace :: String -> SDoc -> a -> a
 -- ^ If debug output is on, show some 'SDoc' on the screen
 pprTrace str doc x
    | opt_NoDebugOutput = x
-   | otherwise         = pprDebugAndThen unsafeGlobalDynFlags trace (text str) doc x
+   | otherwise         = pprDebugAndThen unsafeGlobalPprFlags trace (text str) doc x
 
 pprPanicFastInt :: String -> SDoc -> FastInt
 -- ^ Specialization of pprPanic that can be safely used with 'FastInt'
@@ -1036,7 +1039,7 @@ warnPprTrace _     _     _     _    x | not debugIsOn     = x
 warnPprTrace _     _file _line _msg x | opt_NoDebugOutput = x
 warnPprTrace False _file _line _msg x = x
 warnPprTrace True   file  line  msg x
-  = pprDebugAndThen unsafeGlobalDynFlags trace heading msg x
+  = pprDebugAndThen unsafeGlobalPprFlags trace heading msg x
   where
     heading = hsep [text "WARNING: file", text file <> comma, text "line", int line]
 
@@ -1050,8 +1053,8 @@ assertPprPanic file line msg
                      , text "line", int line ]
               , msg ]
 
-pprDebugAndThen :: DynFlags -> (String -> a) -> SDoc -> SDoc -> a
-pprDebugAndThen dflags cont heading pretty_msg
- = cont (showSDocDump dflags doc)
+pprDebugAndThen :: PprFlags -> (String -> a) -> SDoc -> SDoc -> a
+pprDebugAndThen pflags cont heading pretty_msg
+ = cont (showSDocDump pflags doc)
  where
      doc = sep [heading, nest 2 pretty_msg]

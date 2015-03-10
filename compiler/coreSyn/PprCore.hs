@@ -24,12 +24,12 @@ import DataCon
 import TyCon
 import Type
 import Coercion
-import DynFlags
 import BasicTypes
 import Util
 import Outputable
 import FastString
 import SrcLoc      ( pprUserRealSpan )
+import qualified PprFlags as P
 
 {-
 ************************************************************************
@@ -111,8 +111,8 @@ ppr_expr add_par (Cast expr co)
     sep [pprParendExpr expr,
          ptext (sLit "`cast`") <+> pprCo co]
   where
-    pprCo co = sdocWithDynFlags $ \dflags ->
-               if gopt Opt_SuppressCoercions dflags
+    pprCo co = sdocWithPprFlags $ \pflags ->
+               if P.suppressCoercions pflags
                then ptext (sLit "...")
                else parens $
                         sep [ppr co, dcolon <+> ppr (coercionType co)]
@@ -149,8 +149,8 @@ ppr_expr add_par expr@(App {})
     }
 
 ppr_expr add_par (Case expr var ty [(con,args,rhs)])
-  = sdocWithDynFlags $ \dflags ->
-    if gopt Opt_PprCaseAsLet dflags
+  = sdocWithPprFlags $ \pflags ->
+    if P.pprCaseAsLet pflags
     then add_par $  -- See Note [Print case as let]
          sep [ sep [ ptext (sLit "let! {")
                      <+> ppr_case_pat con args
@@ -217,8 +217,8 @@ ppr_expr add_par (Let bind expr)
                 NonRec _ _ -> (sLit "let {")
 
 ppr_expr add_par (Tick tickish expr)
-  = sdocWithDynFlags $ \dflags ->
-  if gopt Opt_PprShowTicks dflags
+  = sdocWithPprFlags $ \pflags ->
+  if P.pprShowTicks pflags
   then add_par (sep [ppr tickish, pprCoreExpr expr])
   else ppr_expr add_par expr
 
@@ -243,8 +243,8 @@ ppr_case_pat con args
 -- | Pretty print the argument in a function application.
 pprArg :: OutputableBndr a => Expr a -> SDoc
 pprArg (Type ty)
- = sdocWithDynFlags $ \dflags ->
-   if gopt Opt_SuppressTypeApplications dflags
+ = sdocWithPprFlags $ \pflags ->
+   if P.suppressTypeApplications pflags
    then empty
    else ptext (sLit "@") <+> pprParendType ty
 pprArg (Coercion co) = ptext (sLit "@~") <+> pprParendCo co
@@ -290,7 +290,7 @@ pprUntypedBinder binder
 pprTypedLamBinder :: BindingSite -> Bool -> Var -> SDoc
 -- For lambda and case binders, show the unfolding info (usually none)
 pprTypedLamBinder bind_site debug_on var
-  = sdocWithDynFlags $ \dflags ->
+  = sdocWithPprFlags $ \pflags ->
     case () of
     _
       | not debug_on            -- Even dead binders can be one-shot
@@ -300,7 +300,7 @@ pprTypedLamBinder bind_site debug_on var
       | not debug_on            -- No parens, no kind info
       , CaseBind <- bind_site   -> pprUntypedBinder var
 
-      | suppress_sigs dflags    -> pprUntypedBinder var
+      | suppress_sigs pflags    -> pprUntypedBinder var
 
       | isTyVar var  -> parens (pprKindedTyVarBndr var)
 
@@ -308,7 +308,7 @@ pprTypedLamBinder bind_site debug_on var
                                    2 (vcat [ dcolon <+> pprType (idType var)
                                            , pp_unf]))
   where
-    suppress_sigs = gopt Opt_SuppressTypeSignatures
+    suppress_sigs = P.suppressTypeSignatures
 
     unf_info = unfoldingInfo (idInfo var)
     pp_unf | hasSomeUnfolding unf_info = ptext (sLit "Unf=") <> ppr unf_info
@@ -317,11 +317,11 @@ pprTypedLamBinder bind_site debug_on var
 pprTypedLetBinder :: Var -> SDoc
 -- Print binder with a type or kind signature (not paren'd)
 pprTypedLetBinder binder
-  = sdocWithDynFlags $ \dflags ->
+  = sdocWithPprFlags $ \pflags ->
     case () of
     _
       | isTyVar binder                         -> pprKindedTyVarBndr binder
-      | gopt Opt_SuppressTypeSignatures dflags -> pprIdBndr binder
+      | P.suppressTypeSignatures pflags        -> pprIdBndr binder
       | otherwise                              -> hang (pprIdBndr binder) 2 (dcolon <+> pprType (idType binder))
 
 pprKindedTyVarBndr :: TyVar -> SDoc
@@ -336,8 +336,8 @@ pprIdBndr id = ppr id <+> pprIdBndrInfo (idInfo id)
 
 pprIdBndrInfo :: IdInfo -> SDoc
 pprIdBndrInfo info
-  = sdocWithDynFlags $ \dflags ->
-    if gopt Opt_SuppressIdInfo dflags
+  = sdocWithPprFlags $ \pflags ->
+    if P.suppressIdInfo pflags
     then empty
     else megaSeqIdInfo info `seq` doc -- The seq is useful for poking on black holes
   where
@@ -366,8 +366,8 @@ pprIdBndrInfo info
 
 ppIdInfo :: Id -> IdInfo -> SDoc
 ppIdInfo id info
-  = sdocWithDynFlags $ \dflags ->
-    if gopt Opt_SuppressIdInfo dflags
+  = sdocWithPprFlags $ \pflags ->
+    if P.suppressIdInfo pflags
     then empty
     else
     showAttributes

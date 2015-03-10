@@ -78,6 +78,7 @@ import Outputable
 import FastString
 import Util
 import DynFlags
+import qualified PprFlags as P
 
 -- libraries
 import Data.List( mapAccumL, partition )
@@ -641,8 +642,8 @@ pprSigmaTypeExtraCts = ppr_sigma_type False
 pprUserForAll :: [TyVar] -> SDoc
 -- Print a user-level forall; see Note [When to print foralls]
 pprUserForAll tvs
-  = sdocWithDynFlags $ \dflags ->
-    ppWhen (any tv_has_kind_var tvs || gopt Opt_PrintExplicitForalls dflags) $
+  = sdocWithPprFlags $ \pflags ->
+    ppWhen (any tv_has_kind_var tvs || P.printExplicitForalls pflags) $
     pprForAll tvs
   where
     tv_has_kind_var tv = not (isEmptyVarSet (tyVarsOfType (tyVarKind tv)))
@@ -715,8 +716,8 @@ pprTyTcApp p tc tys
 
   | tc `hasKey` consDataConKey
   , [_kind,ty1,ty2] <- tys
-  = sdocWithDynFlags $ \dflags ->
-    if gopt Opt_PrintExplicitKinds dflags then pprTcApp  p ppr_type tc tys
+  = sdocWithPprFlags $ \pflags ->
+    if P.printExplicitKinds pflags then pprTcApp  p ppr_type tc tys
                                    else pprTyList p ty1 ty2
 
   | otherwise
@@ -744,11 +745,11 @@ pprTcApp p pp tc tys
      sep (punctuate comma (map (pp TopPrec) ty_args)))
 
   | otherwise
-  = sdocWithDynFlags (pprTcApp_help p pp tc tys)
+  = sdocWithPprFlags (pprTcApp_help p pp tc tys)
 
-pprTcApp_help :: TyPrec -> (TyPrec -> a -> SDoc) -> TyCon -> [a] -> DynFlags -> SDoc
+pprTcApp_help :: TyPrec -> (TyPrec -> a -> SDoc) -> TyCon -> [a] -> P.PprFlags -> SDoc
 -- This one has accss to the DynFlags
-pprTcApp_help p pp tc tys dflags
+pprTcApp_help p pp tc tys pflags
   | not (isSymOcc (nameOccName (tyConName tc)))
   = pprPrefixApp p (ppr tc) (map (pp TyConPrec) tys_wo_kinds)
 
@@ -763,15 +764,15 @@ pprTcApp_help p pp tc tys dflags
   | otherwise
   = pprPrefixApp p (parens (ppr tc)) (map (pp TyConPrec) tys_wo_kinds)
   where
-    tys_wo_kinds = suppressKinds dflags (tyConKind tc) tys
+    tys_wo_kinds = suppressKinds pflags (tyConKind tc) tys
 
 ------------------
-suppressKinds :: DynFlags -> Kind -> [a] -> [a]
+suppressKinds :: P.PprFlags -> Kind -> [a] -> [a]
 -- Given the kind of a TyCon, and the args to which it is applied,
 -- suppress the args that are kind args
 -- C.f. Note [Suppressing kinds] in IfaceType
-suppressKinds dflags kind xs
-  | gopt Opt_PrintExplicitKinds dflags = xs
+suppressKinds pflags kind xs
+  | P.printExplicitKinds pflags = xs
   | otherwise                          = suppress kind xs
   where
     suppress (ForAllTy _ kind) (_ : xs) = suppress kind xs

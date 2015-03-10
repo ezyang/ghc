@@ -451,6 +451,7 @@ Library
         MonadUtils
         OrdList
         Outputable
+        PprFlags
         Pair
         Panic
         Pretty

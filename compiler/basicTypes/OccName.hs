@@ -102,7 +102,7 @@ module OccName (
 
 import Util
 import Unique
-import DynFlags
+import qualified PprFlags as P
 import UniqFM
 import UniqSet
 import FastString
@@ -291,8 +291,8 @@ pprOccName (OccName sp occ)
     pp_debug sty | debugStyle sty = braces (pprNameSpaceBrief sp)
                  | otherwise      = empty
 
-    pp_occ = sdocWithDynFlags $ \dflags ->
-             if gopt Opt_SuppressUniques dflags
+    pp_occ = sdocWithPprFlags $ \pflags ->
+             if P.suppressUniques pflags
              then text (strip_th_unique (unpackFS occ))
              else ftext occ
 

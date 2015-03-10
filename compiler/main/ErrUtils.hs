@@ -47,6 +47,7 @@ import Panic
 import FastString
 import SrcLoc
 import DynFlags
+import qualified PprFlags as P
 
 import System.Directory
 import System.Exit      ( ExitCode(..), exitWith )
@@ -126,8 +127,8 @@ mkLocMessage :: Severity -> SrcSpan -> MsgDoc -> MsgDoc
   -- are supposed to be in a standard format, and one without a location
   -- would look strange.  Better to say explicitly "<no location info>".
 mkLocMessage severity locn msg
-    = sdocWithDynFlags $ \dflags ->
-      let locn' = if gopt Opt_ErrorSpans dflags
+    = sdocWithPprFlags $ \pflags ->
+      let locn' = if P.errorSpans pflags
                   then ppr locn
                   else ppr (srcSpanStart locn)
       in hang (locn' <> colon <+> sev_info) 4 msg
@@ -146,7 +147,7 @@ makeIntoWarning err = err { errMsgSeverity = SevWarning }
 mk_err_msg :: DynFlags -> Severity -> SrcSpan -> PrintUnqualified -> MsgDoc -> SDoc -> ErrMsg
 mk_err_msg  dflags sev locn print_unqual msg extra
  = ErrMsg { errMsgSpan = locn, errMsgContext = print_unqual
-          , errMsgShortDoc = msg , errMsgShortString = showSDoc dflags msg
+          , errMsgShortDoc = msg , errMsgShortString = showSDoc (pprFlags dflags) msg
           , errMsgExtraInfo = extra
           , errMsgSeverity = sev }
 
@@ -180,7 +181,7 @@ errorsFound _dflags (_warns, errs) = not (isEmptyBag errs)
 
 printBagOfErrors :: DynFlags -> Bag ErrMsg -> IO ()
 printBagOfErrors dflags bag_of_errors
-  = sequence_ [ let style = mkErrStyle dflags unqual
+  = sequence_ [ let style = mkErrStyle (pprFlags dflags) unqual
                 in log_action dflags dflags sev s style (d $$ e)
               | ErrMsg { errMsgSpan      = s,
                          errMsgShortDoc  = d,
@@ -197,8 +198,8 @@ pprLocErrMsg (ErrMsg { errMsgSpan      = s
                      , errMsgExtraInfo = e
                      , errMsgSeverity  = sev
                      , errMsgContext   = unqual })
-  = sdocWithDynFlags $ \dflags ->
-    withPprStyle (mkErrStyle dflags unqual) $
+  = sdocWithPprFlags $ \pflags ->
+    withPprStyle (mkErrStyle pflags unqual) $
     mkLocMessage sev s (d $$ e)
 
 sortMsgBag :: Bag ErrMsg -> [ErrMsg]
@@ -350,14 +351,14 @@ ifVerbose dflags val act
 
 errorMsg :: DynFlags -> MsgDoc -> IO ()
 errorMsg dflags msg
-   = log_action dflags dflags SevError noSrcSpan (defaultErrStyle dflags) msg
+   = log_action dflags dflags SevError noSrcSpan (defaultErrStyle (pprFlags dflags)) msg
 
 fatalErrorMsg :: DynFlags -> MsgDoc -> IO ()
 fatalErrorMsg dflags msg = fatalErrorMsg' (log_action dflags) dflags msg
 
 fatalErrorMsg' :: LogAction -> DynFlags -> MsgDoc -> IO ()
 fatalErrorMsg' la dflags msg =
-    la dflags SevFatal noSrcSpan (defaultErrStyle dflags) msg
+    la dflags SevFatal noSrcSpan (defaultErrStyle (pprFlags dflags)) msg
 
 fatalErrorMsg'' :: FatalMessager -> String -> IO ()
 fatalErrorMsg'' fm msg = fm msg
@@ -398,10 +399,10 @@ prettyPrintGhcErrors :: ExceptionMonad m => DynFlags -> m a -> m a
 prettyPrintGhcErrors dflags
     = ghandle $ \e -> case e of
                       PprPanic str doc ->
-                          pprDebugAndThen dflags panic (text str) doc
+                          pprDebugAndThen (pprFlags dflags) panic (text str) doc
                       PprSorry str doc ->
-                          pprDebugAndThen dflags sorry (text str) doc
+                          pprDebugAndThen (pprFlags dflags) sorry (text str) doc
                       PprProgramError str doc ->
-                          pprDebugAndThen dflags pgmError (text str) doc
+                          pprDebugAndThen (pprFlags dflags) pgmError (text str) doc
                       _ ->
                           liftIO $ throwIO e

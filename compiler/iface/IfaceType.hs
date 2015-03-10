@@ -46,7 +46,6 @@ module IfaceType (
 import Coercion
 import DataCon ( dataConTyCon )
 import TcType
-import DynFlags
 import TypeRep
 import Unique( hasKey )
 import Util ( filterOut, lengthIs, zipWithEqual )
@@ -65,6 +64,7 @@ import Outputable
 import FastString
 import UniqSet
 import Data.Maybe( fromMaybe )
+import qualified PprFlags as P
 
 {-
 ************************************************************************
@@ -174,9 +174,9 @@ splitIfaceSigmaTy ty
         = case split_rho ty2 of { (ps, tau) -> (ty1:ps, tau) }
     split_rho tau = ([], tau)
 
-suppressIfaceKinds :: DynFlags -> [IfaceTvBndr] -> [a] -> [a]
-suppressIfaceKinds dflags tys xs
-  | gopt Opt_PrintExplicitKinds dflags = xs
+suppressIfaceKinds :: P.PprFlags -> [IfaceTvBndr] -> [a] -> [a]
+suppressIfaceKinds pflags tys xs
+  | P.printExplicitKinds pflags = xs
   | otherwise = suppress tys xs
     where
       suppress _       []      = []
@@ -185,9 +185,9 @@ suppressIfaceKinds dflags tys xs
         | isIfaceKindVar k = suppress ks xs
         | otherwise        = a
 
-stripIfaceKindVars :: DynFlags -> [IfaceTvBndr] -> [IfaceTvBndr]
-stripIfaceKindVars dflags tyvars
-  | gopt Opt_PrintExplicitKinds dflags = tyvars
+stripIfaceKindVars :: P.PprFlags -> [IfaceTvBndr] -> [IfaceTvBndr]
+stripIfaceKindVars pflags tyvars
+  | P.printExplicitKinds pflags = tyvars
   | otherwise = filterOut isIfaceKindVar tyvars
 
 isIfaceKindVar :: IfaceTvBndr -> Bool
@@ -261,9 +261,9 @@ substIfaceTyVar env tv
 ************************************************************************
 -}
 
-stripKindArgs :: DynFlags -> IfaceTcArgs -> IfaceTcArgs
-stripKindArgs dflags tys
-  | gopt Opt_PrintExplicitKinds dflags = tys
+stripKindArgs :: P.PprFlags -> IfaceTcArgs -> IfaceTcArgs
+stripKindArgs pflags tys
+  | P.printExplicitKinds pflags = tys
   | otherwise = suppressKinds tys
     where
       suppressKinds c
@@ -394,7 +394,7 @@ pprParendIfaceType = ppr_ty TyConPrec
 
 ppr_ty :: TyPrec -> IfaceType -> SDoc
 ppr_ty _         (IfaceTyVar tyvar)     = ppr tyvar
-ppr_ty ctxt_prec (IfaceTyConApp tc tys) = sdocWithDynFlags (pprTyTcApp ctxt_prec tc tys)
+ppr_ty ctxt_prec (IfaceTyConApp tc tys) = sdocWithPprFlags (pprTyTcApp ctxt_prec tc tys)
 ppr_ty _         (IfaceLitTy n)         = ppr_tylit n
         -- Function types
 ppr_ty ctxt_prec (IfaceFunTy ty1 ty2)
@@ -457,8 +457,8 @@ pprIfaceSigmaType ty = ppr_iface_sigma_type False ty
 
 pprUserIfaceForAll :: [IfaceTvBndr] -> SDoc
 pprUserIfaceForAll tvs
-   = sdocWithDynFlags $ \dflags ->
-     ppWhen (any tv_has_kind_var tvs || gopt Opt_PrintExplicitForalls dflags) $
+   = sdocWithPprFlags $ \pflags ->
+     ppWhen (any tv_has_kind_var tvs || P.printExplicitForalls pflags) $
      pprIfaceForAll tvs
    where
      tv_has_kind_var (_,t) = not (isEmptyUniqSet (ifTyVarsOfType t))
@@ -492,23 +492,23 @@ pprIfaceTyList ctxt_prec ty1 ty2
     gather ty = ([], Just ty)
 
 pprIfaceTypeApp :: IfaceTyCon -> IfaceTcArgs -> SDoc
-pprIfaceTypeApp tc args = sdocWithDynFlags (pprTyTcApp TopPrec tc args)
+pprIfaceTypeApp tc args = sdocWithPprFlags (pprTyTcApp TopPrec tc args)
 
-pprTyTcApp :: TyPrec -> IfaceTyCon -> IfaceTcArgs -> DynFlags -> SDoc
-pprTyTcApp ctxt_prec tc tys dflags
+pprTyTcApp :: TyPrec -> IfaceTyCon -> IfaceTcArgs -> P.PprFlags -> SDoc
+pprTyTcApp ctxt_prec tc tys pflags
   | ifaceTyConName tc == ipClassName
   , ITC_Type (IfaceLitTy (IfaceStrTyLit n)) (ITC_Type ty ITC_Nil) <- tys
   = char '?' <> ftext n <> ptext (sLit "::") <> ppr_ty TopPrec ty
 
   | ifaceTyConName tc == consDataConName
-  , not (gopt Opt_PrintExplicitKinds dflags)
+  , not (P.printExplicitKinds pflags)
   , ITC_Kind _ (ITC_Type ty1 (ITC_Type ty2 ITC_Nil)) <- tys
   = pprIfaceTyList ctxt_prec ty1 ty2
 
   | otherwise
   = ppr_iface_tc_app ppr_ty ctxt_prec tc tys_wo_kinds
   where
-    tys_wo_kinds = tcArgsIfaceTypes $ stripKindArgs dflags tys
+    tys_wo_kinds = tcArgsIfaceTypes $ stripKindArgs pflags tys
 
 pprIfaceCoTcApp :: TyPrec -> IfaceTyCon -> [IfaceCoercion] -> SDoc
 pprIfaceCoTcApp ctxt_prec tc tys = ppr_iface_tc_app ppr_co ctxt_prec tc tys

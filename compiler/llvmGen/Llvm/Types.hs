@@ -179,9 +179,9 @@ pprStaticArith s1 s2 int_op float_op op_name =
       op  = if isFloat ty1 then float_op else int_op
   in if ty1 == getStatType s2
      then ppr ty1 <+> ptext op <+> lparen <> ppr s1 <> comma <> ppr s2 <> rparen
-     else sdocWithDynFlags $ \dflags ->
+     else sdocWithPprFlags $ \pflags ->
             error $ op_name ++ " with different types! s1: "
-                    ++ showSDoc dflags (ppr s1) ++ ", s2: " ++ showSDoc dflags (ppr s2)
+                    ++ showSDoc pflags (ppr s1) ++ ", s2: " ++ showSDoc pflags (ppr s2)
 
 -- -----------------------------------------------------------------------------
 -- ** Operations on LLVM Basic Types and Variables
@@ -211,8 +211,8 @@ ppLit (LMIntLit i (LMInt 64))  = ppr (fromInteger i :: Int64)
 ppLit (LMIntLit   i _       )  = ppr ((fromInteger i)::Int)
 ppLit (LMFloatLit r LMFloat )  = ppFloat $ narrowFp r
 ppLit (LMFloatLit r LMDouble)  = ppDouble r
-ppLit f@(LMFloatLit _ _)       = sdocWithDynFlags (\dflags ->
-                                   error $ "Can't print this float literal!" ++ showSDoc dflags (ppr f))
+ppLit f@(LMFloatLit _ _)       = sdocWithPprFlags (\pflags ->
+                                   error $ "Can't print this float literal!" ++ showSDoc pflags (ppr f))
 ppLit (LMVectorLit ls  )       = char '<' <+> ppCommaJoin ls <+> char '>'
 ppLit (LMNullLit _     )       = text "null"
 ppLit (LMUndefLit _    )       = text "undef"

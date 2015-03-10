@@ -83,10 +83,10 @@ import Unique
 import Util
 import Maybes
 import Binary
-import DynFlags
 import FastTypes
 import FastString
 import Outputable
+import qualified PprFlags as P
 
 import Data.Data
 
@@ -484,8 +484,8 @@ pprExternal sty uniq mod occ is_wired is_builtin
   | BuiltInSyntax <- is_builtin = ppr_occ_name occ  -- Never qualify builtin syntax
   | otherwise                   = pprModulePrefix sty mod occ <> ppr_occ_name occ
   where
-    pp_mod = sdocWithDynFlags $ \dflags ->
-             if gopt Opt_SuppressModulePrefixes dflags
+    pp_mod = sdocWithPprFlags $ \pflags ->
+             if P.suppressModulePrefixes pflags
              then empty
              else ppr mod <> dot
 
@@ -514,8 +514,8 @@ pprSystem sty uniq occ
 pprModulePrefix :: PprStyle -> Module -> OccName -> SDoc
 -- Print the "M." part of a name, based on whether it's in scope or not
 -- See Note [Printing original names] in HscTypes
-pprModulePrefix sty mod occ = sdocWithDynFlags $ \dflags ->
-  if gopt Opt_SuppressModulePrefixes dflags
+pprModulePrefix sty mod occ = sdocWithPprFlags $ \pflags ->
+  if P.suppressModulePrefixes pflags
   then empty
   else
     case qualName sty mod occ of              -- See Outputable.QualifyName:
@@ -529,8 +529,8 @@ ppr_underscore_unique :: Unique -> SDoc
 -- Print an underscore separating the name from its unique
 -- But suppress it if we aren't printing the uniques anyway
 ppr_underscore_unique uniq
-  = sdocWithDynFlags $ \dflags ->
-    if gopt Opt_SuppressUniques dflags
+  = sdocWithPprFlags $ \pflags ->
+    if P.suppressUniques pflags
     then empty
     else char '_' <> pprUnique uniq
 

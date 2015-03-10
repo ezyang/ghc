@@ -10,10 +10,10 @@ module ProfInit (profilingInitCode) where
 
 import CLabel
 import CostCentre
-import DynFlags
 import Outputable
 import FastString
 import Module
+import qualified PprFlags as P
 
 -- -----------------------------------------------------------------------------
 -- Initialising cost centres
@@ -23,8 +23,8 @@ import Module
 
 profilingInitCode :: Module -> CollectedCCs -> SDoc
 profilingInitCode this_mod (local_CCs, ___extern_CCs, singleton_CCSs)
- = sdocWithDynFlags $ \dflags ->
-   if not (gopt Opt_SccProfilingOn dflags)
+ = sdocWithPprFlags $ \pflags ->
+   if not (P.sccProfilingOn pflags)
    then empty
    else vcat
     [ text "static void prof_init_" <> ppr this_mod

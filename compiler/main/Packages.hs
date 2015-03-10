@@ -60,6 +60,7 @@ import Util
 import Panic
 import Outputable
 import Maybes
+import qualified PprFlags as P
 
 import System.Environment ( getEnv )
 import FastString
@@ -580,13 +581,13 @@ packageFlagErr :: DynFlags
 -- this may be the result of using -fdph-par or -fdph-seq.
 packageFlagErr dflags (ExposePackage (PackageArg pkg) _) []
   | is_dph_package pkg
-  = throwGhcExceptionIO (CmdLineError (showSDoc dflags $ dph_err))
+  = throwGhcExceptionIO (CmdLineError (showSDoc (pprFlags dflags) $ dph_err))
   where dph_err = text "the " <> text pkg <> text " package is not installed."
                   $$ text "To install it: \"cabal install dph\"."
         is_dph_package pkg = "dph" `isPrefixOf` pkg
 
 packageFlagErr dflags flag reasons
-  = throwGhcExceptionIO (CmdLineError (showSDoc dflags $ err))
+  = throwGhcExceptionIO (CmdLineError (showSDoc (pprFlags dflags) $ err))
   where err = text "cannot satisfy " <> pprFlag flag <>
                 (if null reasons then Outputable.empty else text ": ") $$
               nest 4 (ppr_reasons $$
@@ -1057,7 +1058,7 @@ mkModuleToPkgConfAll dflags pkg_db ipid_map vis_map =
     rnBinding (orig, new) = (new, setOrigins origEntry fromFlag)
      where origEntry = case lookupUFM esmap orig of
             Just r -> r
-            Nothing -> throwGhcException (CmdLineError (showSDoc dflags
+            Nothing -> throwGhcException (CmdLineError (showSDoc (pprFlags dflags)
                         (text "package flag: could not find module name" <+>
                             ppr orig <+> text "in package" <+> ppr pk)))
 
@@ -1308,7 +1309,7 @@ closeDeps dflags pkg_map ipid_map ps
 throwErr :: DynFlags -> MaybeErr MsgDoc a -> IO a
 throwErr dflags m
               = case m of
-                Failed e    -> throwGhcExceptionIO (CmdLineError (showSDoc dflags e))
+                Failed e    -> throwGhcExceptionIO (CmdLineError (showSDoc (pprFlags dflags) e))
                 Succeeded r -> return r
 
 closeDepsErr :: PackageConfigMap
@@ -1343,7 +1344,7 @@ add_package pkg_db ipid_map ps (p, mb_parent)
 
 missingPackageErr :: Outputable pkgid => DynFlags -> pkgid -> IO a
 missingPackageErr dflags p
-    = throwGhcExceptionIO (CmdLineError (showSDoc dflags (missingPackageMsg p)))
+    = throwGhcExceptionIO (CmdLineError (showSDoc (pprFlags dflags) (missingPackageMsg p)))
 
 missingPackageMsg :: Outputable pkgid => pkgid -> SDoc
 missingPackageMsg p = ptext (sLit "unknown package:") <+> ppr p
@@ -1355,12 +1356,14 @@ missingDependencyMsg (Just parent)
 
 -- -----------------------------------------------------------------------------
 
-packageKeyPackageIdString :: DynFlags -> PackageKey -> String
-packageKeyPackageIdString dflags pkg_key
+packageKeyPackageIdString :: P.PprFlags -> PackageKey -> String
+packageKeyPackageIdString pflags pkg_key
     | pkg_key == mainPackageKey = "main"
-    | otherwise = maybe "(unknown)"
+    | otherwise = "(XXX FIXME)"
+                  {- maybe "(unknown)"
                       sourcePackageIdString
                       (lookupPackage dflags pkg_key)
+                      -}
 
 -- | Will the 'Name' come from a dynamically linked library?
 isDllName :: DynFlags -> PackageKey -> Module -> Name -> Bool

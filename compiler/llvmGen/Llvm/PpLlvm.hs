@@ -85,9 +85,9 @@ ppLlvmGlobal (LMGlobal var@(LMGlobalVar _ _ link x a c) dat) =
     in ppAssignment var $ ppr link <+> const <+> rhs <> sect <> align
        $+$ newLine
 
-ppLlvmGlobal (LMGlobal var val) = sdocWithDynFlags $ \dflags ->
+ppLlvmGlobal (LMGlobal var val) = sdocWithPprFlags $ \pflags ->
   error $ "Non Global var ppr as global! "
-          ++ showSDoc dflags (ppr var) ++ " " ++ showSDoc dflags (ppr val)
+          ++ showSDoc pflags (ppr var) ++ " " ++ showSDoc pflags (ppr val)
 
 
 -- | Print out a list of LLVM type aliases.
@@ -341,8 +341,9 @@ ppLoad var = text "load" <+> ppr var <> align
           | otherwise = empty
 
 ppALoad :: LlvmSyncOrdering -> SingleThreaded -> LlvmVar -> SDoc
-ppALoad ord st var = sdocWithDynFlags $ \dflags ->
-  let alignment = (llvmWidthInBits dflags $ getVarType var) `quot` 8
+ppALoad ord st var = sdocWithPprFlags $ \pflags ->
+  -- XXX WELL THIS IS A BOTHER --
+  let alignment = (llvmWidthInBits (error "POC dead") $ getVarType var) `quot` 8
       align     = text ", align" <+> ppr alignment
       sThreaded | st        = text " singlethread"
                 | otherwise = empty

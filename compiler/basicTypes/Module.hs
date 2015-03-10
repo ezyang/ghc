@@ -325,8 +325,8 @@ stablePackageKeyCmp :: PackageKey -> PackageKey -> Ordering
 stablePackageKeyCmp p1 p2 = packageKeyFS p1 `compare` packageKeyFS p2
 
 instance Outputable PackageKey where
-   ppr pk = getPprStyle $ \sty -> sdocWithDynFlags $ \dflags ->
-    text (packageKeyPackageIdString dflags pk)
+   ppr pk = getPprStyle $ \sty -> sdocWithPprFlags $ \pflags ->
+    text (packageKeyPackageIdString pflags pk)
     -- Don't bother qualifying if it's wired in!
        <> (if qualPackage sty pk && not (pk `elem` wiredInPackageKeys)
             then char '@' <> ftext (packageKeyFS pk)
