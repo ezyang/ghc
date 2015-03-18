@@ -1,7 +1,7 @@
 # DO NOT EDIT!  Instead, create a file mk/validate.mk, whose settings will
 # override these.  See also mk/custom-settings.mk.
 
-WERROR              = -Werror
+WERROR              =
 SRC_CC_WARNING_OPTS =
 SRC_HC_WARNING_OPTS =
 
@@ -28,7 +28,7 @@ SRC_CC_WARNING_OPTS += -Wno-unknown-pragmas
 endif
 
 SRC_CC_OPTS     += $(WERROR) -Wall
-SRC_HC_OPTS     += $(WERROR) -Wall
+SRC_HC_OPTS     += $(WERROR) -Wall -fno-warn-deprecations -fno-warn-tabs
 
 GhcStage1HcOpts += -fwarn-tabs
 GhcStage2HcOpts += -fwarn-tabs
