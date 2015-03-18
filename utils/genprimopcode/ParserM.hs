@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 module ParserM (
     -- Parser Monad
     ParserM(..), AlexInput, run_parser,
@@ -16,7 +17,9 @@ module ParserM (
     -- Other
     happyError
  ) where
+#if __GLASGOW_HASKELL__ < 709
 import Control.Applicative
+#endif
 import Control.Monad (ap, liftM)
 import Data.Word (Word8)
 import Data.Char (ord)
