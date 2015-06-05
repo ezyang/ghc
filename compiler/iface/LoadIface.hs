@@ -72,6 +72,7 @@ import Hooks
 import Control.Monad
 import Data.IORef
 import System.FilePath
+import qualified Data.Map as Map
 
 {-
 ************************************************************************
@@ -297,7 +298,11 @@ loadSrcInterface_maybe doc mod want_boot maybe_pkg
   -- interface; it will call the Finder again, but the ModLocation will be
   -- cached from the first search.
   = do { hsc_env <- getTopEnv
-       ; res <- liftIO $ findImportedModule hsc_env mod maybe_pkg
+       ; tcg_env <- getGblEnv
+       ; case lookupUFM (tcg_ifaces tcg_env) mod of
+            Just ifaces -> return (Succeeded ifaces)
+            Nothing -> do {
+         res <- liftIO $ findImportedModule hsc_env mod maybe_pkg
        ; case res of
            FoundModule (FoundHs { fr_mod = mod })
             -> fmap (fmap (:[]))
@@ -308,7 +313,7 @@ loadSrcInterface_maybe doc mod want_boot maybe_pkg
                ms <- forM mods $ \(FoundHs { fr_mod = mod }) ->
                           loadInterface doc mod (ImportByUser want_boot)
                return (sequence ms)
-           err         -> return (Failed (cannotFindInterface (hsc_dflags hsc_env) mod err)) }
+           err         -> return (Failed (cannotFindInterface (hsc_dflags hsc_env) mod err)) }}
 
 -- | Load interface directly for a fully qualified 'Module'.  (This is a fairly
 -- rare operation, but in particular it is used to load orphan modules
@@ -855,9 +860,12 @@ initExternalPackageState
   = EPS {
       eps_is_boot      = emptyUFM,
       eps_PIT          = emptyPackageIfaceTable,
+      eps_IIT          = emptyIndefiniteIfaceTable,
+      eps_shape        = emptyNameEnv,
       eps_PTE          = emptyTypeEnv,
       eps_inst_env     = emptyInstEnv,
       eps_fam_inst_env = emptyFamInstEnv,
+      eps_EST          = Map.empty,
       eps_rule_base    = mkRuleBase builtinRules,
         -- Initialise the EPS rule pool with the built-in rules
       eps_mod_fam_inst_env
@@ -946,7 +954,6 @@ pprModIface iface
         , nest 2 (text "export-list hash:" <+> ppr (mi_exp_hash iface))
         , nest 2 (text "orphan hash:" <+> ppr (mi_orphan_hash iface))
         , nest 2 (text "flag hash:" <+> ppr (mi_flag_hash iface))
-        , nest 2 (text "sig of:" <+> ppr (mi_sig_of iface))
         , nest 2 (text "used TH splices:" <+> ppr (mi_used_th iface))
         , nest 2 (ptext (sLit "where"))
         , ptext (sLit "exports:")

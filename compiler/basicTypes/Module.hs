@@ -42,6 +42,7 @@ module Module
         dphParPackageKey,
         mainPackageKey,
         thisGhcPackageKey,
+        holePackageKey, isHoleModule,
         interactivePackageKey, isInteractiveModule,
         wiredInPackageKeys,
 
@@ -84,6 +85,7 @@ import FastString
 import Binary
 import Util
 import {-# SOURCE #-} Packages
+import {-# SOURCE #-} ShPackageKey
 import GHC.PackageDb (BinaryStringRep(..))
 
 import Data.Data
@@ -327,7 +329,7 @@ stablePackageKeyCmp p1 p2 = packageKeyFS p1 `compare` packageKeyFS p2
 instance Outputable PackageKey where
    ppr pk = getPprStyle $ \sty -> sdocWithDynFlags $ \dflags ->
     case packageKeyPackageIdString dflags pk of
-      Nothing -> ftext (packageKeyFS pk)
+      Nothing -> pprPackageKey pk
       Just pkg -> text pkg
            -- Don't bother qualifying if it's wired in!
            <> (if qualPackage sty pk && not (pk `elem` wiredInPackageKeys)
@@ -399,8 +401,16 @@ interactivePackageKey = fsToPackageKey (fsLit "interactive")
 -- to symbol names, since there can be only one main package per program.
 mainPackageKey      = fsToPackageKey (fsLit "main")
 
+-- | This is a fake package id used to provide identities to any un-implemented
+-- signatures.  The set of hole identities is global over an entire compilation.
+holePackageKey :: PackageKey
+holePackageKey      = fsToPackageKey (fsLit "hole")
+
 isInteractiveModule :: Module -> Bool
 isInteractiveModule mod = modulePackageKey mod == interactivePackageKey
+
+isHoleModule :: Module -> Bool
+isHoleModule mod = modulePackageKey mod == holePackageKey
 
 wiredInPackageKeys :: [PackageKey]
 wiredInPackageKeys = [ primPackageKey,

@@ -470,6 +470,7 @@ compiler_stage2_dll0_MODULES = \
 	ApiAnnotation \
 	Avail \
 	Bag \
+	BackpackSyn \
 	BasicTypes \
 	Binary \
 	BooleanFormula \
@@ -563,6 +564,7 @@ compiler_stage2_dll0_MODULES = \
 	Rules \
 	Serialized \
 	SrcLoc \
+	ShPackageKey \
 	StaticFlags \
 	StringBuffer \
 	TcEvidence \

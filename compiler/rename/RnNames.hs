@@ -12,6 +12,7 @@ module RnNames (
         gresFromAvails,
         calculateAvails,
         reportUnusedNames,
+        plusAvail,
         checkConName
     ) where
 

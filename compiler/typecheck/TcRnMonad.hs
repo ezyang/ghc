@@ -26,6 +26,8 @@ import Module
 import RdrName
 import Name
 import Type
+import ShPackageKey
+import {-# SOURCE #-} ShUnify
 
 import TcType
 import InstEnv
@@ -119,9 +121,7 @@ initTc hsc_env hsc_src keep_rn_syntax mod loc do_this
 
                 tcg_mod            = mod,
                 tcg_src            = hsc_src,
-                tcg_sig_of         = getSigOf dflags (moduleName mod),
                 tcg_mod_name       = Nothing,
-                tcg_impl_rdr_env   = Nothing,
                 tcg_rdr_env        = emptyGlobalRdrEnv,
                 tcg_fix_env        = emptyNameEnv,
                 tcg_field_env      = RecFields emptyNameEnv emptyNameSet,
@@ -165,6 +165,7 @@ initTc hsc_env hsc_src keep_rn_syntax mod loc do_this
                 tcg_main           = Nothing,
                 tcg_safeInfer      = infer_var,
                 tcg_dependent_files = dependent_files_var,
+                tcg_ifaces         = hsc_ifaces hsc_env,
                 tcg_tc_plugins     = [],
                 tcg_static_wc      = static_wc_var
              } ;
@@ -315,6 +316,10 @@ goptM flag = do { dflags <- getDynFlags; return (gopt flag dflags) }
 
 woptM :: WarningFlag -> TcRnIf gbl lcl Bool
 woptM flag = do { dflags <- getDynFlags; return (wopt flag dflags) }
+
+setThisPackageM :: PackageKey -> TcRnIf gbl lcl a -> TcRnIf gbl lcl a
+setThisPackageM pk = updEnv (\ env@(Env { env_top = top }) ->
+                          env { env_top = top { hsc_dflags = (hsc_dflags top) { thisPackage = pk} }} )
 
 setXOptM :: ExtensionFlag -> TcRnIf gbl lcl a -> TcRnIf gbl lcl a
 setXOptM flag = updEnv (\ env@(Env { env_top = top }) ->

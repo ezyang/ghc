@@ -40,6 +40,7 @@ module HscTypes (
         -- * State relating to known packages
         ExternalPackageState(..), EpsStats(..), addEpsInStats,
         PackageTypeEnv, PackageIfaceTable, emptyPackageIfaceTable,
+        IndefiniteIfaceTable, emptyIndefiniteIfaceTable,
         lookupIfaceByModule, emptyModIface, lookupHptByModule,
 
         PackageInstEnv, PackageFamInstEnv, PackageRuleBase,
@@ -134,6 +135,7 @@ import ByteCodeAsm      ( CompiledByteCode )
 import InteractiveEvalTypes ( Resume )
 #endif
 
+import BackpackSyn
 import HsSyn
 import RdrName
 import Avail
@@ -190,6 +192,7 @@ import Data.IORef
 import Data.Time
 import Data.Word
 import Data.Typeable    ( Typeable )
+import Data.Map         ( Map )
 import Exception
 import System.FilePath
 
@@ -388,6 +391,10 @@ data HscEnv
         hsc_FC   :: {-# UNPACK #-} !(IORef FinderCache),
                 -- ^ The cached result of performing finding in the file system
 
+        hsc_ifaces :: ModuleNameEnv [ModIface],
+                -- ^ Direct ModIface map for names which are in scope,
+                -- used to initialize 'tcg_ifaces'.
+
         hsc_type_env_var :: Maybe (Module, IORef TypeEnv)
                 -- ^ Used for one-shot compilation only, to initialise
                 -- the 'IfGblEnv'. See 'TcRnTypes.tcg_type_env_var' for
@@ -457,6 +464,15 @@ type HomePackageTable  = ModuleNameEnv HomeModInfo
 type PackageIfaceTable = ModuleEnv ModIface
         -- Domain = modules in the imported packages
 
+-- | "Base" interfaces from indefinite packages.  Invariant: 'Module'
+-- is of form pkgname(A -> HOLE:A, ...):M (all instantiations are HOLE.)
+-- Holes are mapped as pkgname(A -> HOLE:A, ...):A, *not* HOLE:A
+-- as those would cause conflicts; however, internally, they still
+-- claim to be HOLE:A.
+type IndefiniteIfaceTable = ModuleEnv ModIface
+
+type ExternalShapeTable = Map PackageName Shape
+
 -- | Constructs an empty HomePackageTable
 emptyHomePackageTable :: HomePackageTable
 emptyHomePackageTable  = emptyUFM
@@ -464,6 +480,10 @@ emptyHomePackageTable  = emptyUFM
 -- | Constructs an empty PackageIfaceTable
 emptyPackageIfaceTable :: PackageIfaceTable
 emptyPackageIfaceTable = emptyModuleEnv
+
+-- | Constructs an empty PackageIfaceTable
+emptyIndefiniteIfaceTable :: IndefiniteIfaceTable
+emptyIndefiniteIfaceTable = emptyModuleEnv
 
 pprHPT :: HomePackageTable -> SDoc
 -- A bit aribitrary for now
@@ -2280,6 +2300,21 @@ data ExternalPackageState
                 --
                 -- * Deprecations and warnings
 
+        eps_shape :: !(NameEnv Name),
+                -- ^ NB: actually a ShNameSubst, same invariants.  This
+                -- specifies the substitution for ALL requirements.
+
+        eps_EST :: !ExternalShapeTable,
+                -- ^ Shapes of packages, for when we include them.
+
+        eps_IIT :: !IndefiniteIfaceTable,
+                -- ^ The unshaped, uninstantiated 'ModIface's for modules
+                -- from indefinite packages.  Unlike entries in the PIT,
+                -- these declarations have all of the fields of the interface.
+                -- It's indexed by 'Module' for convenience, but conventionally
+                -- all of the holes of the 'PackageKey' are instanted with
+                -- HOLE:A.  There's a special rule for how to lookup holes.
+
         eps_PTE :: !PackageTypeEnv,
                 -- ^ Result of typechecking all the external package
                 -- interface files we have sucked in. The domain of
@@ -2405,6 +2440,8 @@ data ModSummary
           -- ^ Source imports of the module
         ms_textual_imps :: [Located (ImportDecl RdrName)],
           -- ^ Non-source imports of the module from the module *text*
+        ms_parsed_mod   :: Maybe HsParsedModule,
+          -- ^ The parsed, nonrenamed source, if we have it
         ms_hspp_file    :: FilePath,
           -- ^ Filename of preprocessed source file
         ms_hspp_opts    :: DynFlags,

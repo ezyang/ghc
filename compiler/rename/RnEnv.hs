@@ -195,40 +195,21 @@ newTopSrcBinder (L loc rdr_name)
                 -- module name, we we get a confusing "M.T is not in scope" error later
 
         ; stage <- getStage
-        ; env <- getGblEnv
         ; if isBrackStage stage then
                 -- We are inside a TH bracket, so make an *Internal* name
                 -- See Note [Top-level Names in Template Haskell decl quotes] in RnNames
              do { uniq <- newUnique
                 ; return (mkInternalName uniq (rdrNameOcc rdr_name) loc) }
-          else case tcg_impl_rdr_env env of
-            Just gr ->
-                -- We're compiling --sig-of, so resolve with respect to this
-                -- module.
-                -- See Note [Signature parameters in TcGblEnv and DynFlags]
-             do { case lookupGlobalRdrEnv gr (rdrNameOcc rdr_name) of
-                    -- Be sure to override the loc so that we get accurate
-                    -- information later
-                    [GRE{ gre_name = n }] -> do
-                      -- NB: Just adding this line will not work:
-                      --    addUsedRdrName True gre rdr_name
-                      -- see Note [Signature lazy interface loading] for
-                      -- more details.
-                      return (setNameLoc n loc)
-                    _ -> do
-                      { -- NB: cannot use reportUnboundName rdr_name
-                        -- because it looks up in the wrong RdrEnv
-                        -- ToDo: more helpful error messages
-                      ; addErr (unknownNameErr (pprNonVarNameSpace
-                            (occNameSpace (rdrNameOcc rdr_name))) rdr_name)
-                      ; return (mkUnboundName rdr_name)
-                      }
-                }
-            Nothing ->
-                -- Normal case
-             do { this_mod <- getModule
-                ; traceRn (text "newTopSrcBinder" <+> (ppr this_mod $$ ppr rdr_name $$ ppr loc))
-                ; newGlobalBinder this_mod (rdrNameOcc rdr_name) loc } }
+          else do { this_mod <- getModule
+                  ; traceRn (text "newTopSrcBinder" <+> (ppr this_mod $$ ppr rdr_name $$ ppr loc))
+                  ; n <- newGlobalBinder this_mod (rdrNameOcc rdr_name) loc
+                  ; dflags <- getDynFlags
+                  ; return n
+                  {- implement this by hand in NOT the IfaceLcl monad
+                  ; initIfaceTcRn (initIfaceLcl this_mod (thisPackage dflags)
+                                    (text "newGlobalBinder") (tcIfaceSubstName n))
+                                    -}
+                  }}
 
 {-
 *********************************************************

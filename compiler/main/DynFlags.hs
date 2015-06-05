@@ -100,6 +100,10 @@ module DynFlags (
         parseDynamicFilePragma,
         parseDynamicFlagsFull,
 
+        -- ** Package key cache
+        PackageKeyCache,
+        ShPackageKey(..),
+
         -- ** Available DynFlags
         allFlags,
         flagsAll,
@@ -177,6 +181,8 @@ import Foreign.C        ( CInt(..) )
 import System.IO.Unsafe ( unsafeDupablePerformIO )
 #endif
 import {-# SOURCE #-} ErrUtils ( Severity(..), MsgDoc, mkLocMessage )
+import UniqFM
+import UniqSet
 
 import System.IO.Unsafe ( unsafePerformIO )
 import Data.IORef
@@ -273,6 +279,7 @@ data DumpFlag
    | Opt_D_dump_occur_anal
    | Opt_D_dump_parsed
    | Opt_D_dump_rn
+   | Opt_D_dump_shape
    | Opt_D_dump_simpl
    | Opt_D_dump_simpl_iterations
    | Opt_D_dump_spec
@@ -650,6 +657,24 @@ type SigOf = Map ModuleName Module
 getSigOf :: DynFlags -> ModuleName -> Maybe Module
 getSigOf dflags n = Map.lookup n (sigOf dflags)
 
+-- NameCache updNameCache
+type PackageKeyEnv = UniqFM
+type PackageKeyCache = PackageKeyEnv ShPackageKey
+
+-- | An elaborated representation of a 'PackageKey', which records
+-- all of the components that go into the hashed 'PackageKey'.
+data ShPackageKey
+    = ShPackageKey {
+          shPackageKeyName              :: !PackageName,
+          shPackageKeySourcePackageId   :: !SourcePackageId,
+          shPackageKeyInsts             :: ![(ModuleName, Module)],
+          shPackageKeyFreeHoles         :: UniqSet ModuleName
+      }
+    | ShWiredPackageKey {
+          shPackageKey :: !PackageKey
+      }
+    deriving Eq
+
 -- | Contains not only a collection of 'GeneralFlag's but also a plethora of
 -- information relating to the compilation of a single file or GHC session
 data DynFlags = DynFlags {
@@ -779,6 +804,7 @@ data DynFlags = DynFlags {
   -- Packages.initPackages
   pkgDatabase           :: Maybe [PackageConfig],
   pkgState              :: PackageState,
+  pkgKeyCache           :: {-# UNPACK #-} !(IORef PackageKeyCache),
 
   -- Temporary files
   -- These have to be IORefs, because the defaultCleanupHandler needs to
@@ -1487,6 +1513,7 @@ defaultDynFlags mySettings =
         pkgDatabase             = Nothing,
         -- This gets filled in with GHC.setSessionDynFlags
         pkgState                = emptyPackageState,
+        pkgKeyCache             = v_unsafePkgKeyCache,
         ways                    = defaultWays mySettings,
         buildTag                = mkBuildTag (defaultWays mySettings),
         rtsBuildTag             = mkBuildTag (defaultWays mySettings),
@@ -1696,6 +1723,7 @@ dopt f dflags = (fromEnum f `IntSet.member` dumpFlags dflags)
           enableIfVerbose Opt_D_dump_vt_trace               = False
           enableIfVerbose Opt_D_dump_tc                     = False
           enableIfVerbose Opt_D_dump_rn                     = False
+          enableIfVerbose Opt_D_dump_shape                  = False
           enableIfVerbose Opt_D_dump_rn_stats               = False
           enableIfVerbose Opt_D_dump_hi_diffs               = False
           enableIfVerbose Opt_D_verbose_core2core           = False
@@ -2480,6 +2508,7 @@ dynamic_flags = [
   , defGhcFlag "ddump-cse"               (setDumpFlag Opt_D_dump_cse)
   , defGhcFlag "ddump-worker-wrapper"    (setDumpFlag Opt_D_dump_worker_wrapper)
   , defGhcFlag "ddump-rn-trace"          (setDumpFlag Opt_D_dump_rn_trace)
+  , defGhcFlag "ddump-shape"             (setDumpFlag Opt_D_dump_shape)
   , defGhcFlag "ddump-if-trace"          (setDumpFlag Opt_D_dump_if_trace)
   , defGhcFlag "ddump-cs-trace"          (setDumpFlag Opt_D_dump_cs_trace)
   , defGhcFlag "ddump-tc-trace"          (NoArg (do
@@ -4169,6 +4198,8 @@ unsafeGlobalDynFlags = unsafePerformIO $ readIORef v_unsafeGlobalDynFlags
 
 setUnsafeGlobalDynFlags :: DynFlags -> IO ()
 setUnsafeGlobalDynFlags = writeIORef v_unsafeGlobalDynFlags
+
+GLOBAL_VAR(v_unsafePkgKeyCache, emptyUFM, PackageKeyCache)
 
 -- -----------------------------------------------------------------------------
 -- SSE and AVX
