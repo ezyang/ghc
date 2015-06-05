@@ -1,0 +1,14 @@
+==== Package p ====
+Shape for p
+provides:
+requires: A -> THIS:A
+               foo
+[1 of 1] Compiling A[abstract sig]  ( p/A.hsig, nothing )
+==== Package q ====
+Shape for q
+provides: B -> THIS:B
+               bar
+requires: A -> p(hole:A):A
+               foo
+[1 of 2] Including p
+[2 of 2] Compiling B                ( q/B.hs, nothing )

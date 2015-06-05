@@ -1,0 +1,13 @@
+-- NB: This example doesn't totally work; we overwrote the
+-- old signature H with a new one, which is not the best.
+
+package p where
+    signature H(T) where
+        data T
+    module A(T) where
+        import H(T)
+    module B(T) where
+        data T = T
+    signature H(T, f) where
+        import B(T)
+        f :: a -> a

@@ -1,0 +1,7 @@
+package p where
+    signature A(T) where
+        data T
+    signature B(T) where
+        data T
+    signature A(T) where
+        import B(T)

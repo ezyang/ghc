@@ -1,0 +1,9 @@
+package q where
+    module H where
+        data T = T { x :: Bool }
+package r where
+    signature H where
+        data T
+package p where
+    include q
+    include r

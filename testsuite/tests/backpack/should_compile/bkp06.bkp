@@ -1,0 +1,7 @@
+package p where
+    signature A1 where
+        data A = A { foo :: Int, bar :: Bool }
+    signature A2 where
+        data A = A { foo :: Int, bar :: Bool }
+    signature A2(foo) where
+        import A1(foo)

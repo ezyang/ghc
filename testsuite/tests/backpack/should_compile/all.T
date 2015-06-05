@@ -1,0 +1,9 @@
+setTestOpts(only_compiler_types(['ghc']))
+
+test('bkp01', normal, backpack_typecheck, ['-ddump-shape'])
+test('bkp02', normal, backpack_typecheck, ['-ddump-shape'])
+test('bkp03', normal, backpack_typecheck, ['-ddump-shape'])
+test('bkp04', normal, backpack_typecheck, ['-ddump-shape'])
+test('bkp05', normal, backpack_typecheck, ['-ddump-shape'])
+test('bkp06', normal, backpack_typecheck, ['-ddump-shape'])
+test('bkp07', normal, backpack_typecheck, ['-ddump-shape'])
