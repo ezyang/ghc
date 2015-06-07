@@ -304,6 +304,20 @@ compilePkgDecl' bs i (IncludeD IncludeDecl{ idPackageName = L _ name@(PackageNam
         hsc_env1 = hsc_env { hsc_ifaces = ifaces1 }
     setSession hsc_env1
 
+{-
+mergeSignature :: Module -> Ghc ModIface
+mergeSignature mod = do
+            MASSERT(  )
+            -- TODO Need to rename it
+            let iface = indef_iface
+            updateEps $ \eps ->
+                case eps_HIT eps
+                eps_HIT
+                mergeModIface iface
+                eps
+            return (Succeeded iface)
+-}
+
 tcInclude :: Shape -> PackageName -> Ghc [(ModuleName, [ModIface])]
 tcInclude sh n = do
     hsc_env <- getSession

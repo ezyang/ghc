@@ -2263,6 +2263,10 @@ type PackageFamInstEnv = FamInstEnv
 type PackageVectInfo   = VectInfo
 type PackageAnnEnv     = AnnEnv
 
+-- | Boolean records whether or not the interface has been loaded
+-- into the EPS.
+type HoleIfaceTable = ModuleNameEnv (ModIface, Bool)
+
 -- | Information about other packages that we have slurped in by reading
 -- their interface files
 data ExternalPackageState
@@ -2314,6 +2318,15 @@ data ExternalPackageState
                 -- It's indexed by 'Module' for convenience, but conventionally
                 -- all of the holes of the 'PackageKey' are instanted with
                 -- HOLE:A.  There's a special rule for how to lookup holes.
+
+        eps_HIT :: !HoleIfaceTable,
+                -- ^ When we bring an interface for a hole into scope, we
+                -- don't type-check it immediately; instead, we merge it
+                -- into the HoleIfaceTable.  When a user then tugs on
+                -- a type-checked entity, we now use loaded ModIface.
+                -- The reason we need to do this is once we load in an
+                -- interface, we can't merge anything else into it without
+                -- retypechecking anything that might have depended on it.
 
         eps_PTE :: !PackageTypeEnv,
                 -- ^ Result of typechecking all the external package

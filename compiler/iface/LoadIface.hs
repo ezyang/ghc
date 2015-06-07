@@ -24,6 +24,7 @@ module LoadIface (
         findAndReadIface, readIface,    -- Used when reading the module's old interface
         loadDecls,      -- Should move to TcIface and be renamed
         initExternalPackageState,
+        computeInterface,
 
         ifaceStats, pprModIface, showIface
    ) where
@@ -68,6 +69,7 @@ import Util
 import FastString
 import Fingerprint
 import Hooks
+import ShUnify
 
 import Control.Monad
 import Data.IORef
@@ -443,7 +445,7 @@ loadInterface doc_str mod from
                             WARN( hi_boot_file &&
                                   fmap fst (if_rec_types gbl_env) == Just mod,
                                   ppr mod )
-                            findAndReadIface doc_str mod hi_boot_file
+                            computeInterface doc_str mod hi_boot_file
         ; case read_result of {
             Failed err -> do
                 { let fake_iface = emptyModIface mod
@@ -464,11 +466,8 @@ loadInterface doc_str mod from
         -- But this is no longer valid because thNameToGhcName allows users to
         -- cause the system to load arbitrary interfaces (by supplying an appropriate
         -- Template Haskell original-name).
-            Succeeded (iface, file_path) ->
+            Succeeded (iface, loc_doc) ->
 
-        let
-            loc_doc = text file_path
-        in
         initIfaceLcl mod loc_doc $ do
 
         --      Load the new ModIface into the External Package State
@@ -539,6 +538,57 @@ loadInterface doc_str mod from
 
         ; return (Succeeded final_iface)
     }}}}
+
+-- | Like 'findAndReadIface', but also consult the in-memory IIT
+-- to see if we have a purely in memory interface.
+findAndReadIfaceWithIIT :: SDoc -> Module
+                        -> TcRnIf gbl lcl (MaybeErr MsgDoc (ModIface, SDoc))
+findAndReadIfaceWithIIT doc_str mod = do
+    eps <- getEps
+    case lookupModuleEnv (eps_IIT eps) mod of
+        Nothing -> do
+            r <- findAndReadIface doc_str mod False -- boot not supported
+            -- TODO duplication
+            case r of
+                Succeeded (iface, path) -> return (Succeeded (iface, text path))
+                Failed err -> return (Failed err)
+        Just iface -> return (Succeeded (iface, text "IIT"))
+
+-- | Not only finds and reads an interface, but can also handle if
+-- the requested module is instantiated in some way (in which case
+-- we may only have a raw 'ModIface' for the generalized version).
+computeInterface :: SDoc -> Module -> IsBootInterface
+                 -> TcRnIf gbl lcl (MaybeErr MsgDoc (ModIface, SDoc))
+computeInterface doc_str mod hi_boot_file
+  -- NB: boot not supported right now
+  | hi_boot_file = do
+    r <- findAndReadIface doc_str mod hi_boot_file
+    case r of
+        Succeeded (iface, path) -> return (Succeeded (iface, text path))
+        Failed err -> return (Failed err)
+  -- Hole modules get special treatment
+  | isHoleModule mod = do
+    updateEps $ \eps ->
+        case lookupUFM (eps_HIT eps) (moduleName mod) of
+            Nothing -> (eps, Failed (text "No such hole"))
+            Just (iface, _) ->
+                (eps {
+                    -- mark it as loaded, so we know if we merge
+                    -- more modules in we have to do something
+                    eps_HIT = addToUFM (eps_HIT eps) (moduleName mod) (iface, True)
+                 }, Succeeded (iface, text "HIT"))
+  | otherwise = do
+    -- NB: we ALWAYS have to substitute, because even if
+    -- mod == imod, we might have shaping affect the ModIface
+    dflags <- getDynFlags
+    imod <- liftIO $ generalizeHoleModule dflags mod
+    r <- findAndReadIfaceWithIIT doc_str imod
+    case r of
+        Failed{} -> return r
+        Succeeded (iface0, doc) -> do
+            -- TODO Rename it
+            let iface = iface0
+            return (Succeeded (iface, doc))
 
 wantHiBootFile :: DynFlags -> ExternalPackageState -> Module -> WhereFrom
                -> MaybeErr MsgDoc IsBootInterface
@@ -861,6 +911,7 @@ initExternalPackageState
       eps_is_boot      = emptyUFM,
       eps_PIT          = emptyPackageIfaceTable,
       eps_IIT          = emptyIndefiniteIfaceTable,
+      eps_HIT          = emptyUFM,
       eps_shape        = emptyNameEnv,
       eps_PTE          = emptyTypeEnv,
       eps_inst_env     = emptyInstEnv,
