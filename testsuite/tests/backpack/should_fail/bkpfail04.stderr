@@ -1,0 +1,21 @@
+==== Package p ====
+Shape for p
+provides:
+requires: A -> THIS:A
+               A{A, A, foo}
+[1 of 1] Compiling A[abstract sig]  ( p/A.hsig, nothing )
+==== Package q ====
+Shape for q
+provides:
+requires: A -> THIS:A
+               A{A, A, bar}
+[1 of 1] Compiling A[abstract sig]  ( q/A.hsig, nothing )
+==== Package r ====
+Shape for r
+provides: M -> THIS:M
+               x, y
+requires: A -> p(hole:A):A, q(hole:A):A
+               A{A, foo, A, bar}
+[1 of 3] Including p
+[2 of 3] Including q
+The record label lists for ‘A’ differ

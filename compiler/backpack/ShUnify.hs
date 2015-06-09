@@ -45,7 +45,6 @@ import UniqSet
 import Avail
 import IfaceSyn
 
-import FastString
 import DynFlags
 import Name
 import NameEnv
@@ -427,6 +426,7 @@ rnIfaceGlobal n = do
             -- TODO: This might accidentally tug on an interface
             -- too early...
             iface <- liftIO . initIfaceCheck hsc_env $ loadSysInterface (text "rnIfaceGlobal") m'
+            -- TODO: KNOWN BUG, bkp05
             let rs = do a <- mi_exports iface
                         n' <- availNames a
                         guard (nameOccName n' == nameOccName n)

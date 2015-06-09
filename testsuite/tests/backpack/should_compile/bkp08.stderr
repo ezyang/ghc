@@ -1,0 +1,22 @@
+==== Package q ====
+Shape for q
+provides: H -> THIS:H
+               T{T, T, x}
+requires:
+[1 of 1] Compiling H                ( q/H.hs, nothing )
+==== Package r ====
+Shape for r
+provides:
+requires: H -> THIS:H
+               T{T}
+[1 of 1] Compiling H[abstract sig]  ( r/H.hsig, nothing )
+==== Package p ====
+Shape for p
+provides: H -> q():H
+               T{T, T, x}
+          M -> THIS:M
+               f
+requires:
+[1 of 3] Including q
+[2 of 3] Including r
+[3 of 3] Compiling M                ( p/M.hs, nothing )

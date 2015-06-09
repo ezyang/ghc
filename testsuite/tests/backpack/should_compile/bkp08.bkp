@@ -7,3 +7,6 @@ package r where
 package p where
     include q
     include r
+    module M where
+        import H
+        f = T True
