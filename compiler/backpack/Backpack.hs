@@ -36,6 +36,7 @@ import Util
 import UniqFM
 import Outputable
 import Maybes
+import Panic
 
 import IfaceSyn
 
@@ -90,20 +91,6 @@ doBackpack src_filename = do
                 sh_subst <- liftIO $ computeShapeSubst hsc_env sh
                 updateEpsGhc_ (\eps -> eps { eps_shape = sh_subst } )
                 eps <- getEpsGhc
-                -- Merge the ModIfaces for the requirements
-                {-
-                merged_ifaces <- T.forM (sh_requires sh) $ \(mods, _) -> do
-                    ifaces <- forM mods $ \mod -> do
-                        imod <- liftIO $ generalizeHoleModule dflags mod
-                        case lookupModuleEnv (eps_IIT eps) imod of
-                            Nothing -> panic "where'd it go"
-                            Just iface ->
-                              initIfaceLcl (mi_module iface) (modulePackageKey mod)
-                                           (text "(from the IIT)") $ undefined
-                    case foldM mergeModIface (head ifaces) (tail ifaces) of
-                        Failed sdoc -> panic "failed"
-                        Succeeded iface -> return iface
-                        -}
                 -- Figure out if we should generate code or not.
                 -- If there are holes, we can't generate code.
                 let (target, set_write_interface)
@@ -304,20 +291,6 @@ compilePkgDecl' bs i (IncludeD IncludeDecl{ idPackageName = L _ name@(PackageNam
         hsc_env1 = hsc_env { hsc_ifaces = ifaces1 }
     setSession hsc_env1
 
-{-
-mergeSignature :: Module -> Ghc ModIface
-mergeSignature mod = do
-            MASSERT(  )
-            -- TODO Need to rename it
-            let iface = indef_iface
-            updateEps $ \eps ->
-                case eps_HIT eps
-                eps_HIT
-                mergeModIface iface
-                eps
-            return (Succeeded iface)
--}
-
 tcInclude :: Shape -> PackageName -> Ghc [(ModuleName, [ModIface])]
 tcInclude sh n = do
     hsc_env <- getSession
@@ -332,79 +305,18 @@ tcInclude sh n = do
             -- from the package to re-derive what the hole substitution here
             -- was.
             hsubst <- liftIO $ computeHoleSubst dflags (sh_provides sh) reqs
+            let ifExc m = do r <- initIfaceCheck hsc_env m
+                             case r of
+                                Failed err -> liftIO $ throwGhcExceptionIO (ProgramError (showSDoc dflags err))
+                                Succeeded (x, _) -> return x
             -- NB: no fixpointing is necessary
             prov_ifaces <- liftIO . forM (Map.toList provs) $ \(modname, (m, _)) -> do
                                 m' <- fmap fst $ renameHoleModule dflags hsubst m
-                                iface <- initIfaceCheck hsc_env $ loadSysInterface (text "prov_iface") m'
+                                iface <- ifExc $ computeInterface (text "prov_iface") False m'
                                 return (modname, [iface])
             req_ifaces <- liftIO . forM (Map.toList reqs) $ \(modname, (ms, _)) -> do
                                 ms' <- mapM (fmap fst . renameHoleModule dflags hsubst) ms
-                                ifaces <- mapM (initIfaceCheck hsc_env . loadSysInterface (text "req_iface")) ms'
+                                ifaces <- mapM (ifExc . computeInterface (text "req_iface") False) ms'
                                 return (modname, ifaces)
             return (prov_ifaces ++ req_ifaces)
 
--- MaybeErr is a bad warning because we want to report as
--- many errors as possible
--- TODO totally unclear what fingerprints should be, so omitted for now
-mergeIfaceDecls :: [IfaceDecl]
-           -> [IfaceDecl]
-           -> MaybeErr SDoc [IfaceDecl]
-mergeIfaceDecls ds1 ds2 =
-    let mkE ds = mkOccEnv [ (ifName d, return d) | d <- ds ]
-    in sequence (occEnvElts (plusOccEnv_C (\mx my -> mx >>= \x -> my >>= \y -> mergeIfaceDecl x y) (mkE ds1) (mkE ds2)))
-
-mergeModIface :: ModIface -> ModIface -> MaybeErr SDoc ModIface
-mergeModIface iface1 iface2 = do
-    MASSERT( mi_module iface1 == mi_module iface2 )
-    merged_decls <- fmap (map ((,) fingerprint0))
-                  $ mergeIfaceDecls (map snd (mi_decls iface1))
-                               (map snd (mi_decls iface2))
-    let fixities = mergeFixities (mi_fixities iface1) (mi_fixities iface2)
-        warns = mergeWarnings (mi_warns iface1) (mi_warns iface2)
-    -- Actually, I think a lot of these fields won't be used
-    return (emptyModIface (mi_module iface1)) {
-        -- Fake in-memory interfaces always have empty sig-of
-        mi_sig_of = Nothing,
-        mi_decls = merged_decls,
-        -- Some harmless things which are easy to compute
-        mi_orphan = mi_orphan iface1 || mi_orphan iface2,
-        mi_finsts = mi_finsts iface1 || mi_finsts iface2,
-        mi_used_th = mi_used_th iface1 || mi_used_th iface2,
-        -- The key things
-        mi_fixities = fixities,
-        mi_warns = warns,
-        mi_fix_fn = mkIfaceFixCache fixities,
-        mi_warn_fn = mkIfaceWarnCache warns,
-        mi_hash_fn = \n -> case mi_hash_fn iface1 n of
-                            Nothing -> mi_hash_fn iface2 n
-                            Just r -> Just r,
-        -- Stuff we can stub out so we fail fast (had to be non-strict)
-        mi_deps      = noDependencies, -- BOGUS
-        mi_usages    = panic "No mi_usages in HOLE",
-        mi_anns      = panic "No mi_anns in HOLE",
-        mi_insts     = panic "No mi_insts in HOLE",
-        mi_fam_insts = panic "No mi_fam_insts in HOLE",
-        mi_rules     = panic "No mi_rules in HOLE"
-    }
-
-mergeFixities :: [(OccName, Fixity)] -> [(OccName, Fixity)] -> [(OccName, Fixity)]
-mergeFixities fix1 fix2 =
-    let forceEqual x y | x == y = x
-                       | otherwise = panic "mergeFixities"
-    in mergeOccList forceEqual fix1 fix2
-
-mergeOccList :: ((OccName, a) -> (OccName, a) -> (OccName, a))
-             -> [(OccName, a)] -> [(OccName, a)] -> [(OccName, a)]
-mergeOccList f xs1 xs2 =
-    let oe1 = mkOccEnv [ (fst x, x) | x <- xs1 ]
-        oe2 = mkOccEnv [ (fst x, x) | x <- xs2 ]
-    in occEnvElts (plusOccEnv_C f oe1 oe2)
-
--- TODO: better merging
-mergeWarnings :: Warnings -> Warnings -> Warnings
-mergeWarnings w@WarnAll{} _ = w
-mergeWarnings _ w@WarnAll{} = w
-mergeWarnings (WarnSome ws1) (WarnSome ws2) = WarnSome (mergeOccList const ws1 ws2)
-mergeWarnings w@WarnSome{} _ = w
-mergeWarnings _ w@WarnSome{} = w
-mergeWarnings NoWarnings NoWarnings = NoWarnings

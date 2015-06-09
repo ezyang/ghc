@@ -166,6 +166,7 @@ initTc hsc_env hsc_src keep_rn_syntax mod loc do_this
                 tcg_safeInfer      = infer_var,
                 tcg_dependent_files = dependent_files_var,
                 tcg_ifaces         = hsc_ifaces hsc_env,
+                tcg_shaping        = False,
                 tcg_tc_plugins     = [],
                 tcg_static_wc      = static_wc_var
              } ;

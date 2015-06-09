@@ -70,6 +70,7 @@ import FastString
 import Fingerprint
 import Hooks
 import ShPackageKey
+import ShUnify
 
 import Control.Monad
 import Data.IORef
@@ -302,7 +303,14 @@ loadSrcInterface_maybe doc mod want_boot maybe_pkg
   = do { hsc_env <- getTopEnv
        ; tcg_env <- getGblEnv
        ; case lookupUFM (tcg_ifaces tcg_env) mod of
-            Just ifaces -> return (Succeeded ifaces)
+            Just ifaces@(iface:_) ->
+                if tcg_shaping tcg_env
+                    then return (Succeeded ifaces)
+                    else do r <- initIfaceTcRn $ loadInterface doc (mi_module iface) (ImportByUser want_boot)
+                            case r of
+                                Succeeded _ -> return (Succeeded ifaces)
+                                Failed err -> return (Failed err)
+            Just [] -> panic "loadSrcInterface_maybe empty"
             Nothing -> do {
          res <- liftIO $ findImportedModule hsc_env mod maybe_pkg
        ; case res of
@@ -445,7 +453,7 @@ loadInterface doc_str mod from
                             WARN( hi_boot_file &&
                                   fmap fst (if_rec_types gbl_env) == Just mod,
                                   ppr mod )
-                            computeInterface doc_str mod hi_boot_file
+                            computeInterface doc_str hi_boot_file mod
         ; case read_result of {
             Failed err -> do
                 { let fake_iface = emptyModIface mod
@@ -557,9 +565,9 @@ findAndReadIfaceWithIIT doc_str mod = do
 -- | Not only finds and reads an interface, but can also handle if
 -- the requested module is instantiated in some way (in which case
 -- we may only have a raw 'ModIface' for the generalized version).
-computeInterface :: SDoc -> Module -> IsBootInterface
+computeInterface :: SDoc -> IsBootInterface -> Module
                  -> TcRnIf gbl lcl (MaybeErr MsgDoc (ModIface, SDoc))
-computeInterface doc_str mod hi_boot_file
+computeInterface doc_str hi_boot_file mod
   -- NB: boot not supported right now
   | hi_boot_file = do
     r <- findAndReadIface doc_str mod hi_boot_file
@@ -580,15 +588,37 @@ computeInterface doc_str mod hi_boot_file
   | otherwise = do
     -- NB: we ALWAYS have to substitute, because even if
     -- mod == imod, we might have shaping affect the ModIface
+    -- TODO: more caching (important for correctness, actually)
     dflags <- getDynFlags
+    hsc_env <- getTopEnv
     imod <- liftIO $ generalizeHoleModule dflags mod
     r <- findAndReadIfaceWithIIT doc_str imod
     case r of
         Failed{} -> return r
         Succeeded (iface0, doc) -> do
-            -- TODO Rename it
-            let iface = iface0
-            return (Succeeded (iface, doc))
+            iface <- liftIO $ rnModIface hsc_env (modulePackageKey mod) iface0
+            case (isHoleModule (mi_module iface)) of
+              True ->
+                ASSERT( moduleName (mi_module iface) == moduleName mod )
+                -- merge it into the HIT
+                updateEps $ \eps ->
+                    case lookupUFM (eps_HIT eps) (moduleName mod) of
+                        Nothing -> (eps {
+                                        eps_HIT = addToUFM (eps_HIT eps)
+                                                           (moduleName mod)
+                                                           (iface, False)
+                                        }, Succeeded (iface, doc))
+                        Just (_, True) -> (eps, Failed (text "stale"))
+                        Just (iface', False)
+                                -> case mergeModIface iface' iface of
+                                        Failed err -> (eps, Failed err)
+                                        Succeeded iface'' ->
+                                            (eps {
+                                                eps_HIT = addToUFM (eps_HIT eps)
+                                                           (moduleName mod)
+                                                           (iface'', False)
+                                            }, Succeeded (iface, doc))
+              False -> return (Succeeded (iface, doc))
 
 wantHiBootFile :: DynFlags -> ExternalPackageState -> Module -> WhereFrom
                -> MaybeErr MsgDoc IsBootInterface
@@ -1166,3 +1196,76 @@ homeModError mod location
            Just file -> space <> parens (text file)
            Nothing   -> Outputable.empty)
     <+> ptext (sLit "which is not loaded")
+
+-- MaybeErr is a bad warning because we want to report as
+-- many errors as possible
+-- TODO totally unclear what fingerprints should be, so omitted for now
+mergeIfaceDecls :: [IfaceDecl]
+                -> [IfaceDecl]
+                -> MaybeErr SDoc [IfaceDecl]
+mergeIfaceDecls ds1 ds2 =
+    let mkE ds = mkOccEnv [ (ifName d, return d) | d <- ds ]
+    in sequence (occEnvElts (plusOccEnv_C (\mx my -> mx >>= \x -> my >>= \y -> mergeIfaceDecl x y) (mkE ds1) (mkE ds2)))
+
+mergeModIface :: ModIface -> ModIface -> MaybeErr SDoc ModIface
+mergeModIface iface1 iface2 = do
+    MASSERT( mi_module iface1 == mi_module iface2 )
+    merged_decls <- fmap (map ((,) fingerprint0))
+                  $ mergeIfaceDecls (map snd (mi_decls iface1))
+                               (map snd (mi_decls iface2))
+    let fixities = mergeFixities (mi_fixities iface1) (mi_fixities iface2)
+        warns = mergeWarnings (mi_warns iface1) (mi_warns iface2)
+    -- Actually, I think a lot of these fields won't be used
+    return (emptyModIface (mi_module iface1)) {
+        -- Fake in-memory interfaces always have empty sig-of
+        mi_sig_of = Nothing,
+
+        -- The merge proper
+        mi_decls     = merged_decls,
+        mi_anns      = mi_anns iface1 ++ mi_anns iface2,
+        -- TODO filter out duplicates
+        mi_exports   = mi_exports iface1 ++ mi_exports iface2, -- harmless?
+        mi_insts     = mi_insts iface1 ++ mi_insts iface2,
+        mi_fam_insts = mi_fam_insts iface1 ++ mi_fam_insts iface2,
+        mi_rules     = mi_rules iface1 ++ mi_rules iface2,
+
+        -- Some harmless things which are easy to compute
+        mi_orphan = mi_orphan iface1 || mi_orphan iface2,
+        mi_finsts = mi_finsts iface1 || mi_finsts iface2,
+        mi_used_th = mi_used_th iface1 || mi_used_th iface2,
+
+        -- The key things
+        mi_fixities = fixities,
+        mi_warns = warns,
+        mi_fix_fn = mkIfaceFixCache fixities,
+        mi_warn_fn = mkIfaceWarnCache warns,
+        mi_hash_fn = \n -> case mi_hash_fn iface1 n of
+                            Nothing -> mi_hash_fn iface2 n
+                            Just r -> Just r,
+
+        -- Stuff we can stub out so we fail fast (had to be non-strict)
+        mi_deps      = noDependencies, -- BOGUS
+        mi_usages    = panic "No mi_usages in HOLE"
+    }
+
+mergeFixities :: [(OccName, Fixity)] -> [(OccName, Fixity)] -> [(OccName, Fixity)]
+mergeFixities fix1 fix2 =
+    let forceEqual x y | x == y = x
+                       | otherwise = panic "mergeFixities"
+    in mergeOccList forceEqual fix1 fix2
+
+mergeOccList :: ((OccName, a) -> (OccName, a) -> (OccName, a))
+             -> [(OccName, a)] -> [(OccName, a)] -> [(OccName, a)]
+mergeOccList f xs1 xs2 =
+    let oe1 = mkOccEnv [ (fst x, x) | x <- xs1 ]
+        oe2 = mkOccEnv [ (fst x, x) | x <- xs2 ]
+    in occEnvElts (plusOccEnv_C f oe1 oe2)
+
+-- TODO: better merging
+mergeWarnings :: Warnings -> Warnings -> Warnings
+mergeWarnings w@WarnAll{} _ = w
+mergeWarnings _ w@WarnAll{} = w
+mergeWarnings (WarnSome ws1) (WarnSome ws2) = WarnSome (mergeOccList const ws1 ws2)
+mergeWarnings w@WarnSome{} _ = w
+mergeWarnings _ w@WarnSome{} = w
+mergeWarnings NoWarnings NoWarnings = NoWarnings

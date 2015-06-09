@@ -491,6 +491,9 @@ data TcGblEnv
         -- name with a different interface.
         tcg_ifaces :: ModuleNameEnv [ModIface],
 
+        -- | True if we're shaping
+        tcg_shaping :: !Bool,
+
         -- | A list of user-defined plugins for the constraint solver.
         tcg_tc_plugins :: [TcPluginSolver],
         -- ^ A list of user-defined plugins for the constraint solver.

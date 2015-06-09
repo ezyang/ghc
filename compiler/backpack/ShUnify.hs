@@ -377,7 +377,7 @@ rnModIface hsc_env pk iface = do
                 (case shpk of
                     ShPackageKey { shPackageKeyInsts = insts } -> insts
                     ShWiredPackageKey{} -> []))
-    mod <- renameHoleModule dflags hmap (mi_module iface)
+    (mod, _) <- renameHoleModule dflags hmap (mi_module iface)
     initTcRnIf 'c' hsc_env () hmap $ do
         exports <- mapM rnAvailInfo (mi_exports iface)
         decls <- mapM rnIfaceDecl' (mi_decls iface)
@@ -386,7 +386,8 @@ rnModIface hsc_env pk iface = do
         -- mi_fam_insts
         -- mi_rules
         -- mi_vect_info (LOW PRIORITY)
-        return iface { mi_exports = exports
+        return iface { mi_module = mod
+                     , mi_exports = exports
                      , mi_decls = decls }
 
 type ShIfM = TcRnIf () ShHoleSubst

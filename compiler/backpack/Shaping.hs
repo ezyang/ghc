@@ -366,7 +366,8 @@ shPkgDecl' sh (ModuleD hsmod@(L (RealSrcSpan loc)
     pk <- shPkgKey
     let m = mkModule pk modname
     avails <- liftTcToSh HsSrcFile m loc $
-        updGblEnv (\tcg_env -> tcg_env { tcg_ifaces = mkShIfaces sh } ) $
+        updGblEnv (\tcg_env -> tcg_env { tcg_ifaces = mkShIfaces sh
+                                       , tcg_shaping = True } ) $
         shModule hsmod
     mergeShapes sh (mkModuleShape modname m avails)
 
@@ -379,7 +380,8 @@ shPkgDecl' sh (SignatureD hsmod@(L (RealSrcSpan loc)
             HsModule { hsmodName = Just (L _ modname) })) = do
     pk <- shPkgKey
     avails <- liftTcToSh HsigFile (mkModule holePackageKey modname) loc $
-        updGblEnv (\tcg_env -> tcg_env { tcg_ifaces = mkShIfaces sh } ) $
+        updGblEnv (\tcg_env -> tcg_env { tcg_ifaces = mkShIfaces sh
+                                       , tcg_shaping = True } ) $
         shModule hsmod
     mergeShapes sh (mkSignatureShape modname (mkModule pk modname) avails)
 
