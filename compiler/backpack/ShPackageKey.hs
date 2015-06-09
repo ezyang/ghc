@@ -7,6 +7,8 @@ module ShPackageKey(
     newPackageKeyWithScope,
     lookupPackageKey,
 
+    generalizeHoleModule,
+
     pprPackageKey
 ) where
 
@@ -237,6 +239,28 @@ mkPackageKey (PackageName fsName) (SourcePackageId fsSource) unsorted_holes =
         concat [ moduleNameString m ++ " " ++ packageKeyHash (modulePackageKey b) ++ ":" ++ moduleNameString (moduleName b) ++ "\n"
                | (m, b) <- sortBy (stableModuleNameCmp `on` fst) unsorted_holes] -- ++
   where stubName = take 5 (filter (/= '-') (unpackFS fsName))
+
+-- | Generalize a 'Module' into one where all the holes are indefinite.
+-- @p(A -> ...):C@ generalizes to @p(A -> HOLE:A):C@.  Useful when
+-- you need to figure out if you've already type-checked the generalized
+-- version of this module, so you don't have to do the whole rigamarole.
+generalizeHoleModule :: DynFlags -> Module -> IO Module
+generalizeHoleModule dflags m = do
+    pk <- generalizeHolePackageKey dflags (modulePackageKey m)
+    return (mkModule pk (moduleName m))
+
+-- | Generalize a 'PackageKey' into one where all the holes are indefinite.
+-- @p(A -> q():A) generalizes to p(A -> HOLE:A)@.
+generalizeHolePackageKey :: DynFlags -> PackageKey -> IO PackageKey
+generalizeHolePackageKey dflags pk = do
+    shpk <- lookupPackageKey dflags pk
+    case shpk of
+        ShWiredPackageKey _ -> return pk
+        ShPackageKey { shPackageKeyName = pn,
+                            shPackageKeySourcePackageId = spid,
+                            shPackageKeyInsts = insts0 }
+          -> let insts = map (\(x, _) -> (x, mkModule holePackageKey x)) insts0
+             in newPackageKey dflags pn spid insts
 
 
 {-

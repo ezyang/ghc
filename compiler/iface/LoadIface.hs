@@ -69,7 +69,7 @@ import Util
 import FastString
 import Fingerprint
 import Hooks
-import ShUnify
+import ShPackageKey
 
 import Control.Monad
 import Data.IORef
