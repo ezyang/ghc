@@ -34,6 +34,7 @@ import FastString
 import UniqSupply
 import SrcLoc
 import Util
+import ShUnify
 
 import Outputable
 
@@ -320,7 +321,11 @@ extendIfaceTyVarEnv tyvars thing_inside
 lookupIfaceTop :: OccName -> IfL Name
 -- Look up a top-level name from the current Iface module
 lookupIfaceTop occ
-  = do  { env <- getLclEnv; lookupOrig (if_mod env) occ }
+  = do  { env <- getLclEnv
+        ; n <- lookupOrig (if_mod env) occ
+        ; eps <- getEps
+        ; return (substName (eps_shape eps) n)
+        }
 
 newIfaceName :: OccName -> IfL Name
 newIfaceName occ
