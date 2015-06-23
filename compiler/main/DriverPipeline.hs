@@ -977,6 +977,7 @@ runPhase (RealPhase (Hsc src_flavour)) input_fn dflags0
                                         ms_hspp_file = input_fn,
                                         ms_hspp_opts = dflags,
                                         ms_hspp_buf  = hspp_buf,
+                                        ms_parsed_mod = Nothing,
                                         ms_location  = location,
                                         ms_hs_date   = src_timestamp,
                                         ms_obj_date  = Nothing,

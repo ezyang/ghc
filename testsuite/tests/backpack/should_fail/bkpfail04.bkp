@@ -1,0 +1,15 @@
+package p where
+    signature A where
+        data A = A { foo :: Int }
+
+package q where
+    signature A where
+        data A = A { bar :: Bool }
+
+package r where
+    include p
+    include q
+    module M where
+        import A
+        x = foo
+        y = bar

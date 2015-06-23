@@ -1,0 +1,10 @@
+==== Package p ====
+[1 of 2] Compiling H[abstract sig]  ( p/H.hsig, nothing )
+[2 of 2] Compiling A                ( p/A.hs, nothing )
+==== Package q ====
+[1 of 1] Compiling H                ( q/H.hs, nothing )
+==== Package r ====
+
+bkpfail01.bkp:14:5: error:
+    Cannot use module q():H to instantiate hole at H
+    Missing implementations of: H, H

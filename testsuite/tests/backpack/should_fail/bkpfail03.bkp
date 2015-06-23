@@ -1,0 +1,7 @@
+package p where
+    module M1 where
+        data M = M
+    module M2 where
+        data M = M
+    signature M2(M) where
+        import M1

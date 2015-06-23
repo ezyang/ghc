@@ -22,7 +22,7 @@
 --       buffer = stringToStringBuffer str
 --       parseState = mkPState flags buffer location
 -- @
-module Parser (parseModule, parseImport, parseStatement,
+module Parser (parseModule, parseImport, parseStatement, parseBackpack,
                parseDeclaration, parseExpression, parsePattern,
                parseTypeSignature,
                parseStmt, parseIdentifier,
@@ -40,6 +40,8 @@ import HsSyn
 -- compiler/main
 import HscTypes         ( IsBootInterface, WarningTxt(..) )
 import DynFlags
+import BackpackSyn
+import PackageConfig
 
 -- compiler/utils
 import OrdList
@@ -473,6 +475,11 @@ for some background.
  'pattern'      { L _ ITpattern } -- for pattern synonyms
  'static'       { L _ ITstatic }  -- for static pointers extension
 
+ 'package'      { L _ ITpackage }
+ 'signature'    { L _ ITsignature }
+ 'include'      { L _ ITinclude }
+ 'requires'     { L _ ITrequires }
+
  '{-# INLINE'             { L _ (ITinline_prag _ _ _) }
  '{-# SPECIALISE'         { L _ (ITspec_prag _) }
  '{-# SPECIALISE_INLINE'  { L _ (ITspec_inline_prag _ _) }
@@ -597,6 +604,7 @@ TH_QQUASIQUOTE  { L _ (ITqQuasiQuote _) }
 %name parseStmt   maybe_stmt
 %name parseIdentifier  identifier
 %name parseType ctype
+%name parseBackpack backpack
 %partial parseHeader header
 %%
 
@@ -609,6 +617,76 @@ identifier :: { Located RdrName }
         | qconop                        { $1 }
     | '(' '->' ')'      {% ams (sLL $1 $> $ getRdrName funTyCon)
                                [mj AnnOpenP $1,mj AnnRarrow $2,mj AnnCloseP $3] }
+
+-----------------------------------------------------------------------------
+-- Backpack stuff
+
+backpack :: { [LHsPackage] }
+         : implicit_top packages close { fromOL $2 }
+         | '{' packages '}'            { fromOL $2 }
+
+packages :: { OrdList LHsPackage }
+         : packages ';' package { $1 `appOL` unitOL $3 }
+         | packages ';'         { $1 }
+         | package              { unitOL $1 }
+
+package :: { LHsPackage }
+        : 'package' pkgname maybepkgexports 'where' pkgbody
+            { sL1 $1 $ HsPackage { hspkgName = $2
+                                 , hspkgExports = $3
+                                 , hspkgBody = fromOL $5 } }
+
+pkgname :: { Located PackageName }
+        : STRING { sL1 $1 $ PackageName (getSTRING $1) }
+        | pkgid  { sL1 $1 $ PackageName (unLoc $1) }
+
+pkgid :: { Located FastString }
+        : VARID  { sL1 $1 $ getVARID $1 }
+        | CONID  { sL1 $1 $ getCONID $1 }
+        -- a bit of a hack, means p - b is parsed same as p-b, enough for now.
+        | VARID '-' pkgid  { sLL $1 $> $ appendFS (getVARID $1) (consFS '-' (unLoc $3)) }
+        | CONID '-' pkgid  { sLL $1 $> $ appendFS (getCONID $1) (consFS '-' (unLoc $3)) }
+
+maybepkgexports :: { Maybe LInclSpec }
+        : {- empty -}           { Nothing }
+        | inclspec              { Just $1 }
+
+maybeinclspec :: { Maybe LInclSpec }
+        : {- empty -}           { Nothing }
+        | inclspec              { Just $1 }
+
+inclspec :: { LInclSpec }
+        : '(' rns ')' { sLL $1 $> $ InclSpec (Just (fromOL $2)) [] }
+        | '(' rns ')' 'requires' '(' rns ')' { sLL $1 $> $ InclSpec (Just (fromOL $2)) (fromOL $6) }
+        | 'requires' '(' rns ')' { sLL $1 $> $ InclSpec Nothing (fromOL $3) }
+
+rns :: { OrdList LRenaming }
+        : rns ',' rn { $1 `appOL` unitOL $3 }
+        | rns ','    { $1 }
+        | rn         { unitOL $1 }
+
+rn :: { LRenaming }
+        : modid 'as' modid { sLL $1 $> $ Renaming (unLoc $1) (unLoc $3) }
+        | modid            { sL1 $1    $ Renaming (unLoc $1) (unLoc $1) }
+
+pkgbody :: { OrdList LHsPkgDecl }
+        : '{'     pkgdecls '}'   { $2 }
+        | vocurly pkgdecls close { $2 }
+
+pkgdecls :: { OrdList LHsPkgDecl }
+        : pkgdecls ';' pkgdecl { $1 `appOL` unitOL $3 }
+        | pkgdecls ';'         { $1 }
+        | pkgdecl              { unitOL $1 }
+
+pkgdecl :: { LHsPkgDecl }
+        : maybedocheader 'module' modid maybemodwarning maybeexports 'where' body
+             -- XXX not accurate
+             { sL1 $2 $ ModuleD (sL1 $2 (HsModule (Just $3) $5 (fst $ snd $7) (snd $ snd $7) $4 $1)) }
+        | maybedocheader 'signature' modid maybemodwarning maybeexports 'where' body
+             { sL1 $2 $ SignatureD (sL1 $2 (HsModule (Just $3) $5 (fst $ snd $7) (snd $ snd $7) $4 $1)) }
+        | 'include' pkgname maybeinclspec
+             { sL1 $1 $ IncludeD (IncludeDecl { idPackageName = $2
+                                              , idInclSpec = $3 }) }
 
 -----------------------------------------------------------------------------
 -- Module Header
@@ -638,6 +716,9 @@ maybedocheader :: { Maybe LHsDocString }
         | {- empty -}             { Nothing }
 
 missing_module_keyword :: { () }
+        : {- empty -}                           {% pushCurrentContext }
+
+implicit_top :: { () }
         : {- empty -}                           {% pushCurrentContext }
 
 maybemodwarning :: { Maybe (Located WarningTxt) }
@@ -3031,6 +3112,10 @@ special_id
         | 'prim'                { sL1 $1 (fsLit "prim") }
         | 'javascript'          { sL1 $1 (fsLit "javascript") }
         | 'group'               { sL1 $1 (fsLit "group") }
+        | 'package'             { sL1 $1 (fsLit "package") }
+        | 'include'             { sL1 $1 (fsLit "include") }
+        | 'signature'           { sL1 $1 (fsLit "signature") }
+        | 'requires'            { sL1 $1 (fsLit "requires") }
 
 special_sym :: { Located FastString }
 special_sym : '!'       {% ams (sL1 $1 (fsLit "!")) [mj AnnBang $1] }

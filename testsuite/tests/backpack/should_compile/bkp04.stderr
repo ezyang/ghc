@@ -1,0 +1,10 @@
+==== Package p ====
+Shape for p
+provides:
+requires: A -> THIS:A, THIS:A
+               hole:B.T{hole:B.T}
+          B -> THIS:B
+               T{T}
+[1 of 3] Compiling A[abstract sig]  ( p/A.hsig, nothing )
+[2 of 3] Compiling B[abstract sig]  ( p/B.hsig, nothing )
+[3 of 3] Compiling A[abstract sig]  ( p/A.hsig, nothing )

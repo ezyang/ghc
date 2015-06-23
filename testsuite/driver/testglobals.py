@@ -200,6 +200,9 @@ class TestOptions:
        # compile this test to .hc only
        self.compile_to_hc = 0
 
+       # Backpack test
+       self.compile_backpack = 0
+
        # We sometimes want to modify the compiler_always_flags, so
        # they are copied from config.compiler_always_flags when we
        # make a new instance of TestOptions.
