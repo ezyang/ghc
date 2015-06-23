@@ -100,6 +100,10 @@ module DynFlags (
         parseDynamicFilePragma,
         parseDynamicFlagsFull,
 
+        -- ** Package key cache
+        PackageKeyCache,
+        ShPackageKey(..),
+
         -- ** Available DynFlags
         allFlags,
         flagsAll,
@@ -177,6 +181,8 @@ import Foreign.C        ( CInt(..) )
 import System.IO.Unsafe ( unsafeDupablePerformIO )
 #endif
 import {-# SOURCE #-} ErrUtils ( Severity(..), MsgDoc, mkLocMessage )
+import UniqFM
+import UniqSet
 
 import System.IO.Unsafe ( unsafePerformIO )
 import Data.IORef
@@ -652,6 +658,31 @@ type SigOf = Map ModuleName Module
 getSigOf :: DynFlags -> ModuleName -> Maybe Module
 getSigOf dflags n = Map.lookup n (sigOf dflags)
 
+-- NameCache updNameCache
+type PackageKeyEnv = UniqFM
+type PackageKeyCache = PackageKeyEnv ShPackageKey
+
+-- | An elaborated representation of a 'PackageKey', which records
+-- all of the components that go into the hashed 'PackageKey'.
+data ShPackageKey
+    = ShPackageKey {
+          -- Technically this is in the version hash, but we include it
+          -- so that we can give better messages to the user.
+          shPackageKeyPackageName       :: !PackageName,
+          shPackageKeyVersionHash       :: !VersionHash,
+          shPackageKeyInsts             :: ![(ModuleName, Module)],
+          shPackageKeyFreeHoles         :: UniqSet ModuleName
+      }
+    | ShWiredPackageKey {
+          shPackageKey :: !PackageKey
+      }
+    deriving Eq
+
+instance Outputable ShPackageKey where
+    ppr (ShPackageKey pn vh insts fh)
+        = ppr pn <+> ppr vh <+> ppr insts <+> parens (ppr fh)
+    ppr (ShWiredPackageKey pk) = ppr pk
+
 -- | Contains not only a collection of 'GeneralFlag's but also a plethora of
 -- information relating to the compilation of a single file or GHC session
 data DynFlags = DynFlags {
@@ -783,6 +814,7 @@ data DynFlags = DynFlags {
   -- Packages.initPackages
   pkgDatabase           :: Maybe [PackageConfig],
   pkgState              :: PackageState,
+  pkgKeyCache           :: {-# UNPACK #-} !(IORef PackageKeyCache),
 
   -- Temporary files
   -- These have to be IORefs, because the defaultCleanupHandler needs to
@@ -1492,6 +1524,7 @@ defaultDynFlags mySettings =
         pkgDatabase             = Nothing,
         -- This gets filled in with GHC.setSessionDynFlags
         pkgState                = emptyPackageState,
+        pkgKeyCache             = v_unsafePkgKeyCache,
         ways                    = defaultWays mySettings,
         buildTag                = mkBuildTag (defaultWays mySettings),
         rtsBuildTag             = mkBuildTag (defaultWays mySettings),
@@ -4186,6 +4219,8 @@ unsafeGlobalDynFlags = unsafePerformIO $ readIORef v_unsafeGlobalDynFlags
 
 setUnsafeGlobalDynFlags :: DynFlags -> IO ()
 setUnsafeGlobalDynFlags = writeIORef v_unsafeGlobalDynFlags
+
+GLOBAL_VAR(v_unsafePkgKeyCache, emptyUFM, PackageKeyCache)
 
 -- -----------------------------------------------------------------------------
 -- SSE and AVX
