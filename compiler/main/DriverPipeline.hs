@@ -21,7 +21,7 @@ module DriverPipeline (
         -- Interfaces for the compilation manager (interpreted/batch-mode)
    preprocess,
    compileOne, compileOne',
-   link,
+   link, linkMany,
 
         -- Exports for hooks to override runPhase and link
    PhasePlus(..), CompPipeline(..), PipeEnv(..), PipeState(..),
@@ -45,7 +45,7 @@ import Finder
 import HscTypes hiding ( Hsc )
 import Outputable
 import Module
-import UniqFM           ( eltsUFM )
+import UniqFM (eltsUFM)
 import ErrUtils
 import DynFlags
 import Config
@@ -72,6 +72,9 @@ import Data.List        ( isSuffixOf )
 import Data.Maybe
 import System.Environment
 import Data.Char
+import Data.Either
+import qualified Data.Map as Map
+import Data.Map (Map)
 
 -- ---------------------------------------------------------------------------
 -- Pre-process
@@ -324,7 +327,14 @@ compileEmptyStub dflags hsc_env basename location = do
 link :: GhcLink                 -- interactive or batch
      -> DynFlags                -- dynamic flags
      -> Bool                    -- attempt linking in batch mode?
-     -> HomePackageTable        -- what to link
+     -> HomePackageTable -- what to link
+     -> IO SuccessFlag
+link ghcLink dflags batch hpt = linkMany ghcLink dflags batch (Map.singleton (thisPackage dflags) hpt)
+
+linkMany :: GhcLink                 -- interactive or batch
+     -> DynFlags                -- dynamic flags
+     -> Bool                    -- attempt linking in batch mode?
+     -> Map PackageKey HomePackageTable -- what to link
      -> IO SuccessFlag
 
 -- For the moment, in the batch linker, we don't bother to tell doLink
@@ -334,7 +344,7 @@ link :: GhcLink                 -- interactive or batch
 -- exports main, i.e., we have good reason to believe that linking
 -- will succeed.
 
-link ghcLink dflags
+linkMany ghcLink dflags
   = lookupHook linkHook l dflags ghcLink dflags
   where
     l LinkInMemory _ _ _
@@ -361,10 +371,10 @@ panicBadLink other = panic ("link: GHC not built to link this way: " ++
 
 link' :: DynFlags                -- dynamic flags
       -> Bool                    -- attempt linking in batch mode?
-      -> HomePackageTable        -- what to link
+      -> Map PackageKey HomePackageTable        -- what to link
       -> IO SuccessFlag
 
-link' dflags batch_attempt_linking hpt
+link' dflags batch_attempt_linking hpt_map
    | batch_attempt_linking
    = do
         let
@@ -372,13 +382,27 @@ link' dflags batch_attempt_linking hpt
                           LinkStaticLib -> True
                           _ -> platformBinariesAreStaticLibs (targetPlatform dflags)
 
-            home_mod_infos = eltsUFM hpt
+            home_mod_infos
+                = eltsUFM (fromMaybe (pprPanic "Missing UFM"
+                                              (ppr (thisPackage dflags) $$
+                                               ppr (Map.keys hpt_map)))
+                          (Map.lookup (thisPackage dflags) hpt_map))
 
             -- the packages we depend on
-            pkg_deps  = concatMap (map fst . dep_pkgs . mi_deps . hm_iface) home_mod_infos
+            pkg_deps0  = concatMap (map fst . dep_pkgs . mi_deps . hm_iface) home_mod_infos
 
-            -- the linkables to link
-            linkables = map (expectJust "link".hm_linkable) home_mod_infos
+            -- the base linkables to link
+            linkables0 = map (expectJust "link".hm_linkable) home_mod_infos
+
+            -- split out the packages which are actually available in the
+            -- hpt_map
+            (hpts, pkg_deps) = partitionEithers
+                                   $ map (\pk -> case Map.lookup pk hpt_map of
+                                                    Nothing -> Right pk
+                                                    Just hpt -> Left hpt) pkg_deps0
+
+            -- add the linkables
+            linkables = linkables0 ++ concatMap (map (expectJust "link" . hm_linkable) . eltsUFM) hpts
 
         debugTraceMsg dflags 3 (text "link: linkables are ..." $$ vcat (map ppr linkables))
 
@@ -389,7 +413,9 @@ link' dflags batch_attempt_linking hpt
           else do
 
         let getOfiles (LM _ _ us) = map nameOfObject (filter isObject us)
-            obj_files = concatMap getOfiles linkables
+            -- TODO: nub here is kind of a hack, but the current HMI could
+            -- be duplicated if it was used to fill in holes elsewhere
+            obj_files = nubSort (concatMap getOfiles linkables)
 
             exe_file = exeFileName staticLink dflags
 
@@ -977,6 +1003,7 @@ runPhase (RealPhase (Hsc src_flavour)) input_fn dflags0
                                         ms_hspp_file = input_fn,
                                         ms_hspp_opts = dflags,
                                         ms_hspp_buf  = hspp_buf,
+                                        ms_parsed_mod = Nothing,
                                         ms_location  = location,
                                         ms_hs_date   = src_timestamp,
                                         ms_obj_date  = Nothing,

@@ -1,0 +1,13 @@
+-- this is a simplified version of bkp09
+package p where
+    signature H where
+        x :: Bool
+package r where
+    include p
+    module M where
+        import H
+        a = x
+package s where
+    module H where
+        x = True
+    include r

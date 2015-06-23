@@ -1,0 +1,9 @@
+package p where
+    signature A where
+        foo :: a -> a
+
+package q where
+    include p
+    module B where
+        import A
+        bar x = foo (x + x)

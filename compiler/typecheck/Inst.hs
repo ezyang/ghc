@@ -58,7 +58,6 @@ import Bag
 import Util
 import Outputable
 import Control.Monad( unless )
-import Data.Maybe( isJust )
 
 {-
 ************************************************************************
@@ -491,14 +490,8 @@ addLocalInst (home_ie, my_insts) ispec
                  | otherwise = home_ie
 
                (_tvs, cls, tys) = instanceHead ispec
-               -- If we're compiling sig-of and there's an external duplicate
-               -- instance, silently ignore it (that's the instance we're
-               -- implementing!)  NB: we still count local duplicate instances
-               -- as errors.
-               -- See Note [Signature files and type class instances]
-               global_ie
-                    | isJust (tcg_sig_of tcg_env) = emptyInstEnv
-                    | otherwise = eps_inst_env eps
+               -- TODO: something clever for hole instances
+               global_ie = eps_inst_env eps
                inst_envs       = InstEnvs { ie_global  = global_ie
                                           , ie_local   = home_ie'
                                           , ie_visible = tcVisibleOrphanMods tcg_env }

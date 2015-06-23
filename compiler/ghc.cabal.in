@@ -151,6 +151,12 @@ Library
         vectorise
 
     Exposed-Modules:
+        Backpack
+        BackpackSyn
+        Shaping
+        Shape
+        ShPackageKey
+        ShUnify
         Avail
         BasicTypes
         ConLike
@@ -499,7 +505,6 @@ Library
         Vectorise
         Hoopl.Dataflow
         Hoopl
-        ShPackageKey
 --        CgInfoTbls used in ghci/DebuggerUtils
 --        CgHeapery  mkVirtHeapOffsets used in ghci
 

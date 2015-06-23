@@ -40,6 +40,7 @@ module HscTypes (
         -- * State relating to known packages
         ExternalPackageState(..), EpsStats(..), addEpsInStats,
         PackageTypeEnv, PackageIfaceTable, emptyPackageIfaceTable,
+        IndefiniteIfaceTable, emptyIndefiniteIfaceTable,
         lookupIfaceByModule, emptyModIface, lookupHptByModule,
 
         PackageInstEnv, PackageFamInstEnv, PackageRuleBase,
@@ -134,6 +135,7 @@ import ByteCodeAsm      ( CompiledByteCode )
 import InteractiveEvalTypes ( Resume )
 #endif
 
+import Shape
 import HsSyn
 import RdrName
 import Avail
@@ -190,6 +192,7 @@ import Data.IORef
 import Data.Time
 import Data.Word
 import Data.Typeable    ( Typeable )
+import Data.Map         ( Map )
 import Exception
 import System.FilePath
 
@@ -388,6 +391,10 @@ data HscEnv
         hsc_FC   :: {-# UNPACK #-} !(IORef FinderCache),
                 -- ^ The cached result of performing finding in the file system
 
+        hsc_ifaces :: ModuleNameEnv ModIface,
+                -- ^ Direct ModIface map for names which are in scope,
+                -- used to initialize 'tcg_ifaces'.
+
         hsc_type_env_var :: Maybe (Module, IORef TypeEnv)
                 -- ^ Used for one-shot compilation only, to initialise
                 -- the 'IfGblEnv'. See 'TcRnTypes.tcg_type_env_var' for
@@ -457,6 +464,15 @@ type HomePackageTable  = ModuleNameEnv HomeModInfo
 type PackageIfaceTable = ModuleEnv ModIface
         -- Domain = modules in the imported packages
 
+-- | "Base" interfaces from indefinite packages.  Invariant: 'Module'
+-- is of form pkgname(A -> HOLE:A, ...):M (all instantiations are HOLE.)
+-- Holes are mapped as pkgname(A -> HOLE:A, ...):A, *not* HOLE:A
+-- as those would cause conflicts; however, internally, they still
+-- claim to be HOLE:A.
+type IndefiniteIfaceTable = ModuleEnv ModIface
+
+type ExternalShapeTable = Map PackageName (Shape, PackageKey)
+
 -- | Constructs an empty HomePackageTable
 emptyHomePackageTable :: HomePackageTable
 emptyHomePackageTable  = emptyUFM
@@ -464,6 +480,10 @@ emptyHomePackageTable  = emptyUFM
 -- | Constructs an empty PackageIfaceTable
 emptyPackageIfaceTable :: PackageIfaceTable
 emptyPackageIfaceTable = emptyModuleEnv
+
+-- | Constructs an empty PackageIfaceTable
+emptyIndefiniteIfaceTable :: IndefiniteIfaceTable
+emptyIndefiniteIfaceTable = emptyModuleEnv
 
 pprHPT :: HomePackageTable -> SDoc
 -- A bit aribitrary for now
@@ -2233,6 +2253,10 @@ type PackageFamInstEnv = FamInstEnv
 type PackageVectInfo   = VectInfo
 type PackageAnnEnv     = AnnEnv
 
+-- | Boolean records whether or not the interface has been loaded
+-- into the EPS.
+type HoleIfaceTable = ModuleNameEnv (ModIface, Bool)
+
 -- | Information about other packages that we have slurped in by reading
 -- their interface files
 data ExternalPackageState
@@ -2269,6 +2293,34 @@ data ExternalPackageState
                 -- * Fixities
                 --
                 -- * Deprecations and warnings
+
+        eps_shape :: !(NameEnv Name),
+                -- ^ NB: actually a ShNameSubst, same invariants.  This
+                -- specifies the substitution for ALL requirements.
+
+        eps_EST :: !ExternalShapeTable,
+                -- ^ Shapes of packages, for when we include them.
+
+        eps_IIT :: !IndefiniteIfaceTable,
+                -- ^ The unshaped, uninstantiated 'ModIface's for modules
+                -- from indefinite packages.  Unlike entries in the PIT,
+                -- these declarations have all of the fields of the interface
+                -- (it's effectively a cache of the result of parsing a
+                -- binary 'ModIface') and have NOT been loaded into the PTE.
+                -- It's indexed by 'Module', but every 'Module' key has the
+                -- invariant that each hole A is instantiated with HOLE:A
+                -- (this way, you should find @'generalizeHoleModule' mod@
+                -- in the IIT).
+
+        eps_HIT :: !HoleIfaceTable,
+                -- ^ When we bring an interface for a hole into scope, we
+                -- don't type-check it immediately; instead, we merge it
+                -- into the HoleIfaceTable.  When a user then tugs on
+                -- a type-checked entity, we now use loaded ModIface.
+                -- The reason we need to do this is once we load in an
+                -- interface, we can't merge anything else into it without
+                -- retypechecking anything that might have depended on it.
+                -- See Note [Merging hole interfaces]
 
         eps_PTE :: !PackageTypeEnv,
                 -- ^ Result of typechecking all the external package
@@ -2395,6 +2447,8 @@ data ModSummary
           -- ^ Source imports of the module
         ms_textual_imps :: [Located (ImportDecl RdrName)],
           -- ^ Non-source imports of the module from the module *text*
+        ms_parsed_mod   :: Maybe HsParsedModule,
+          -- ^ The parsed, nonrenamed source, if we have it
         ms_hspp_file    :: FilePath,
           -- ^ Filename of preprocessed source file
         ms_hspp_opts    :: DynFlags,

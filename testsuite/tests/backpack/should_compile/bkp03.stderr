@@ -1,0 +1,17 @@
+[1 of 1] Processing p
+/--- Shape for p
+provides: B -> p(hole:H):B
+               T{T, T}
+          A -> p(hole:H):A
+               p(hole:H):B.T{p(hole:H):B.T}
+requires: H -> p(hole:H):H, p(hole:H):H
+               p(hole:H):B.T{p(hole:H):B.T, p(hole:H):B.T}, f
+signature hole:H
+module p(hole:H):B
+signature hole:H
+module p(hole:H):A
+\---
+  [1 of 4] Compiling H[abstract sig]  ( p/H.hsig, nothing )
+  [2 of 4] Compiling B                ( p/B.hs, nothing )
+  [3 of 4] Compiling H[abstract sig]  ( p/H.hsig, nothing )
+  [4 of 4] Compiling A                ( p/A.hs, nothing )

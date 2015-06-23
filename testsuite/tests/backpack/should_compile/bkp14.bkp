@@ -1,0 +1,11 @@
+package p where
+    signature H where
+        data T
+        f :: T
+package q where
+    module F where
+        data T = T
+        f = T
+    module H(T, f) where
+        import F
+    include p

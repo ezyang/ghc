@@ -8,6 +8,7 @@ module ShPackageKey(
     lookupPackageKey,
 
     generalizeHoleModule,
+    canonicalizeModule,
 
     pprPackageKey
 ) where
@@ -163,8 +164,10 @@ pprPackageKey pk = getPprStyle $ \sty ->
     -- name cache is a memotable
     let shpk = unsafePerformIO (lookupPackageKey dflags pk)
     in case shpk of
+        {-
         _ | pk == thisPackage dflags
           , not (debugStyle sty) -> text "THIS"
+          -}
         shpk@ShPackageKey{} ->
             ppr (shPackageKeyPackageName shpk) <>
                 parens (hsep
@@ -172,7 +175,7 @@ pprPackageKey pk = getPprStyle $ \sty ->
                                                 (ppr modname <+> text "->")
                                        <+> ppr m
                                      | (modname, m) <- shPackageKeyInsts shpk]))
-            -- <> ifPprDebug (braces (ftext (packageKeyFS pk)))
+            <> ifPprDebug (braces (ftext (packageKeyFS pk)))
         ShDefinitePackageKey pk -> ftext (packageKeyFS pk)
 
 -- NB: newPackageKey and lookupPackageKey are mutually recursive; this
@@ -227,6 +230,17 @@ generalizeHolePackageKey dflags pk = do
           -> let insts = map (\(x, _) -> (x, mkModule holePackageKey x)) insts0
              in newPackageKey dflags pn vh insts
 
+-- | Canonicalize a 'Module' so that it uniquely identifies a module.
+-- For example, @p(A -> M):A@ canonicalizes to @M@.  Useful for making
+-- sure the interface you've loaded as the right @mi_module@.
+canonicalizeModule :: DynFlags -> Module -> IO Module
+canonicalizeModule dflags m = do
+    let pk = modulePackageKey m
+    shpk <- lookupPackageKey dflags pk
+    return $ case shpk of
+        ShPackageKey { shPackageKeyInsts = insts }
+            | Just m' <- lookup (moduleName m) insts -> m'
+        _ -> m
 
 {-
 ************************************************************************

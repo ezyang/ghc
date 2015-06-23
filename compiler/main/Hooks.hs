@@ -40,8 +40,11 @@ import CoreSyn
 import BasicTypes
 import Type
 import SrcLoc
+import UniqFM
+import Module
 
 import Data.Maybe
+import Data.Map (Map)
 
 {-
 ************************************************************************
@@ -70,7 +73,7 @@ data Hooks = Hooks
   , ghcPrimIfaceHook       :: Maybe ModIface
   , runPhaseHook           :: Maybe (PhasePlus -> FilePath -> DynFlags -> CompPipeline (PhasePlus, FilePath))
   , runMetaHook            :: Maybe (MetaHook TcM)
-  , linkHook               :: Maybe (GhcLink -> DynFlags -> Bool -> HomePackageTable -> IO SuccessFlag)
+  , linkHook               :: Maybe (GhcLink -> DynFlags -> Bool -> Map PackageKey HomePackageTable -> IO SuccessFlag)
   , runRnSpliceHook        :: Maybe (HsSplice Name -> RnM (HsSplice Name))
   , getValueSafelyHook     :: Maybe (HscEnv -> Name -> Type -> IO (Maybe HValue))
   }

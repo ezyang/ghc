@@ -1,0 +1,14 @@
+[1 of 1] Processing p
+
+bkpfail03.bkp:6:5: error:
+    Failed to unify when filling requirements:
+    Context:
+      provides: M1 -> p():M1
+                      M{M, M}
+                M2 -> p():M2
+                      M{M, M}
+      requires:
+    Merging shape:
+      provides:
+      requires: M2 -> p():M2
+                      p():M1.M{p():M1.M}

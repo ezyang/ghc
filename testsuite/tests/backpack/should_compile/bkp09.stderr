@@ -1,0 +1,45 @@
+
+bkp09.bkp:1:26: warning:
+    -XDatatypeContexts is deprecated: It was widely considered a misfeature, and has been removed from the Haskell language.
+[1 of 4] Processing p
+/--- Shape for p
+provides:
+requires: H -> p(hole:H):H
+               Bloop{Bloop, GMap, xa, y}, Elem{Elem}, X{X}, F{F, F}, Foo{Foo, Foo}, S{S, R}, T{T, T, S}, x
+signature hole:H
+\---
+  [1 of 1] Compiling H[abstract sig]  ( p/H.hsig, nothing )
+[2 of 4] Processing q
+/--- Shape for q
+provides:
+requires: H -> q(hole:H):H
+               Bloop{Bloop, GMap, xa, y}, Elem{Elem}, X{X}, F{F, F}, Foo{Foo, Foo}, S{S, R}, T{T, T, S}, x
+signature hole:H
+\---
+  [1 of 1] Compiling H[abstract sig]  ( q/H.hsig, nothing )
+[3 of 4] Processing r
+/--- Shape for r
+provides: M -> r(hole:H):M
+               hole:H.GMap{GMapBool}, a, b, c, d
+requires: H -> p(hole:H):H, q(hole:H):H
+               Bloop{Bloop, GMap, xa, y}, Elem{Elem}, X{X}, F{F, F}, Foo{Foo, Foo}, S{S, R}, T{T, T, S}, x
+include p(hole:H) [] requires [(H, [p(hole:H):H])]
+include q(hole:H) [] requires [(H, [q(hole:H):H])]
+module r(hole:H):M
+\---
+  [1 of 3] Including p
+  [2 of 3] Including q
+  [3 of 3] Compiling M                ( r/M.hs, nothing )
+[4 of 4] Processing s
+/--- Shape for s
+provides: H -> s():H
+               Bloop{Bloop, GMap, xa, y}, Elem{Elem}, X{X}, F{F, F}, Foo{Foo, Foo}, S{S, R}, T{T, T, S}, x
+          M -> r(s():H):M
+               hole:H.GMap{GMapBool}, a, b, c, d
+requires:
+module s():H
+include r(s():H) [(M, r(s():H):M)] requires [(H,
+                                              [p(s():H):H, q(s():H):H])]
+\---
+  [1 of 2] Compiling H                ( s/H.hs, nothing )
+  [2 of 2] Including r

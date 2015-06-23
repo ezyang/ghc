@@ -1,0 +1,29 @@
+package bar where
+    signature A(bar) where
+        data A = A { foo :: Int, bar :: Bool }
+
+package foo where
+    signature A(foo) where
+        data A = A { foo :: Int, bar :: Bool }
+
+package impl where
+    module A1 where
+        data A = A { foo :: Int, bar :: Bool }
+    module A2 where
+        data A = A { foo :: Int, bar :: Bool }
+    module A(foo, bar) where
+        import A1(foo)
+        import A2(bar)
+
+package barimpl where
+    include impl
+    include bar
+
+package fooimpl where
+    include impl
+    include foo
+
+package foobarimpl where
+    include impl
+    include foo
+    include bar

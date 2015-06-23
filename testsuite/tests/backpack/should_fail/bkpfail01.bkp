@@ -1,0 +1,17 @@
+package p where
+    signature H where
+        data H = H
+    module A where
+        import H
+        data A = A H
+
+package q where
+    module H where
+        data S = S
+
+package r where
+    include q
+    include p
+    module B where
+        import A
+        x = A H
