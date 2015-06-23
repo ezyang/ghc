@@ -1,0 +1,40 @@
+[1 of 2] Processing q
+/--- Shape for q
+provides: T -> q(hole:X, hole:H):T
+               hole:X.X{hole:X.X, hole:X.X}, T{T, T}
+requires: X -> q(hole:X, hole:H):X
+               X{X, X}
+          H -> q(hole:X, hole:H):H
+               q(hole:X, hole:H):T.T{q(hole:X, hole:H):T.T, q(hole:X, hole:H):T.T}, f
+signature q(hole:X, hole:H):X
+module q(hole:X, hole:H):T
+signature q(hole:X, hole:H):H
+\---
+  [1 of 3] Compiling X[abstract sig]  ( q/X.hsig, nothing )
+  [2 of 3] Compiling T                ( q/T.hs, nothing )
+  [3 of 3] Compiling H[abstract sig]  ( q/H.hsig, nothing )
+[2 of 2] Processing p
+/--- Shape for p
+provides: T -> q(hole:X, hole:H):T
+               p(hole:X, hole:H):XImpl.X{p(hole:X, hole:H):XImpl.X, p(hole:X, hole:H):XImpl.X}, T{T, T}
+          XImpl -> p(hole:X, hole:H):XImpl
+                   X{X, X}
+          A -> p(hole:X, hole:H):A
+               q(hole:X, hole:H):T.T{q(hole:X, hole:H):T.T}
+requires: X -> q(hole:X, hole:H):X, p(hole:X, hole:H):X
+               p(hole:X, hole:H):XImpl.X{p(hole:X, hole:H):XImpl.X, p(hole:X, hole:H):XImpl.X}
+          H -> q(hole:X, hole:H):H, p(hole:X, hole:H):H
+               q(hole:X, hole:H):T.T{q(hole:X, hole:H):T.T, q(hole:X, hole:H):T.T}, f
+include q(hole:X, hole:H) [(T, q(hole:X, hole:H):T)] requires [(X,
+                                                                [q(hole:X, hole:H):X]),
+                                                               (H, [q(hole:X, hole:H):H])]
+module p(hole:X, hole:H):XImpl
+signature p(hole:X, hole:H):X
+signature p(hole:X, hole:H):H
+module p(hole:X, hole:H):A
+\---
+  [1 of 5] Including q
+  [2 of 5] Compiling XImpl            ( p/XImpl.hs, nothing )
+  [3 of 5] Compiling X[abstract sig]  ( p/X.hsig, nothing )
+  [4 of 5] Compiling H[abstract sig]  ( p/H.hsig, nothing )
+  [5 of 5] Compiling A                ( p/A.hs, nothing )

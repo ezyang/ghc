@@ -18,6 +18,10 @@ module GhcMake(
 
         topSortModuleGraph,
 
+        IsBoot(..),
+        summariseModule,
+        hscSourceToIsBoot,
+
         noModError, cyclicModuleErr
     ) where
 
@@ -1803,6 +1807,7 @@ summariseFile hsc_env old_summaries file mb_phase obj_allowed maybe_buf
                              ms_hspp_file = hspp_fn,
                              ms_hspp_opts = dflags',
                              ms_hspp_buf  = Just buf,
+                             ms_parsed_mod = Nothing,
                              ms_srcimps = srcimps, ms_textual_imps = the_imps,
                              ms_hs_date = src_timestamp,
                              ms_iface_date = hi_timestamp,
@@ -1959,6 +1964,7 @@ summariseModule hsc_env old_summary_map is_boot (L loc wanted_mod)
                               ms_hspp_file = hspp_fn,
                               ms_hspp_opts = dflags',
                               ms_hspp_buf  = Just buf,
+                              ms_parsed_mod = Nothing,
                               ms_srcimps      = srcimps,
                               ms_textual_imps = the_imps,
                               ms_hs_date   = src_timestamp,

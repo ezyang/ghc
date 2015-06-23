@@ -12,6 +12,7 @@ module RnNames (
         gresFromAvails,
         calculateAvails,
         reportUnusedNames,
+        plusAvail,
         checkConName
     ) where
 
@@ -692,7 +693,15 @@ filterImports ifaces decl_spec (Just (want_hiding, L l import_items))
 
         return (Just (want_hiding, L l (map fst items2)), gres)
   where
-    all_avails = concatMap mi_exports ifaces
+    all_avails = concatAvails (map mi_exports ifaces)
+
+    -- Assumes the AvailInfos have already been unified
+    concatAvails :: [[AvailInfo]] -> [AvailInfo]
+    concatAvails ass = nameEnvElts
+                     . extendNameEnvList_C plusAvail emptyNameEnv
+                     $ do as <- ass
+                          a <- as
+                          return (availName a, a)
 
         -- See Note [Dealing with imports]
     imp_occ_env :: OccEnv (Name,        -- the name
@@ -707,7 +716,8 @@ filterImports ifaces decl_spec (Just (want_hiding, L l import_items))
         --    T(T,T1,T2,T3) and C(C,T)  to give   (T, T(T,T1,T2,T3), Just C)
         combine (name1, a1@(AvailTC p1 _), mp1)
                 (name2, a2@(AvailTC p2 _), mp2)
-          = ASSERT( name1 == name2 && isNothing mp1 && isNothing mp2 )
+          = ASSERT2( name1 == name2 && isNothing mp1 && isNothing mp2
+                   , ppr name1 <+> ppr name2 <+> ppr mp1 <+> ppr mp2)
             if p1 == name1 then (name1, a1, Just p2)
                            else (name1, a2, Just p1)
         combine x y = pprPanic "filterImports/combine" (ppr x $$ ppr y)
@@ -1032,7 +1042,7 @@ rnExports :: Bool       -- False => no 'module M(..) where' header at all
         -- Complains about exports items not in scope
 
 rnExports explicit_mod exports
-          tcg_env@(TcGblEnv { tcg_mod     = this_mod,
+          tcg_env@(TcGblEnv { tcg_top_mod = top_mod,
                               tcg_rdr_env = rdr_env,
                               tcg_imports = imports })
  = unsetWOptM Opt_WarnWarningsDeprecations $
@@ -1055,7 +1065,7 @@ rnExports explicit_mod exports
                         -- ToDo: the 'noLoc' here is unhelpful if 'main'
                         --       turns out to be out of scope
 
-        ; (rn_exports, avails) <- exports_from_avail real_exports rdr_env imports this_mod
+        ; (rn_exports, avails) <- exports_from_avail real_exports rdr_env imports top_mod
         ; let final_avails = nubAvails avails    -- Combine families
 
         ; traceRn (text "rnExports: Exports:" <+> ppr final_avails)
@@ -1071,10 +1081,10 @@ exports_from_avail :: Maybe (Located [LIE RdrName])
                          -- Nothing => no explicit export list
                    -> GlobalRdrEnv
                    -> ImportAvails
-                   -> Module
+                   -> TopModule
                    -> RnM (Maybe [LIE Name], [AvailInfo])
 
-exports_from_avail Nothing rdr_env _imports _this_mod
+exports_from_avail Nothing rdr_env _imports _top_mod
  = -- The same as (module M) where M is the current module name,
    -- so that's how we handle it.
    let
@@ -1084,7 +1094,7 @@ exports_from_avail Nothing rdr_env _imports _this_mod
    in
    return (Nothing, avails)
 
-exports_from_avail (Just (L _ rdr_items)) rdr_env imports this_mod
+exports_from_avail (Just (L _ rdr_items)) rdr_env imports top_mod
   = do (ie_names, _, exports) <- foldlM do_litem emptyExportAccum rdr_items
        return (Just ie_names, exports)
   where
@@ -1112,7 +1122,7 @@ exports_from_avail (Just (L _ rdr_items)) rdr_env imports this_mod
         = do { implicit_prelude <- xoptM Opt_ImplicitPrelude
              ; warnDodgyExports <- woptM Opt_WarnDodgyExports
              ; let { exportValid = (mod `elem` imported_modules)
-                                || (moduleName this_mod == mod)
+                                || (moduleName (topModIdentity top_mod) == mod)
                    ; gres = filter (isModuleExported implicit_prelude mod)
                                    (globalRdrEnvElts rdr_env)
                    ; new_exports = map availFromGRE gres

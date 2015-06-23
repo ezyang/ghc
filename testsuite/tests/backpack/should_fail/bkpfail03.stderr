@@ -1,0 +1,17 @@
+[1 of 2] Processing q
+  [1 of 2] Compiling M1               ( q/M1.hs, nothing )
+  [2 of 2] Compiling M2[abstract sig] ( q/M2.hsig, nothing )
+[2 of 2] Processing p
+  Instantiating p()
+
+bkpfail03.bkp:9:5: error:
+    Failed to unify when filling requirements:
+    Context:
+      provides: M2 -> p():M2
+                      M{M, M}
+      requires:
+    Merging shape:
+      provides: M1 -> q(hole:M2):M1
+                      M{M, M}
+      requires: M2 -> q(hole:M2):M2
+                      q(hole:M2):M1.M{q(hole:M2):M1.M}

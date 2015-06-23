@@ -23,6 +23,10 @@ module TcRnDriver (
         tcRnGetInfo,
         tcRnModule, tcRnModuleTcRnM,
         tcTopSrcDecls,
+        tcRnSignature,
+        rnTopSrcDecls,
+        checkBootDecl, checkHiBootIface',
+        checkHsigIface',
     ) where
 
 #ifdef GHCI
@@ -41,6 +45,7 @@ import DynamicLoading ( loadPlugins )
 import Plugins ( tcPlugin )
 #endif
 
+import ShPackageKey
 import DynFlags
 import StaticFlags
 import HsSyn
@@ -126,7 +131,14 @@ tcRnModule hsc_env hsc_src save_rn_syntax
  | RealSrcSpan real_loc <- loc
  = do { showPass (hsc_dflags hsc_env) "Renamer/typechecker" ;
 
-      ; initTc hsc_env hsc_src save_rn_syntax this_mod real_loc $
+      ; inner_mod <-
+            case getSigOf dflags (moduleName (outer_mod)) of
+                Nothing -> canonicalizeModule (hsc_dflags hsc_env) outer_mod
+                Just sof -> return sof
+      ; let top_mod = TopModule { topModIdentity = outer_mod
+                                , topModSemantic = inner_mod }
+      -- TODO put outer_mod in for better error messages
+      ; initTc hsc_env hsc_src save_rn_syntax top_mod real_loc $
                withTcPlugins hsc_env $
                tcRnModuleTcRnM hsc_env hsc_src parsedModule pair }
 
@@ -134,13 +146,14 @@ tcRnModule hsc_env hsc_src save_rn_syntax
   = return ((emptyBag, unitBag err_msg), Nothing)
 
   where
+    dflags = hsc_dflags hsc_env
     err_msg = mkPlainErrMsg (hsc_dflags hsc_env) loc $
-              text "Module does not have a RealSrcSpan:" <+> ppr this_mod
+              text "Module does not have a RealSrcSpan:" <+> ppr outer_mod
 
     this_pkg = thisPackage (hsc_dflags hsc_env)
 
     pair :: (Module, SrcSpan)
-    pair@(this_mod,_)
+    pair@(outer_mod,_)
       | Just (L mod_loc mod) <- hsmodName this_module
       = (mkModule this_pkg mod, mod_loc)
 
@@ -156,36 +169,35 @@ tcRnModule hsc_env hsc_src save_rn_syntax
 -- the implementation (orphans, family instances, packages),
 -- similar to how rnImportDecl handles things.
 -- ToDo: Handle SafeHaskell
-tcRnSignature :: DynFlags -> HscSource -> TcRn TcGblEnv
-tcRnSignature dflags hsc_src
- = do { tcg_env <- getGblEnv ;
-        case tcg_sig_of tcg_env of {
-          Just sof
-           | hsc_src /= HsigFile -> do
-                { addErr (ptext (sLit "Illegal -sig-of specified for non hsig"))
-                ; return tcg_env
-                }
-           | otherwise -> do
-            { sig_iface <- initIfaceTcRn $ loadSysInterface (text "sig-of") sof
+tcRnSignature :: HscSource -> TcRn TcGblEnv
+tcRnSignature hsc_src
+ = do { tcg_env <- getGblEnv
+      ; this_mod <- getModule
+      ; case hsc_src of
+            -- This is a signature for a module KNOWN to exist,
+            -- so load it.
+            -- (To do mutual recursion, set HsBootFile)
+            -- (To do fancy mutual recursion with reexports, you'd
+            -- need to adjust this to fill out tcg_impl_rdr_env from
+            -- the shape.)
+            HsigFile | not (isHoleModule this_mod) -> do
+            { sig_iface <- initIfaceTcRn $ loadSysInterface (text "sig-of") this_mod
+            ; dflags <- getDynFlags
             ; let { gr = mkGlobalRdrEnv
                               (gresFromAvails Nothing (mi_exports sig_iface))
                   ; avails = calculateAvails dflags
-                                    sig_iface False{- safe -} False{- boot -} }
+                               sig_iface False{- safe -} False{- boot -}}
             ; return (tcg_env
                 { tcg_impl_rdr_env = Just gr
-                , tcg_imports = tcg_imports tcg_env `plusImportAvails` avails
-                })
+                -- NOTE: we need this because otherwise instance visibility
+                -- won't say the instances of the backing module are visible.
+                -- TODO: But maybe they shouldn't be!  The signature file is
+                -- what "makes them visible."  But this is a bit hard to
+                -- arrange.  (Also, not adding this to the imports would be
+                -- wrong as far as orphan calculation goes.)
+                , tcg_imports = tcg_imports tcg_env `plusImportAvails` avails})
             } ;
-          Nothing
-             | HsigFile <- hsc_src
-             , HscNothing <- hscTarget dflags -> do
-                { return tcg_env
-                }
-             | HsigFile <- hsc_src -> do
-                { addErr (ptext (sLit "Missing -sig-of for hsig"))
-                ; failM }
-             | otherwise -> return tcg_env
-        }
+            _ -> return tcg_env
       }
 
 checkHsigIface :: HscEnv -> TcGblEnv -> TcRn ()
@@ -215,12 +227,10 @@ checkHsigIface' gr
       | name `elem` dfun_names = return ()
       | otherwise = do
         { -- Lookup local environment only (don't want to accidentally pick
-          -- up the backing copy.)  We consult tcg_type_env because we want
-          -- to pick up wired in names too (which get dropped by the iface
-          -- creation process); it's OK for a signature file to mention
-          -- a wired in name.
-          env <- getGblEnv
-        ; case lookupNameEnv (tcg_type_env env) name of
+          -- up the backing copy.)
+          --
+          -- TODO: need to special case wired in names
+        ; case lookupNameEnv sig_type_env name of
             Nothing
                 -- All this means is no local definition is available: but we
                 -- could have created the export this way:
@@ -261,7 +271,11 @@ checkHsigIface' gr
     check_inst sig_inst
         = do eps <- getEps
              when (not (memberInstEnv (eps_inst_env eps) sig_inst)) $
-               addErrTc (instMisMatch False sig_inst)
+                addErrTc (instMisMatch False sig_inst)
+             -- NB: This doesn't work because it consults the HPT,
+             -- and instances we added from typechecking the hsig
+             -- show up there.
+             -- tcLookupInstance (is_cls sig_inst) (is_tys sig_inst)
 
 tcRnModuleTcRnM :: HscEnv
                 -> HscSource
@@ -280,10 +294,9 @@ tcRnModuleTcRnM hsc_env hsc_src
                 })
                 (this_mod, prel_imp_loc)
  = setSrcSpan loc $
-   do { let { dflags = hsc_dflags hsc_env
-            ; explicit_mod_hdr = isJust maybe_mod } ;
+   do { let { explicit_mod_hdr = isJust maybe_mod } ;
 
-        tcg_env <- tcRnSignature dflags hsc_src ;
+        tcg_env <- tcRnSignature hsc_src ;
         setGblEnv tcg_env $ do {
 
                 -- Load the hi-boot interface for this module, if any
@@ -345,7 +358,7 @@ tcRnModuleTcRnM hsc_env hsc_src
         -- Nub out type class instances now that we've checked them,
         -- if we're compiling an hsig with sig-of.
         -- See Note [Signature files and type class instances]
-        tcg_env <- (case tcg_sig_of tcg_env of
+        tcg_env <- (case tcg_impl_rdr_env tcg_env of
             Just _ -> return tcg_env {
                         tcg_inst_env = emptyInstEnv,
                         tcg_fam_inst_env = emptyFamInstEnv,
@@ -1322,7 +1335,7 @@ check_main dflags tcg_env explicit_mod_hdr
                  })
     }}}
   where
-    mod         = tcg_mod tcg_env
+    mod         = topModIdentity (tcg_top_mod tcg_env)
     main_mod    = mainModIs dflags
     main_fn     = getMainFun dflags
     interactive = ghcLink dflags == LinkInMemory

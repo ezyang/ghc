@@ -123,10 +123,25 @@ findExactModule hsc_env mod =
     let dflags = hsc_dflags hsc_env
     in if modulePackageKey mod == thisPackage dflags
        then findHomeModule hsc_env (moduleName mod)
-       else findPackageModule hsc_env mod
+       else findLocalModule hsc_env mod `orIfNotFoundExact` findPackageModule hsc_env mod
 
 -- -----------------------------------------------------------------------------
 -- Helpers
+
+-- TODO: reconsider
+orIfNotFoundExact :: IO FindExactResult -> IO FindExactResult -> IO FindExactResult
+orIfNotFoundExact this or_this = do
+  res <- this
+  case res of
+    NotFoundExact { fer_paths = paths1, fer_pkg = _mb_pkg1 } -- TODO
+     -> do res2 <- or_this
+           case res2 of
+             NotFoundExact { fer_paths = paths2, fer_pkg = mb_pkg2 }
+              -> return (NotFoundExact { fer_paths = paths1 ++ paths2
+                                       , fer_pkg = mb_pkg2 })
+             NoPackageExact pk -> return (NoPackageExact pk)
+             _other -> return res2
+    _other -> return res
 
 orIfNotFound :: IO FindResult -> IO FindResult -> IO FindResult
 orIfNotFound this or_this = do
@@ -278,6 +293,22 @@ findHomeModule hsc_env mod_name =
         then return (FoundExact (error "GHC.Prim ModLocation") mod)
         else searchPathExts home_path mod exts
 
+
+-- | Search for a module which is not the home package key, but could
+-- have been one we compiled in this session (can occur with Backpack)
+-- TODO: cache
+findLocalModule :: HscEnv -> Module -> IO FindExactResult
+findLocalModule hsc_env mod =
+    let
+     dflags = hsc_dflags hsc_env
+     home_path = importPaths dflags
+     hisuf = hiSuf dflags
+     exts = [ (hisuf,                mkHiOnlyModLocation dflags hisuf)
+            , (addBootSuffix hisuf,  mkHiOnlyModLocation dflags hisuf)
+            ]
+    in searchPathExts
+        (map (</> packageKeyString (modulePackageKey mod)) home_path)
+        mod exts
 
 -- | Search for a module in external packages only.
 findPackageModule :: HscEnv -> Module -> IO FindExactResult

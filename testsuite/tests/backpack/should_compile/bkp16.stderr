@@ -1,0 +1,10 @@
+[1 of 2] Processing p
+  [1 of 2] Including ghc-prim
+  [2 of 2] Compiling Int[abstract sig] ( p/Int.hsig, nothing )
+[2 of 2] Processing q
+  Instantiating q()
+  [1 of 2] Including base
+  [2 of 2] Including p
+    Instantiating p(Int -> base-4.8.2.0:GHC.Exts)
+    [1 of 2] Including ghc-prim
+    [2 of 2] Compiling Int[abstract sig] ( p/Int.hsig, nothing )

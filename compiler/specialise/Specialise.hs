@@ -573,7 +573,7 @@ Hence, the invariant is this:
 
 -- | Specialise calls to type-class overloaded functions occuring in a program.
 specProgram :: ModGuts -> CoreM ModGuts
-specProgram guts@(ModGuts { mg_module = this_mod
+specProgram guts@(ModGuts { mg_top_module = TopModule{ topModSemantic = this_mod }
                           , mg_rules = local_rules
                           , mg_binds = binds })
   = do { dflags <- getDynFlags

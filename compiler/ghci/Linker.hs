@@ -638,8 +638,7 @@ getLinkDeps hsc_env hpt pls replace_osuf span mods
 
     get_linkable osuf mod_name      -- A home-package module
         | Just mod_info <- lookupUFM hpt mod_name
-        = adjust_linkable (hm_iface mod_info)
-            (Maybes.expectJust "getLinkDeps" (hm_linkable mod_info))
+        = adjust_linkable (Maybes.expectJust "getLinkDeps" (hm_linkable mod_info))
         | otherwise
         = do    -- It's not in the HPT because we are in one shot mode,
                 -- so use the Finder to get a ModLocation...
@@ -653,16 +652,12 @@ getLinkDeps hsc_env hpt pls replace_osuf span mods
             found loc mod = do {
                 -- ...and then find the linkable for it
                mb_lnk <- findObjectLinkableMaybe mod loc ;
-               iface <- initIfaceCheck hsc_env $
-                            loadUserInterface False (text "getLinkDeps2") mod ;
                case mb_lnk of {
                   Nothing  -> no_obj mod ;
-                  Just lnk -> adjust_linkable iface lnk
+                  Just lnk -> adjust_linkable lnk
               }}
 
-            adjust_linkable iface lnk
-                -- Signatures have no linkables! Don't return one.
-                | mi_hsc_src iface == HsigFile = return Nothing
+            adjust_linkable lnk
                 | Just new_osuf <- replace_osuf = do
                         new_uls <- mapM (adjust_ul new_osuf)
                                         (linkableUnlinked lnk)

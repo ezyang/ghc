@@ -34,6 +34,8 @@ import FastString
 import UniqSupply
 import SrcLoc
 import Util
+import ShUnify
+import RdrName
 
 import Outputable
 
@@ -323,7 +325,23 @@ extendIfaceTyVarEnv tyvars thing_inside
 lookupIfaceTop :: OccName -> IfL Name
 -- Look up a top-level name from the current Iface module
 lookupIfaceTop occ
-  = do  { env <- getLclEnv; lookupOrig (if_mod env) occ }
+  = do  { mod <- getIfModule
+        ; gbl_env <- getGblEnv
+        ; let do_default = do { n <- lookupOrig mod occ
+                              ; eps <- getEps
+                              ; return (substName (eps_shape eps) n) }
+        ; case if_impl_rdr_env gbl_env of
+            Nothing -> do_default
+            Just gr -> case lookupGlobalRdrEnv gr occ of
+                            [GRE{ gre_name = n}] -> return n
+                            -- This gets tickled sometimes by implicit binders
+                            -- which aren't actually in the rdr env, but it's
+                            -- OK because as long as we don't tug on them
+                            -- nothing bad happens.
+                            [] -> do_default
+                            _ -> pprPanic "lookupIfaceTop: multiple found"
+                                          (ppr occ $$ ppr gr)
+        }
 
 newIfaceName :: OccName -> IfL Name
 newIfaceName occ

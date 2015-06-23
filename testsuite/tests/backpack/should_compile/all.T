@@ -1,0 +1,20 @@
+setTestOpts(only_compiler_types(['ghc']))
+
+test('bkpfile01', expect_broken(0), backpack_compile, ['-ddump-shape'])
+
+test('bkp02', normal, backpack_compile, ['-ddump-shape'])
+test('bkp03', normal, backpack_typecheck, ['-ddump-shape'])
+test('bkp04', normal, backpack_typecheck, ['-ddump-shape'])
+test('bkp05', expect_broken(0), backpack_typecheck, ['-ddump-shape'])
+test('bkp06', normal, backpack_typecheck, ['-ddump-shape'])
+test('bkp07', normal, backpack_typecheck, ['-ddump-shape'])
+test('bkp08', normal, backpack_compile, ['-ddump-shape'])
+test('bkp09', normal, backpack_typecheck, ['-ddump-shape']) # compile broken
+test('bkp10', normal, backpack_typecheck, ['-ddump-shape'])
+test('bkp11', expect_broken(0), backpack_typecheck, ['-ddump-shape'])
+test('bkp12', normal, backpack_typecheck, ['-ddump-shape']) # compile broken
+test('bkp13', normal, backpack_compile, ['-ddump-shape'])
+test('bkp14', normal, backpack_compile, ['-ddump-shape'])
+test('bkp15', normal, backpack_compile, ['-ddump-shape'])
+test('bkp16', normal, backpack_compile, ['']) # too chatty
+test('bkp17', normal, backpack_compile, ['-ddump-shape'])

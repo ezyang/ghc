@@ -1,0 +1,99 @@
+[1 of 4] Processing p
+/--- Shape for p
+provides:
+requires: T -> p(hole:T, hole:H):T
+               T{T}
+          H -> p(hole:T, hole:H):H
+               f
+signature p(hole:T, hole:H):T
+signature p(hole:T, hole:H):H
+\---
+  [1 of 2] Compiling T[abstract sig]  ( p/T.hsig, nothing )
+  [2 of 2] Compiling H[abstract sig]  ( p/H.hsig, nothing )
+[2 of 4] Processing timpl
+  Instantiating timpl()
+/--- Shape for timpl
+provides: TImpl -> timpl():TImpl
+                   T{T, T}
+requires:
+module timpl():TImpl
+\---
+  [1 of 1] Compiling TImpl            ( timpl/TImpl.hs, bkp15-out/5bN3eUslK7y30Emqr9cyvC/TImpl.o )
+[3 of 4] Processing q
+/--- Shape for q
+provides: TImpl -> timpl():TImpl
+                   T{T, T}
+          A -> q(hole:T, hole:H):A
+               x
+requires: T -> q(hole:T, hole:H):T, p(hole:T, hole:H):T
+               timpl():TImpl.T{timpl():TImpl.T}
+          H -> p(hole:T, hole:H):H
+               f
+include timpl() [(TImpl, timpl():TImpl)] requires []
+signature q(hole:T, hole:H):T
+include p(hole:T, hole:H) [] requires [(T, [p(hole:T, hole:H):T]),
+                                       (H, [p(hole:T, hole:H):H])]
+module q(hole:T, hole:H):A
+\---
+  [1 of 4] Including timpl
+  [2 of 4] Compiling T[abstract sig]  ( q/T.hsig, nothing )
+  [3 of 4] Including p
+  [4 of 4] Compiling A                ( q/A.hs, nothing )
+[4 of 4] Processing r
+  Instantiating r()
+/--- Shape for r
+provides: T -> r():T
+               timpl():TImpl.T{timpl():TImpl.T}
+          H -> r():H
+               f
+          TImpl -> timpl():TImpl
+                   T{T, T}
+          A -> q(r():T, r():H):A
+               x
+requires:
+include timpl() [(TImpl, timpl():TImpl)] requires []
+module r():H
+module r():T
+include q(r():T, r():H) [(TImpl, timpl():TImpl),
+                         (A, q(r():T, r():H):A)] requires [(T,
+                                                            [q(r():T, r():H):T, p(r():T, r():H):T]),
+                                                           (H, [p(r():T, r():H):H])]
+\---
+  [1 of 4] Including timpl
+    Instantiating timpl()
+  [2 of 4] Compiling H                ( r/H.hs, bkp15-out/FQzMcndXWGrIczhCz8byYb/H.o )
+  [3 of 4] Compiling T                ( r/T.hs, bkp15-out/FQzMcndXWGrIczhCz8byYb/T.o )
+  [4 of 4] Including q
+    Instantiating q(r():T, r():H)
+/--- Shape for q
+provides: TImpl -> timpl():TImpl
+                   T{T, T}
+          A -> q(r():T, r():H):A
+               x
+requires: T -> q(r():T, r():H):T, p(r():T, r():H):T
+               timpl():TImpl.T{timpl():TImpl.T}
+          H -> p(r():T, r():H):H
+               f
+include timpl() [(TImpl, timpl():TImpl)] requires []
+signature q(r():T, r():H):T
+include p(r():T, r():H) [] requires [(T, [p(r():T, r():H):T]),
+                                     (H, [p(r():T, r():H):H])]
+module q(r():T, r():H):A
+\---
+    [1 of 4] Including timpl
+      Instantiating timpl()
+    [2 of 4] Compiling T[abstract sig]  ( q/T.hsig, nothing )
+    [3 of 4] Including p
+      Instantiating p(r():T, r():H)
+/--- Shape for p
+provides:
+requires: T -> p(r():T, r():H):T
+               timpl():TImpl.T{timpl():TImpl.T}
+          H -> p(r():T, r():H):H
+               r():H.f
+signature p(r():T, r():H):T
+signature p(r():T, r():H):H
+\---
+      [1 of 2] Compiling T[abstract sig]  ( p/T.hsig, nothing )
+      [2 of 2] Compiling H[abstract sig]  ( p/H.hsig, nothing )
+    [4 of 4] Compiling A                ( q/A.hs, bkp15-out/Bl4VR9ahnKcCHxR3ShPKWo/A.o )

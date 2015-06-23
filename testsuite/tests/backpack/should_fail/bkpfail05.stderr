@@ -1,0 +1,36 @@
+[1 of 4] Processing h
+/--- Shape for h
+provides:
+requires: H -> h(hole:H):H
+               T{T, T1}
+signature h(hole:H):H
+\---
+  [1 of 1] Compiling H[abstract sig]  ( h/H.hsig, nothing )
+[2 of 4] Processing t-impl
+  Instantiating t-impl()
+/--- Shape for t-impl
+provides: T -> t-impl():T
+               T{T, T2}
+requires:
+module t-impl():T
+\---
+  [1 of 1] Compiling T                ( t-impl/T.hs, nothing )
+[3 of 4] Processing p
+/--- Shape for p
+provides: T -> t-impl():T
+               T{T, T2}
+requires: H -> h(hole:H):H, p(hole:H):H
+               t-impl():T.T{t-impl():T.T, t-impl():T.T1, t-impl():T.T2}
+include h(hole:H) [] requires [(H, [h(hole:H):H])]
+include t-impl() [(T, t-impl():T)] requires []
+signature p(hole:H):H
+\---
+  [1 of 3] Including h
+  [2 of 3] Including t-impl
+  [3 of 3] Compiling H[abstract sig]  ( p/H.hsig, nothing )
+[4 of 4] Processing q
+  Instantiating q()
+
+bkpfail05.bkp:21:5: error:
+    Cannot use module q():H to instantiate hole at H
+    Missing implementations of: T1

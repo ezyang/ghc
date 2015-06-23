@@ -1,0 +1,41 @@
+[1 of 3] Processing q
+  Instantiating q()
+/--- Shape for q
+provides: H -> q():H
+               T{T, T, x}
+requires:
+module q():H
+\---
+  [1 of 1] Compiling H                ( q/H.hs, bkp08-out/Br2hqQttvyiBkpnTZJaMkb/H.o )
+[2 of 3] Processing r
+/--- Shape for r
+provides:
+requires: H -> r(hole:H):H
+               T{T}
+signature r(hole:H):H
+\---
+  [1 of 1] Compiling H[abstract sig]  ( r/H.hsig, nothing )
+[3 of 3] Processing p
+  Instantiating p()
+/--- Shape for p
+provides: H -> q():H
+               T{T, T, x}
+          M -> p():M
+               f
+requires:
+include q() [(H, q():H)] requires []
+include r(q():H) [] requires [(H, [r(q():H):H])]
+module p():M
+\---
+  [1 of 3] Including q
+    Instantiating q()
+  [2 of 3] Including r
+    Instantiating r(q():H)
+/--- Shape for r
+provides:
+requires: H -> r(q():H):H
+               q():H.T{q():H.T}
+signature r(q():H):H
+\---
+    [1 of 1] Compiling H[abstract sig]  ( r/H.hsig, nothing )
+  [3 of 3] Compiling M                ( p/M.hs, bkp08-out/3TzWjyLYxpKKUrnKgPCj8v/M.o )

@@ -1,0 +1,75 @@
+
+bkp09.bkp:1:26: warning:
+    -XDatatypeContexts is deprecated: It was widely considered a misfeature, and has been removed from the Haskell language.
+[1 of 4] Processing p
+/--- Shape for p
+provides:
+requires: H -> p(hole:H):H
+               Bloop{Bloop, GMap, xa, y}, Elem{Elem}, X{X}, F{F, F}, Foo{Foo, Foo}, S{S, R}, T{T, T, S}, x
+signature p(hole:H):H
+\---
+  [1 of 1] Compiling H[abstract sig]  ( p/H.hsig, nothing )
+[2 of 4] Processing q
+/--- Shape for q
+provides:
+requires: H -> q(hole:H):H
+               Bloop{Bloop, GMap, xa, y}, Elem{Elem}, X{X}, F{F, F}, Foo{Foo, Foo}, S{S, R}, T{T, T, S}, x
+signature q(hole:H):H
+\---
+  [1 of 1] Compiling H[abstract sig]  ( q/H.hsig, nothing )
+[3 of 4] Processing r
+/--- Shape for r
+provides: M -> r(hole:H):M
+               hole:H.GMap{GMapBool}, a, b, c, d
+requires: H -> p(hole:H):H, q(hole:H):H
+               Bloop{Bloop, GMap, xa, y}, Elem{Elem}, X{X}, F{F, F}, Foo{Foo, Foo}, S{S, R}, T{T, T, S}, x
+include p(hole:H) [] requires [(H, [p(hole:H):H])]
+include q(hole:H) [] requires [(H, [q(hole:H):H])]
+module r(hole:H):M
+\---
+  [1 of 3] Including p
+  [2 of 3] Including q
+  [3 of 3] Compiling M                ( r/M.hs, nothing )
+[4 of 4] Processing s
+  Instantiating s()
+/--- Shape for s
+provides: H -> s():H
+               Bloop{Bloop, GMap, xa, y}, Elem{Elem}, X{X}, F{F, F}, Foo{Foo, Foo}, S{S, R}, T{T, T, S}, x
+          M -> r(s():H):M
+               hole:H.GMap{GMapBool}, a, b, c, d
+requires:
+module s():H
+include r(s():H) [(M, r(s():H):M)] requires [(H,
+                                              [p(s():H):H, q(s():H):H])]
+\---
+  [1 of 2] Compiling H                ( s/H.hs, nothing )
+  [2 of 2] Including r
+    Instantiating r(s():H)
+/--- Shape for r
+provides: M -> r(s():H):M
+               hole:H.GMap{GMapBool}, a, b, c, d
+requires: H -> p(s():H):H, q(s():H):H
+               Bloop{Bloop, GMap, xa, y}, Elem{Elem}, X{X}, F{F, F}, Foo{Foo, Foo}, S{S, R}, T{T, T, S}, x
+include p(s():H) [] requires [(H, [p(s():H):H])]
+include q(s():H) [] requires [(H, [q(s():H):H])]
+module r(s():H):M
+\---
+    [1 of 3] Including p
+      Instantiating p(s():H)
+/--- Shape for p
+provides:
+requires: H -> p(s():H):H
+               s():H.Bloop{s():H.Bloop, s():H.GMap, s():H.xa, s():H.y}, s():H.Elem{s():H.Elem}, s():H.X{s():H.X}, s():H.F{s():H.F, s():H.F}, s():H.Foo{s():H.Foo, s():H.Foo}, s():H.S{s():H.S, s():H.R}, s():H.T{s():H.T, s():H.T, s():H.S}, s():H.x
+signature p(s():H):H
+\---
+      [1 of 1] Compiling H[abstract sig]  ( p/H.hsig, nothing )
+    [2 of 3] Including q
+      Instantiating q(s():H)
+/--- Shape for q
+provides:
+requires: H -> q(s():H):H
+               s():H.Bloop{s():H.Bloop, s():H.GMap, s():H.xa, s():H.y}, s():H.Elem{s():H.Elem}, s():H.X{s():H.X}, s():H.F{s():H.F, s():H.F}, s():H.Foo{s():H.Foo, s():H.Foo}, s():H.S{s():H.S, s():H.R}, s():H.T{s():H.T, s():H.T, s():H.S}, s():H.x
+signature q(s():H):H
+\---
+      [1 of 1] Compiling H[abstract sig]  ( q/H.hsig, nothing )
+    [3 of 3] Compiling M                ( r/M.hs, nothing )

@@ -1,0 +1,25 @@
+[1 of 2] Processing h
+/--- Shape for h
+provides:
+requires: H -> h(hole:H):H
+               T{T}
+signature h(hole:H):H
+\---
+  [1 of 1] Compiling H[abstract sig]  ( h/H.hsig, nothing )
+[2 of 2] Processing p
+/--- Shape for p
+provides: B -> p(hole:H):B
+               T{T, T}
+          A -> p(hole:H):A
+               p(hole:H):B.T{p(hole:H):B.T}
+requires: H -> h(hole:H):H, p(hole:H):H
+               p(hole:H):B.T{p(hole:H):B.T, p(hole:H):B.T}, f
+include h(hole:H) [] requires [(H, [h(hole:H):H])]
+module p(hole:H):B
+signature p(hole:H):H
+module p(hole:H):A
+\---
+  [1 of 4] Including h
+  [2 of 4] Compiling B                ( p/B.hs, nothing )
+  [3 of 4] Compiling H[abstract sig]  ( p/H.hsig, nothing )
+  [4 of 4] Compiling A                ( p/A.hs, nothing )

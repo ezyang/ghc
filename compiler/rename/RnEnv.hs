@@ -44,6 +44,7 @@ module RnEnv (
 
 #include "HsVersions.h"
 
+import ShUnify ( substName )
 import LoadIface        ( loadInterfaceForName, loadSrcInterface_maybe )
 import IfaceEnv
 import HsSyn
@@ -203,9 +204,7 @@ newTopSrcBinder (L loc rdr_name)
                 ; return (mkInternalName uniq (rdrNameOcc rdr_name) loc) }
           else case tcg_impl_rdr_env env of
             Just gr ->
-                -- We're compiling --sig-of, so resolve with respect to this
-                -- module.
-                -- See Note [Signature parameters in TcGblEnv and DynFlags]
+                -- Resolve with respect to this module.
              do { case lookupGlobalRdrEnv gr (rdrNameOcc rdr_name) of
                     -- Be sure to override the loc so that we get accurate
                     -- information later
@@ -228,7 +227,9 @@ newTopSrcBinder (L loc rdr_name)
                 -- Normal case
              do { this_mod <- getModule
                 ; traceRn (text "newTopSrcBinder" <+> (ppr this_mod $$ ppr rdr_name $$ ppr loc))
-                ; newGlobalBinder this_mod (rdrNameOcc rdr_name) loc } }
+                ; n <- newGlobalBinder this_mod (rdrNameOcc rdr_name) loc
+                ; eps <- getEps
+                ; return (substName (eps_shape eps) n) }}
 
 {-
 *********************************************************

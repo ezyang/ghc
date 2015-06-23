@@ -1,0 +1,31 @@
+[1 of 2] Processing p
+/--- Shape for p
+provides:
+requires: H -> p(hole:H):H
+               T{T}, f
+signature p(hole:H):H
+\---
+  [1 of 1] Compiling H[abstract sig]  ( p/H.hsig, nothing )
+[2 of 2] Processing q
+  Instantiating q()
+/--- Shape for q
+provides: H -> q():H
+               q():F.T{q():F.T}, q():F.f
+          F -> q():F
+               T{T, T}, f
+requires:
+module q():F
+module q():H
+include p(q():H) [] requires [(H, [p(q():H):H])]
+\---
+  [1 of 3] Compiling F                ( q/F.hs, bkp14-out/Br2hqQttvyiBkpnTZJaMkb/F.o )
+  [2 of 3] Compiling H                ( q/H.hs, bkp14-out/Br2hqQttvyiBkpnTZJaMkb/H.o )
+  [3 of 3] Including p
+    Instantiating p(q():H)
+/--- Shape for p
+provides:
+requires: H -> p(q():H):H
+               q():F.T{q():F.T}, q():F.f
+signature p(q():H):H
+\---
+    [1 of 1] Compiling H[abstract sig]  ( p/H.hsig, nothing )

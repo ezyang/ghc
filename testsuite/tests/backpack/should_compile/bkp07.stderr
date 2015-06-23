@@ -1,0 +1,19 @@
+[1 of 2] Processing p
+/--- Shape for p
+provides:
+requires: A -> p(hole:A):A
+               foo
+signature p(hole:A):A
+\---
+  [1 of 1] Compiling A[abstract sig]  ( p/A.hsig, nothing )
+[2 of 2] Processing q
+/--- Shape for q
+provides: B -> q(hole:A):B
+               bar
+requires: A -> p(hole:A):A
+               foo
+include p(hole:A) [] requires [(A, [p(hole:A):A])]
+module q(hole:A):B
+\---
+  [1 of 2] Including p
+  [2 of 2] Compiling B                ( q/B.hs, nothing )

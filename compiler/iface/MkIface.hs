@@ -21,6 +21,7 @@ module MkIface (
         checkOldIface,  -- See if recompilation is required, by
                         -- comparing version information
         RecompileRequired(..), recompileRequired,
+        mkIfaceExports,
 
         tyThingToIfaceDecl -- Converting things to their Iface equivalents
  ) where
@@ -111,6 +112,7 @@ import Binary
 import Fingerprint
 import Bag
 import Exception
+import ShPackageKey
 
 import Control.Monad
 import Data.Function
@@ -141,7 +143,7 @@ mkIface :: HscEnv
                                 --          to write it
 
 mkIface hsc_env maybe_old_fingerprint mod_details
-         ModGuts{     mg_module       = this_mod,
+         ModGuts{     mg_top_module   = top_mod,
                       mg_hsc_src      = hsc_src,
                       mg_used_names   = used_names,
                       mg_used_th      = used_th,
@@ -156,7 +158,7 @@ mkIface hsc_env maybe_old_fingerprint mod_details
                       mg_dependent_files = dependent_files
                     }
         = mkIface_ hsc_env maybe_old_fingerprint
-                   this_mod hsc_src used_names used_th deps rdr_env fix_env
+                   top_mod hsc_src used_names used_th deps rdr_env fix_env
                    warns hpc_info dir_imp_mods self_trust dependent_files
                    safe_mode mod_details
 
@@ -170,7 +172,7 @@ mkIfaceTc :: HscEnv
           -> TcGblEnv           -- Usages, deprecations, etc
           -> IO (Messages, Maybe (ModIface, Bool))
 mkIfaceTc hsc_env maybe_old_fingerprint safe_mode mod_details
-  tc_result@TcGblEnv{ tcg_mod = this_mod,
+  tc_result@TcGblEnv{ tcg_top_mod = top_mod,
                       tcg_src = hsc_src,
                       tcg_imports = imports,
                       tcg_rdr_env = rdr_env,
@@ -187,7 +189,7 @@ mkIfaceTc hsc_env maybe_old_fingerprint safe_mode mod_details
           used_th <- readIORef tc_splice_used
           dep_files <- (readIORef dependent_files)
           mkIface_ hsc_env maybe_old_fingerprint
-                   this_mod hsc_src used_names
+                   top_mod hsc_src used_names
                    used_th deps rdr_env
                    fix_env warns hpc_info (imp_mods imports)
                    (imp_trust_own_pkg imports) dep_files safe_mode mod_details
@@ -200,11 +202,12 @@ mkUsedNames TcGblEnv{ tcg_dus = dus } = allUses dus
 -- a dependencies information for the module being compiled.
 mkDependencies :: TcGblEnv -> IO Dependencies
 mkDependencies
-          TcGblEnv{ tcg_mod = mod,
+          TcGblEnv{ tcg_top_mod = top_mod,
                     tcg_imports = imports,
                     tcg_th_used = th_var
                   }
  = do
+      let mod = topModIdentity top_mod
       -- Template Haskell used?
       th_used <- readIORef th_var
       let dep_mods = eltsUFM (delFromUFM (imp_dep_mods imports) (moduleName mod))
@@ -231,7 +234,7 @@ mkDependencies
                     -- sort to get into canonical order
                     -- NB. remember to use lexicographic ordering
 
-mkIface_ :: HscEnv -> Maybe Fingerprint -> Module -> HscSource
+mkIface_ :: HscEnv -> Maybe Fingerprint -> TopModule -> HscSource
          -> NameSet -> Bool -> Dependencies -> GlobalRdrEnv
          -> NameEnv FixItem -> Warnings -> HpcInfo
          -> ImportedMods -> Bool
@@ -240,7 +243,7 @@ mkIface_ :: HscEnv -> Maybe Fingerprint -> Module -> HscSource
          -> ModDetails
          -> IO (Messages, Maybe (ModIface, Bool))
 mkIface_ hsc_env maybe_old_fingerprint
-         this_mod hsc_src used_names used_th deps rdr_env fix_env src_warns
+         top_mod hsc_src used_names used_th deps rdr_env fix_env src_warns
          hpc_info dir_imp_mods pkg_trust_req dependent_files safe_mode
          ModDetails{  md_insts     = insts,
                       md_fam_insts = fam_insts,
@@ -255,7 +258,9 @@ mkIface_ hsc_env maybe_old_fingerprint
 --      to expose in the interface
 
   = do
-    usages  <- mkUsageInfo hsc_env this_mod dir_imp_mods used_names dependent_files
+    let semantic_mod = topModSemantic top_mod
+        identity_mod = topModIdentity top_mod
+    usages  <- mkUsageInfo hsc_env top_mod dir_imp_mods used_names dependent_files
 
     let entities = typeEnvElts type_env
         decls  = [ tyThingToIfaceDecl entity
@@ -265,7 +270,7 @@ mkIface_ hsc_env maybe_old_fingerprint
                       -- No implicit Ids and class tycons in the interface file
                    not (isWiredInName name),
                       -- Nor wired-in things; the compiler knows about them anyhow
-                   nameIsLocalOrFrom this_mod name  ]
+                   nameIsLocalOrFrom semantic_mod name  ]
                       -- Sigh: see Note [Root-main Id] in TcRnDriver
 
         fixities    = [(occ,fix) | FixItem occ fix <- nameEnvElts fix_env]
@@ -276,11 +281,9 @@ mkIface_ hsc_env maybe_old_fingerprint
         iface_vect_info = flattenVectInfo vect_info
         trust_info  = setSafeMode safe_mode
         annotations = map mkIfaceAnnotation anns
-        sig_of = getSigOf dflags (moduleName this_mod)
 
         intermediate_iface = ModIface {
-              mi_module      = this_mod,
-              mi_sig_of      = sig_of,
+              mi_top_module  = top_mod,
               mi_hsc_src     = hsc_src,
               mi_deps        = deps,
               mi_usages      = usages,
@@ -298,6 +301,7 @@ mkIface_ hsc_env maybe_old_fingerprint
               mi_warns       = warns,
               mi_anns        = annotations,
               mi_globals     = maybeGlobalRdrEnv rdr_env,
+              mi_impl_rdr_env = Nothing, -- could thread this through, but it won't be useful here
 
               -- Left out deliberately: filled in by addFingerprints
               mi_iface_hash  = fingerprint0,
@@ -336,7 +340,7 @@ mkIface_ hsc_env maybe_old_fingerprint
         inst_warns = listToBag [ instOrphWarn dflags unqual d
                                | (d,i) <- insts `zip` iface_insts
                                , isOrphan (ifInstOrph i) ]
-        rule_warns = listToBag [ ruleOrphWarn dflags unqual this_mod r
+        rule_warns = listToBag [ ruleOrphWarn dflags unqual identity_mod r
                                | r <- iface_rules
                                , isOrphan (ifRuleOrph r)
                                , if ifRuleAuto r then warn_auto_orphs
@@ -420,7 +424,9 @@ mkHashFun hsc_env eps
         iface = lookupIfaceByModule (hsc_dflags hsc_env) hpt pit mod `orElse`
                    pprPanic "lookupVers2" (ppr mod <+> ppr occ)
       in
-        snd (mi_hash_fn iface occ `orElse`
+        if isHoleModule mod
+          then fingerprint0 -- TODO: fingerprinting holes not supported yet
+          else snd (mi_hash_fn iface occ `orElse`
                   pprPanic "lookupVers1" (ppr mod <+> ppr occ))
   where
       hpt = hsc_HPT hsc_env
@@ -959,12 +965,12 @@ mkOrphMap get_key decls
 ************************************************************************
 -}
 
-mkUsageInfo :: HscEnv -> Module -> ImportedMods -> NameSet -> [FilePath] -> IO [Usage]
-mkUsageInfo hsc_env this_mod dir_imp_mods used_names dependent_files
+mkUsageInfo :: HscEnv -> TopModule -> ImportedMods -> NameSet -> [FilePath] -> IO [Usage]
+mkUsageInfo hsc_env top_mod dir_imp_mods used_names dependent_files
   = do
     eps <- hscEPS hsc_env
     hashes <- mapM getFileHash dependent_files
-    let mod_usages = mk_mod_usage_info (eps_PIT eps) hsc_env this_mod
+    let mod_usages = mk_mod_usage_info (eps_PIT eps) hsc_env top_mod
                                        dir_imp_mods used_names
     let usages = mod_usages ++ [ UsageFile { usg_file_path = f
                                            , usg_file_hash = hash }
@@ -976,11 +982,11 @@ mkUsageInfo hsc_env this_mod dir_imp_mods used_names dependent_files
 
 mk_mod_usage_info :: PackageIfaceTable
               -> HscEnv
-              -> Module
+              -> TopModule
               -> ImportedMods
               -> NameSet
               -> [Usage]
-mk_mod_usage_info pit hsc_env this_mod direct_imports used_names
+mk_mod_usage_info pit hsc_env top_mod direct_imports used_names
   = mapMaybe mkUsage usage_mods
   where
     hpt = hsc_HPT hsc_env
@@ -996,6 +1002,7 @@ mk_mod_usage_info pit hsc_env this_mod direct_imports used_names
 
     -- ent_map groups together all the things imported and used
     -- from a particular module
+    -- NB: Module here is semantic, see Note [Semantic and identity modules]
     ent_map :: ModuleEnv [OccName]
     ent_map  = foldNameSet add_mv emptyModuleEnv used_names
      where
@@ -1020,8 +1027,11 @@ mk_mod_usage_info pit hsc_env this_mod direct_imports used_names
     mkUsage mod
       | isNothing maybe_iface           -- We can't depend on it if we didn't
                                         -- load its interface.
-      || mod == this_mod                -- We don't care about usages of
+      || mod == topModIdentity top_mod  -- We don't care about usages of
                                         -- things in *this* module
+      || mod == topModSemantic top_mod  -- nor do we care about the usages
+                                        -- of semantically equiv.
+                                        -- See Note [Signatures and usages]
       = Nothing
 
       | modulePackageKey mod /= this_pkg
@@ -1096,6 +1106,26 @@ mk_mod_usage_info pit hsc_env this_mod direct_imports used_names
               from generating many of these usages (at least in
               one-shot mode), but that's even more bogus!
         -}
+
+-- Note [Signatures and usages]
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Usages are based off of (1) direct imports and (2) used 'Name's.
+-- In the presence of signatures, usage can be a little more difficult
+-- to track.  Here are rules that work for NON-recursive, definite
+-- compilation.
+--
+--      - A module may import one or more signatures, which gives
+--        us a view into the mi_avails of the implementing module.
+--        In this case, we want to record the IDENTITY MODULE of
+--        each direct import as a usage (but exclude any of our
+--        own identity module.
+--
+--      - A module uses some number of names.  Even if this name was
+--        defined/brought into scope for us by a signature, there is
+--        no way we can "figure" this out, since the 'Name' will always
+--        identify the original module.  But we don't care either.
+--        So record the SEMANTIC MODULE of names.
+
 
 mkIfaceAnnotation :: Annotation -> IfaceAnnotation
 mkIfaceAnnotation (Annotation { ann_target = target, ann_value = payload })
@@ -1269,9 +1299,9 @@ checkVersions hsc_env mod_summary iface
 
        ; recomp <- checkFlagHash hsc_env iface
        ; if recompileRequired recomp then return (recomp, Nothing) else do {
-       ; if getSigOf (hsc_dflags hsc_env) (moduleName (mi_module iface))
-                /= mi_sig_of iface
-            then return (RecompBecause "sig-of changed", Nothing) else do {
+       -- TODO: need to also do this for the other codepath in tcRnModule
+       ; recomp <- checkHsig hsc_env mod_summary iface
+       ; if recompileRequired recomp then return (recomp, Nothing) else do {
        ; recomp <- checkDependencies hsc_env mod_summary iface
        ; if recompileRequired recomp then return (recomp, Just iface) else do {
 
@@ -1297,6 +1327,19 @@ checkVersions hsc_env mod_summary iface
     -- This is a bit of a hack really
     mod_deps :: ModuleNameEnv (ModuleName, IsBootInterface)
     mod_deps = mkModDeps (dep_mods (mi_deps iface))
+
+checkHsig :: HscEnv -> ModSummary -> ModIface -> IfG RecompileRequired
+checkHsig hsc_env mod_summary iface = do
+    let outer_mod = ms_mod mod_summary
+        dflags = hsc_dflags hsc_env
+    -- TODO: duplicate with tcRnModule
+    inner_mod <-
+        case getSigOf dflags (moduleName outer_mod) of
+            Nothing -> liftIO $ canonicalizeModule dflags outer_mod
+            Just sof -> return sof
+    case inner_mod == mi_semantic_module iface of
+        True -> up_to_date (text "implementing module unchanged")
+        False -> return (RecompBecause "implementing module changed")
 
 -- | Check the flags haven't changed
 checkFlagHash :: HscEnv -> ModIface -> IfG RecompileRequired

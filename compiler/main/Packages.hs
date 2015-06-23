@@ -18,6 +18,7 @@ module Packages (
 
         -- * Querying the package config
         lookupPackage,
+        lookupUnitName,
         resolveInstalledPackageId,
         searchPackageId,
         getPackageDetails,
@@ -68,6 +69,7 @@ import FastString
 import ErrUtils         ( debugTraceMsg, MsgDoc )
 import Exception
 import Unique
+import {-# SOURCE #-} ShPackageKey
 
 import System.Directory
 import System.FilePath as FilePath
@@ -272,6 +274,10 @@ data PackageState = PackageState {
   -- may have the 'exposed' flag be 'False'.)
   pkgIdMap              :: PackageConfigMap,
 
+  -- | A mapping of 'UnitName' to 'PackageKey'.  This is used when
+  -- users refer to units, e.g. Backpack includes.
+  unitNameMap            :: Map UnitName PackageConfig,
+
   -- | The packages we're going to link in eagerly.  This list
   -- should be in reverse dependency order; that is, a package
   -- is always mentioned before the packages it depends on.
@@ -291,6 +297,7 @@ data PackageState = PackageState {
 emptyPackageState :: PackageState
 emptyPackageState = PackageState {
     pkgIdMap = emptyUFM,
+    unitNameMap = Map.empty,
     preloadPackages = [],
     moduleNameDb = Map.empty,
     installedPackageIdMap = Map.empty
@@ -309,6 +316,10 @@ lookupPackage dflags = lookupPackage' (pkgIdMap (pkgState dflags))
 
 lookupPackage' :: PackageConfigMap -> PackageKey -> Maybe PackageConfig
 lookupPackage' = lookupUFM
+
+-- | Find the package we know about with the given package name (e.g. @foo@), if any
+lookupUnitName :: DynFlags -> UnitName -> Maybe PackageConfig
+lookupUnitName dflags n = Map.lookup n (unitNameMap (pkgState dflags))
 
 -- | Search for packages with a given package ID (e.g. \"foo-0.1\")
 searchPackageId :: DynFlags -> SourcePackageId -> [PackageConfig]
@@ -894,7 +905,13 @@ mkPackageState dflags0 pkgs0 preload0 = do
   dflags <- interpretPackageEnv dflags0
 
   -- Compute the package key
-  let this_package = thisPackage dflags
+  this_package <-
+        case thisUnitName dflags of
+            Nothing -> return (thisPackage dflags)
+            Just unitName ->
+                newPackageKey dflags unitName
+                              (thisLibraryName dflags)
+                              (Map.toList (sigOf dflags))
 
 {-
    Plan.
@@ -1028,6 +1045,9 @@ mkPackageState dflags0 pkgs0 preload0 = do
       get_exposed _                 = []
 
   let pkg_db = extendPackageConfigMap emptyPackageConfigMap pkgs3
+      -- TODO: make this customizably programmable
+      unitname_map = foldl add Map.empty pkgs3
+        where add pn_map p = Map.insert (packageUnitName p) p pn_map
 
       ipid_map = Map.fromList [ (installedPackageId p, packageConfigId p)
                               | p <- pkgs3 ]
@@ -1059,6 +1079,7 @@ mkPackageState dflags0 pkgs0 preload0 = do
     preloadPackages     = dep_preload,
     pkgIdMap            = pkg_db,
     moduleNameDb  = mkModuleNameDb dflags pkg_db ipid_map vis_map,
+    unitNameMap          = unitname_map,
     installedPackageIdMap = ipid_map
     }
   return (pstate, new_dep_preload, this_package)

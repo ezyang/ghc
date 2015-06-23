@@ -1,0 +1,14 @@
+[1 of 1] Processing p
+/--- Shape for p
+provides:
+requires: A1 -> p(hole:A1, hole:A2):A1
+                A{A, A, foo, bar}
+          A2 -> p(hole:A1, hole:A2):A2, p(hole:A1, hole:A2):A2
+                hole:A1.A{hole:A1.A, hole:A1.A, hole:A1.bar, hole:A1.foo}
+signature p(hole:A1, hole:A2):A1
+signature p(hole:A1, hole:A2):A2
+signature p(hole:A1, hole:A2):A2
+\---
+  [1 of 3] Compiling A1[abstract sig] ( p/A1.hsig, nothing )
+  [2 of 3] Compiling A2[abstract sig] ( p/A2.hsig, nothing )
+  [3 of 3] Compiling A2[abstract sig] ( p/A2.hsig, nothing )

@@ -83,6 +83,8 @@ module HscMain
     , hscSimpleIface', hscNormalIface'
     , oneShotMsg
     , hscFileFrontEnd, genericHscFrontend, dumpIfaceStats
+    , ioMsgMaybe
+    , showModuleIndex
     ) where
 
 #ifdef GHCI
@@ -140,6 +142,7 @@ import InstEnv
 import FamInstEnv
 import Fingerprint      ( Fingerprint )
 import Hooks
+import UniqFM
 
 import DynFlags
 import ErrUtils
@@ -187,6 +190,7 @@ newHscEnv dflags = do
                      hsc_EPS          = eps_var,
                      hsc_NC           = nc_var,
                      hsc_FC           = fc_var,
+                     hsc_ifaces       = emptyUFM,
                      hsc_type_env_var = Nothing }
 
 
@@ -305,7 +309,9 @@ hscParse hsc_env mod_summary = runHsc hsc_env $ hscParse' mod_summary
 
 -- internal version, that doesn't fail due to -Werror
 hscParse' :: ModSummary -> Hsc HsParsedModule
-hscParse' mod_summary = do
+hscParse' mod_summary
+ | Just r <- ms_parsed_mod mod_summary = return r
+ | otherwise = do
     dflags <- getDynFlags
     let src_filename  = ms_hspp_file mod_summary
         maybe_src_buf = ms_hspp_buf  mod_summary
@@ -425,7 +431,7 @@ tcRnModule' hsc_env sum save_rn_syntax mod = do
                 False -> return ()
             return tcg_res'
   where
-    pprMod t  = ppr $ moduleName $ tcg_mod t
+    pprMod t  = ppr . moduleName . topModIdentity $ tcg_top_mod t
     errSafe t = quotes (pprMod t) <+> text "has been inferred as safe!"
     errTwthySafe t = quotes (pprMod t)
       <+> text "is marked as Trustworthy but has been inferred as safe!"
@@ -1061,7 +1067,7 @@ markUnsafeInfer tcg_env whyUnsafe = do
 
   where
     wiped_trust   = (tcg_imports tcg_env) { imp_trust_pkgs = [] }
-    pprMod        = ppr $ moduleName $ tcg_mod tcg_env
+    pprMod        = ppr . moduleName . topModIdentity $ tcg_top_mod tcg_env
     whyUnsafe' df = vcat [ quotes pprMod <+> text "has been inferred as unsafe!"
                          , text "Reason:"
                          , nest 4 $ (vcat $ badFlags df) $+$
@@ -1641,7 +1647,7 @@ hscCompileCore hsc_env simplify safe_mode mod_summary binds output_filename
 mkModGuts :: Module -> SafeHaskellMode -> CoreProgram -> ModGuts
 mkModGuts mod safe binds =
     ModGuts {
-        mg_module       = mod,
+        mg_top_module   = hsTopModule mod,
         mg_hsc_src      = HsSrcFile,
         mg_exports      = [],
         mg_deps         = noDependencies,

@@ -1040,7 +1040,7 @@ compileCore simplify fn = do
           cm_safe   = safe_mode
         }
         gutsToCoreModule safe_mode (Right mg) = CoreModule {
-          cm_module  = mg_module mg,
+          cm_module  = topModSemantic (mg_top_module mg),
           cm_types   = typeEnvFromEntities (bindersOfBinds (mg_binds mg))
                                            (mg_tcs mg)
                                            (mg_fam_insts mg),

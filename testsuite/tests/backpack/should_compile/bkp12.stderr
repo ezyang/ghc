@@ -1,0 +1,51 @@
+[1 of 3] Processing p
+/--- Shape for p
+provides:
+requires: H -> p(hole:H):H
+               x
+signature p(hole:H):H
+\---
+  [1 of 1] Compiling H[abstract sig]  ( p/H.hsig, nothing )
+[2 of 3] Processing r
+/--- Shape for r
+provides: M -> r(hole:H):M
+               a
+requires: H -> p(hole:H):H
+               x
+include p(hole:H) [] requires [(H, [p(hole:H):H])]
+module r(hole:H):M
+\---
+  [1 of 2] Including p
+  [2 of 2] Compiling M                ( r/M.hs, nothing )
+[3 of 3] Processing s
+  Instantiating s()
+/--- Shape for s
+provides: H -> s():H
+               x
+          M -> r(s():H):M
+               a
+requires:
+module s():H
+include r(s():H) [(M, r(s():H):M)] requires [(H, [p(s():H):H])]
+\---
+  [1 of 2] Compiling H                ( s/H.hs, nothing )
+  [2 of 2] Including r
+    Instantiating r(s():H)
+/--- Shape for r
+provides: M -> r(s():H):M
+               a
+requires: H -> p(s():H):H
+               x
+include p(s():H) [] requires [(H, [p(s():H):H])]
+module r(s():H):M
+\---
+    [1 of 2] Including p
+      Instantiating p(s():H)
+/--- Shape for p
+provides:
+requires: H -> p(s():H):H
+               s():H.x
+signature p(s():H):H
+\---
+      [1 of 1] Compiling H[abstract sig]  ( p/H.hsig, nothing )
+    [2 of 2] Compiling M                ( r/M.hs, nothing )
