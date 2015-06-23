@@ -1,4 +1,4 @@
-{-# LANGUAGE CPP, RecordWildCards #-}
+{-# LANGUAGE CPP, RecordWildCards, FlexibleInstances #-}
 
 -- |
 -- Package configuration information: essentially the interface to Cabal, with
@@ -30,7 +30,11 @@ module PackageConfig (
         packageUnitId,
 
         -- * Indefinite packages
-        IndefiniteUnitConfig(..), indefShUnitKey,
+        IndefUnitId,
+        IndefModule,
+        IndefUnitKey,
+        IndefiniteUnitConfig,
+        IndefiniteUnitInfo(..),
         IndefiniteUnitId(..),
 
         -- * Package key
@@ -49,7 +53,6 @@ import Unique
 import UniqSet
 
 import Data.Maybe
-import Data.Map (Map)
 
 -- -----------------------------------------------------------------------------
 -- Our PackageConfig type is the InstalledPackageInfo from bin-package-db,
@@ -62,6 +65,10 @@ type PackageConfig = InstalledPackageInfo
                        Module.UnitKey
                        UnitName
                        Module.ModuleName
+type IndefiniteUnitConfig = IndefiniteUnitInfo
+                                InstalledPackageId
+                                UnitName
+                                Module.ModuleName
 
 -- TODO: there's no need for these to be FastString, as we don't need the uniq
 --       feature, but ghc doesn't currently have convenient support for any
@@ -196,11 +203,13 @@ pprPackageConfig InstalledPackageInfo {..} =
 packageConfigId :: PackageConfig -> UnitKey
 packageConfigId = unitKey
 
+-- | This defaults the unit name of a package to its package name, if
+-- it's an old-style one.
 packageUnitName :: PackageConfig -> UnitName
 packageUnitName pkg = let PackageName fs = packageName pkg
                       in fromMaybe (UnitName fs) (unitName pkg)
 
-packageUnitId :: PackageConfig -> IndefiniteUnitId
+packageUnitId :: PackageConfig -> IndefUnitId
 packageUnitId pkg = IndefiniteUnitId (installedPackageId pkg) (unitName pkg)
 
 {-
@@ -211,53 +220,24 @@ packageUnitId pkg = IndefiniteUnitId (installedPackageId pkg) (unitName pkg)
 ************************************************************************
 -}
 
--- | 'IndefiniteUnitConfig' is analogous to 'PackageConfig', except it stores
--- information on indefinite packages.  (Note: definite packages are also
--- "indefinite", they just have no requirements and are pre-built.)
--- TODO: if we write this to disk we have to recover all the package keys!!
--- NB: source code not recorded here, you get it elsewhere
-data IndefiniteUnitConfig = IndefiniteUnitConfig {
-            indefUnitId   :: IndefiniteUnitId,
-            indefProvides :: Map ModuleName Module,
-            indefRequires :: [ModuleName]
-        }
+type IndefUnitId = IndefiniteUnitId InstalledPackageId UnitName
+type IndefModule = IndefiniteModule InstalledPackageId UnitName ModuleName
+type IndefUnitKey = IndefiniteUnitKey InstalledPackageId UnitName ModuleName
 
-instance Outputable IndefiniteUnitConfig where
-    ppr unit = ppr (indefUnitId unit) $$ ppr (indefProvides unit) $$ ppr (indefRequires unit)
-
--- | Computes the 'ShUnitKey' of an 'IndefiniteUnitConfig',
--- assuming all the holes are unfilled.
-indefShUnitKey :: IndefiniteUnitConfig -> ShUnitKey
-indefShUnitKey IndefiniteUnitConfig {
-                    indefUnitId = uid,
-                    indefRequires = requires
-                  } = ShUnitKey {
-                    shUnitKeyUnitId = uid,
-                    shUnitKeyInsts = [ (m, mkModule holeUnitKey m)
-                                        | m <- requires],
-                    shUnitKeyFreeHoles = mkUniqSet requires
-                  }
-
--- | An unit ID uniquely identifies an indefinite unit in the indefinite
--- unit database.  If 'indefUnitName' is 'Nothing', this is an old-style
--- package (required to have no holes.)
-data IndefiniteUnitId
-    = IndefiniteUnitId { indefUnitIPID :: InstalledPackageId
-                       , indefUnitName :: Maybe UnitName }
-    deriving (Eq, Ord)
-
-instance Outputable IndefiniteUnitId where
+instance Outputable (IndefiniteUnitId InstalledPackageId UnitName) where
     ppr (IndefiniteUnitId ipid Nothing) =
-        ppr ipid -- it's the IPID
+        ppr ipid -- it's just this
     ppr (IndefiniteUnitId ipid (Just unit)) =
         -- TODO: qualification logic
         ppr unit <> ifPprDebug (braces (ppr ipid))
 
 -- | An elaborated representation of a 'UnitKey', which records
 -- all of the components that go into the hashed 'UnitKey'.
+-- Invariant: if unit name of the package is Nothing, then the
+-- holes and insts are empty.
 data ShUnitKey
     = ShUnitKey {
-          shUnitKeyUnitId            :: !IndefiniteUnitId,
+          shUnitKeyUnitId            :: !IndefUnitId,
           shUnitKeyInsts             :: ![(ModuleName, Module)],
           shUnitKeyFreeHoles         :: UniqSet ModuleName
       }

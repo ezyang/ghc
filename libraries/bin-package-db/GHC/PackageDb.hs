@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE StandaloneDeriving #-}
 -- This module deliberately defines orphan instances for now (Binary Version).
 {-# OPTIONS_GHC -fno-warn-orphans -fno-warn-name-shadowing #-}
 -----------------------------------------------------------------------------
@@ -37,6 +38,10 @@
 --
 module GHC.PackageDb (
        InstalledPackageInfo(..),
+       IndefiniteUnitInfo(..),
+       IndefiniteUnitKey(..),
+       IndefiniteModule(..),
+       IndefiniteUnitId(..),
        ExposedModule(..),
        OriginalModule(..),
        BinaryStringRep(..),
@@ -96,6 +101,54 @@ data InstalledPackageInfo instpkgid srcpkgid srcpkgname key unitname modulename
        trusted            :: Bool
      }
   deriving (Eq, Show)
+
+-- | This is a subset of Cabal's 'IndefiniteUnitInfo' (to be written),
+-- with just the bits GHC is interested in.  It represents an indefinite
+-- unit in the indefinite unit database.
+-- NOTE: this is keyed purely on libname; I didn't bother defining an
+-- installed indefinite unit ID due to
+-- https://github.com/haskell/cabal/issues/2745 coming down the pipe.
+data IndefiniteUnitInfo instpkgid unitname modulename
+   = IndefiniteUnitInfo {
+       indefUnitId :: IndefiniteUnitId instpkgid unitname,
+       indefProvides :: [(modulename,
+                          IndefiniteModule instpkgid unitname modulename)],
+       indefRequires :: [modulename],
+       indefImportDirs :: [FilePath]
+     }
+  deriving (Eq)
+deriving instance (Show instpkgid, Show unitname, Show modulename)
+                => Show (IndefiniteUnitInfo instpkgid unitname modulename)
+
+-- | An indefinite unit key is like an unit key, but with the full
+-- information (e.g. what was instantiated) so that GHC can substitute
+-- over it.
+data IndefiniteUnitKey instpkgid unitname modulename
+   = IndefiniteUnitKey {
+       indefUnitKeyId :: IndefiniteUnitId instpkgid unitname,
+       indefUnitKeyInsts :: [(modulename,
+                             IndefiniteModule instpkgid unitname modulename)]
+     }
+  deriving (Eq)
+deriving instance (Show instpkgid, Show unitname, Show modulename)
+                => Show (IndefiniteUnitKey instpkgid unitname modulename)
+
+-- | An indefinite module is like an 'OriginalModule', but instead of
+-- recording an 'instpkgid', it records a full 'UnitKey'.
+data IndefiniteModule instpkgid unitname modulename
+   = IndefiniteModule {
+       indefModuleUnitKey :: IndefiniteUnitKey instpkgid unitname modulename,
+       indefModuleName :: modulename
+     }
+  deriving (Eq, Show)
+
+-- | An unit ID uniquely identifies an indefinite unit in the indefinite
+-- unit database.  If 'indefUnitName' is 'Nothing', this is an old-style
+-- package (required to have no holes.)
+data IndefiniteUnitId instpkgid unitname
+    = IndefiniteUnitId { indefUnitLibraryName :: instpkgid
+                       , indefUnitName        :: Maybe unitname }
+    deriving (Eq, Show, Ord)
 
 -- | An original module is a fully-qualified module name (installed package ID
 -- plus module name) representing where a module was *originally* defined

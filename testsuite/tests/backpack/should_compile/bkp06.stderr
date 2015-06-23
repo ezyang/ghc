@@ -1,0 +1,11 @@
+[1 of 1] Processing p
+/--- Shape for p
+provides:
+requires: A1 -> A{A, A, foo, bar}
+          A2 -> hole:A1.A{A, A, bar, foo}
+\---
+  [1 of 5] Compiling A2[boot]         ( p/A2.hs-boot, nothing )
+  [2 of 5] Compiling A1[boot]         ( p/A1.hs-boot, nothing )
+  [3 of 5] Compiling A1[merge]        ( p/A1.hs-boot-merge, nothing )
+  [4 of 5] Compiling A2[boot]         ( p/A2.hs-boot, nothing )
+  [5 of 5] Compiling A2[merge]        ( p/A2.hs-boot-merge, nothing )

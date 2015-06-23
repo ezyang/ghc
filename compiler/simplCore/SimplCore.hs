@@ -68,15 +68,14 @@ import Plugins          ( installCoreToDos )
 -}
 
 core2core :: HscEnv -> ModGuts -> IO ModGuts
-core2core hsc_env guts@(ModGuts { mg_module  = mod
-                                , mg_loc     = loc
+core2core hsc_env guts@(ModGuts { mg_loc     = loc
                                 , mg_deps    = deps
                                 , mg_rdr_env = rdr_env })
   = do { us <- mkSplitUniqSupply 's'
        -- make sure all plugins are loaded
 
        ; let builtin_passes = getCoreToDo dflags
-             orph_mods = mkModuleSet (mod : dep_orphs deps)
+             orph_mods = mkModuleSet (id_mod : dep_orphs (mg_deps guts))
        ;
        ; (guts2, stats) <- runCoreM hsc_env hpt_rule_base us mod
                                     orph_mods print_unqual loc $
@@ -93,9 +92,11 @@ core2core hsc_env guts@(ModGuts { mg_module  = mod
     home_pkg_rules = hptRules hsc_env (dep_mods deps)
     hpt_rule_base  = mkRuleBase home_pkg_rules
     print_unqual   = mkPrintUnqualified dflags rdr_env
+    id_mod         = topModIdentity (mg_top_module guts)
+    mod            = topModSemantic (mg_top_module guts)
     -- mod: get the module out of the current HscEnv so we can retrieve it from the monad.
     -- This is very convienent for the users of the monad (e.g. plugins do not have to
-    -- consume the ModGuts to find the module) but somewhat ugly because mg_module may
+    -- consume the ModGuts to find the module) but somewhat ugly because mg_top_module may
     -- _theoretically_ be changed during the Core pipeline (it's part of ModGuts), which
     -- would mean our cached value would go out of date.
 
@@ -557,7 +558,7 @@ simplifyPgmIO :: CoreToDo
 
 simplifyPgmIO pass@(CoreDoSimplify max_iterations mode)
               hsc_env us hpt_rule_base
-              guts@(ModGuts { mg_module = this_mod
+              guts@(ModGuts { mg_top_module = top_mod
                             , mg_rdr_env = rdr_env
                             , mg_deps = deps
                             , mg_binds = binds, mg_rules = rules
@@ -633,7 +634,7 @@ simplifyPgmIO pass@(CoreDoSimplify max_iterations mode)
                        InitialPhase -> (mg_vect_decls guts, vectVars)
                        _            -> ([], vectVars)
                ; tagged_binds = {-# SCC "OccAnal" #-}
-                     occurAnalysePgm this_mod active_rule rules
+                     occurAnalysePgm (topModSemantic top_mod) active_rule rules
                                      maybeVects maybeVectVars binds
                } ;
            Err.dumpIfSet_dyn dflags Opt_D_dump_occur_anal "Occurrence analysis"
@@ -649,7 +650,7 @@ simplifyPgmIO pass@(CoreDoSimplify max_iterations mode)
            let  { rule_base1 = unionRuleBase hpt_rule_base (eps_rule_base eps)
                 ; rule_base2 = extendRuleBaseList rule_base1 rules
                 ; fam_envs = (eps_fam_inst_env eps, fam_inst_env)
-                ; vis_orphs = this_mod : dep_orphs deps } ;
+                ; vis_orphs = topModIdentity top_mod : dep_orphs deps } ;
 
                 -- Simplify the program
            ((binds1, rules1), counts1) <-

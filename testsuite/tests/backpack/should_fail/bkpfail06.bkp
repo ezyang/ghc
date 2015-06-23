@@ -1,0 +1,11 @@
+unit p where
+    signature H where
+        data T = T Int
+unit qimpl where
+    module T where
+        data T = T Bool
+    module H(T(..)) where
+        import T
+unit q where
+    include qimpl
+    include p

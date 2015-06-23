@@ -1,0 +1,29 @@
+[1 of 4] Processing h
+/--- Shape for h
+provides:
+requires: H -> T{T, T1}
+\---
+  [1 of 2] Compiling H[boot]          ( h/H.hs-boot, nothing )
+  [2 of 2] Compiling H[merge]         ( h/H.hs-boot-merge, nothing )
+[2 of 4] Processing t-impl
+/--- Shape for t-impl
+provides: T -> t-impl():T
+               T{T, T2}
+requires:
+\---
+  [1 of 1] Compiling T                ( t-impl/T.hs, nothing )
+  Instantiating t-impl()
+  [1 of 1] Compiling T                ( t-impl/T.hs, nothing )
+[3 of 4] Processing p
+/--- Shape for p
+provides: T -> t-impl@Cf8IaI63Boq4pnMRtxr9QQ:T
+               T{T, T2}
+requires: H -> t-impl@Cf8IaI63Boq4pnMRtxr9QQ:T.T{T, T1, T2}
+\---
+  [1 of 2] Compiling H[boot]          ( p/H.hs-boot, nothing )
+  [2 of 2] Compiling H[merge]         ( p/H.hs-boot-merge, nothing )
+[4 of 4] Processing q
+
+bkpfail05.bkp:21:5: error:
+    Cannot use module q():H to instantiate hole at H
+    Missing implementations of: T1

@@ -589,7 +589,8 @@ makeMergeRequirementSummary hsc_env obj_allowed mod_name = do
             ms_merge_imps = (has_local_boot, []),
             ms_hspp_file = "FAKE",
             ms_hspp_opts = dflags,
-            ms_hspp_buf = Nothing
+            ms_hspp_buf = Nothing,
+            ms_parsed_mod = Nothing
             }
 
 -- | Top-level entry point for @ghc -merge-requirement ModName@.
@@ -1077,6 +1078,7 @@ runPhase (RealPhase (Hsc src_flavour)) input_fn dflags0
                                         ms_hspp_file = input_fn,
                                         ms_hspp_opts = dflags,
                                         ms_hspp_buf  = hspp_buf,
+                                        ms_parsed_mod = Nothing,
                                         ms_location  = location,
                                         ms_hs_date   = src_timestamp,
                                         ms_obj_date  = Nothing,

@@ -11,6 +11,7 @@ module Finder (
     FindResult(..),
     findImportedModule,
     findExactModule,
+    findIndefiniteModule,
     findHomeModule,
     findExposedPackageModule,
     mkHomeModLocation,
@@ -39,6 +40,7 @@ import PrelNames        ( gHC_PRIM )
 import DynFlags
 import Outputable
 import Maybes           ( expectJust )
+import ShUnitKey
 
 import Data.IORef       ( IORef, readIORef, atomicModifyIORef' )
 import System.Directory
@@ -125,6 +127,13 @@ findExactModule hsc_env mod =
        then findHomeModule hsc_env (moduleName mod)
        else findPackageModule hsc_env mod
 
+findIndefiniteModule :: HscEnv -> Module -> IO FindResult
+findIndefiniteModule hsc_env mod =
+    let dflags = hsc_dflags hsc_env
+    in if moduleUnitKey mod == thisPackage dflags
+       then findHomeModule hsc_env (moduleName mod)
+       else findIndefinitePackageModule hsc_env mod
+
 -- -----------------------------------------------------------------------------
 -- Helpers
 
@@ -162,7 +171,8 @@ findExposedPackageModule :: HscEnv -> ModuleName -> Maybe FastString
 findExposedPackageModule hsc_env mod_name mb_pkg
   = case lookupModuleWithSuggestions (hsc_dflags hsc_env) mod_name mb_pkg of
      LookupFound m pkg_conf ->
-       findPackageModule_ hsc_env m pkg_conf
+       ASSERT( moduleUnitKey m == packageConfigId pkg_conf )
+       findPackageModule_ hsc_env m (importDirs pkg_conf)
      LookupMultiple rs ->
        return (FoundMultiple rs)
      LookupHidden pkg_hiddens mod_hiddens ->
@@ -262,7 +272,9 @@ findPackageModule hsc_env mod = do
   --
   case lookupPackage dflags pkg_id of
      Nothing -> return (NoPackage pkg_id)
-     Just pkg_conf -> findPackageModule_ hsc_env mod pkg_conf
+     Just pkg_conf ->
+        ASSERT( moduleUnitKey mod == packageConfigId pkg_conf )
+        findPackageModule_ hsc_env mod (importDirs pkg_conf)
 
 -- | Look up the interface file associated with module @mod@.  This function
 -- requires a few invariants to be upheld: (1) the 'Module' in question must
@@ -271,9 +283,8 @@ findPackageModule hsc_env mod = do
 -- the 'PackageConfig' must be consistent with the unit key in the 'Module'.
 -- The redundancy is to avoid an extra lookup in the package state
 -- for the appropriate config.
-findPackageModule_ :: HscEnv -> Module -> PackageConfig -> IO FindResult
-findPackageModule_ hsc_env mod pkg_conf =
-  ASSERT( moduleUnitKey mod == packageConfigId pkg_conf )
+findPackageModule_ :: HscEnv -> Module -> [FilePath] -> IO FindResult
+findPackageModule_ hsc_env mod import_dirs =
   modLocationCache hsc_env mod $
 
   -- special case for GHC.Prim; we won't find it in the filesystem.
@@ -291,7 +302,6 @@ findPackageModule_ hsc_env mod pkg_conf =
 
      mk_hi_loc = mkHiOnlyModLocation dflags package_hisuf
 
-     import_dirs = importDirs pkg_conf
       -- we never look for a .hi-boot file in an external package;
       -- .hi-boot files only make sense for the home package.
   in
@@ -304,6 +314,16 @@ findPackageModule_ hsc_env mod pkg_conf =
           return (Found loc mod)
     _otherwise ->
           searchPathExts import_dirs mod [(package_hisuf, mk_hi_loc)]
+
+findIndefinitePackageModule :: HscEnv -> Module -> IO FindResult
+findIndefinitePackageModule hsc_env mod = do
+    let dflags = hsc_dflags hsc_env
+        pk = moduleUnitKey mod
+    uid <- unitKeyUnitId dflags pk
+    case lookupIndefiniteUnit dflags uid of
+        IndefNotFound -> return (NoPackage pk)
+        IndefFoundIndefinite conf -> findPackageModule_ hsc_env mod (indefImportDirs conf)
+        IndefFoundDefinite conf -> findPackageModule_ hsc_env mod (importDirs conf)
 
 -- -----------------------------------------------------------------------------
 -- General path searching

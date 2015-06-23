@@ -72,14 +72,14 @@ import qualified Data.Map as Map
 initTc :: HscEnv
        -> HscSource
        -> Bool          -- True <=> retain renamed syntax trees
-       -> Module
+       -> TopModule
        -> RealSrcSpan
        -> TcM r
        -> IO (Messages, Maybe r)
                 -- Nothing => error thrown by the thing inside
                 -- (error messages should have been printed already)
 
-initTc hsc_env hsc_src keep_rn_syntax mod loc do_this
+initTc hsc_env hsc_src keep_rn_syntax top_mod loc do_this
  = do { errs_var     <- newIORef (emptyBag, emptyBag) ;
         tvs_var      <- newIORef emptyVarSet ;
         keep_var     <- newIORef emptyNameSet ;
@@ -117,14 +117,14 @@ initTc hsc_env hsc_src keep_rn_syntax mod loc do_this
                 tcg_th_state         = th_state_var,
 #endif /* GHCI */
 
-                tcg_mod            = mod,
+                tcg_top_mod        = top_mod,
                 tcg_src            = hsc_src,
-                tcg_sig_of         = getSigOf dflags (moduleName mod),
                 tcg_impl_rdr_env   = Nothing,
                 tcg_rdr_env        = emptyGlobalRdrEnv,
                 tcg_fix_env        = emptyNameEnv,
                 tcg_field_env      = RecFields emptyNameEnv emptyNameSet,
-                tcg_default        = if moduleUnitKey mod == primUnitKey
+                tcg_default        = if moduleUnitKey (topModIdentity top_mod)
+                                            == primUnitKey
                                      then Just []  -- See Note [Default types]
                                      else Nothing,
                 tcg_type_env       = emptyNameEnv,
@@ -164,6 +164,8 @@ initTc hsc_env hsc_src keep_rn_syntax mod loc do_this
                 tcg_self_boot      = NoSelfBoot,
                 tcg_safeInfer      = infer_var,
                 tcg_dependent_files = dependent_files_var,
+                tcg_ifaces         = emptyUFM,
+                tcg_shaping        = False,
                 tcg_tc_plugins     = [],
                 tcg_static_wc      = static_wc_var
              } ;
@@ -211,7 +213,7 @@ initTcInteractive :: HscEnv -> TcM a -> IO (Messages, Maybe a)
 -- Initialise the type checker monad for use in GHCi
 initTcInteractive hsc_env thing_inside
   = initTc hsc_env HsSrcFile False
-           (icInteractiveModule (hsc_IC hsc_env))
+           (hsTopModule (icInteractiveModule (hsc_IC hsc_env)))
            (realSrcLocSpan interactive_src_loc)
            thing_inside
   where
@@ -314,6 +316,10 @@ goptM flag = do { dflags <- getDynFlags; return (gopt flag dflags) }
 
 woptM :: WarningFlag -> TcRnIf gbl lcl Bool
 woptM flag = do { dflags <- getDynFlags; return (wopt flag dflags) }
+
+setThisPackageM :: UnitKey -> TcRnIf gbl lcl a -> TcRnIf gbl lcl a
+setThisPackageM pk = updEnv (\ env@(Env { env_top = top }) ->
+                          env { env_top = top { hsc_dflags = (hsc_dflags top) { thisPackage = pk} }} )
 
 setXOptM :: ExtensionFlag -> TcRnIf gbl lcl a -> TcRnIf gbl lcl a
 setXOptM flag = updEnv (\ env@(Env { env_top = top }) ->
@@ -595,8 +601,8 @@ traceOptIf flag doc
 ************************************************************************
 -}
 
-setModule :: Module -> TcRn a -> TcRn a
-setModule mod thing_inside = updGblEnv (\env -> env { tcg_mod = mod }) thing_inside
+setTopModule :: TopModule -> TcRn a -> TcRn a
+setTopModule mod thing_inside = updGblEnv (\env -> env { tcg_top_mod = mod }) thing_inside
 
 getIsGHCi :: TcRn Bool
 getIsGHCi = do { mod <- getModule
@@ -1371,8 +1377,17 @@ mkIfLclEnv mod loc = IfLclEnv { if_mod     = mod,
 initIfaceTcRn :: IfG a -> TcRn a
 initIfaceTcRn thing_inside
   = do  { tcg_env <- getGblEnv
-        ; let { if_env = IfGblEnv {
-                            if_rec_types = Just (tcg_mod tcg_env, get_type_env)
+        ; mod <- getModule
+        ; let { if_env
+                 -- rec types not necessary for signatures; we'll suck the
+                 -- right ones in externally
+                 | Just _ <- tcg_impl_rdr_env tcg_env = IfGblEnv {
+                            if_impl_rdr_env = Nothing,
+                            if_rec_types = Nothing
+                        }
+                 | otherwise = IfGblEnv {
+                            if_impl_rdr_env = Nothing,
+                            if_rec_types = Just (mod, get_type_env)
                          }
               ; get_type_env = readTcRef (tcg_type_env_var tcg_env) }
         ; setEnvs (if_env, ()) thing_inside }
@@ -1384,7 +1399,8 @@ initIfaceCheck hsc_env do_this
  = do let rec_types = case hsc_type_env_var hsc_env of
                          Just (mod,var) -> Just (mod, readTcRef var)
                          Nothing        -> Nothing
-          gbl_env = IfGblEnv { if_rec_types = rec_types }
+          gbl_env = IfGblEnv { if_rec_types = rec_types
+                             , if_impl_rdr_env = Nothing }
       initTcRnIf 'i' hsc_env gbl_env () do_this
 
 initIfaceTc :: ModIface
@@ -1394,6 +1410,7 @@ initIfaceTc :: ModIface
 initIfaceTc iface do_this
  = do   { tc_env_var <- newTcRef emptyTypeEnv
         ; let { gbl_env = IfGblEnv {
+                            if_impl_rdr_env = mi_impl_rdr_env iface,
                             if_rec_types = Just (mod, readTcRef tc_env_var)
                           } ;
               ; if_lenv = mkIfLclEnv mod doc
@@ -1401,7 +1418,7 @@ initIfaceTc iface do_this
         ; setEnvs (gbl_env, if_lenv) (do_this tc_env_var)
     }
   where
-    mod = mi_module iface
+    mod = mi_semantic_module iface
     doc = ptext (sLit "The interface for") <+> quotes (ppr mod)
 
 initIfaceLcl :: Module -> SDoc -> IfL a -> IfM lcl a

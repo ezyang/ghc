@@ -85,6 +85,7 @@ import FastString
 import Binary
 import Util
 import {-# SOURCE #-} Packages
+import {-# SOURCE #-} ShUnitKey
 import GHC.PackageDb (BinaryStringRep(..))
 
 import Data.Data
@@ -328,7 +329,7 @@ stableUnitKeyCmp p1 p2 = unitKeyFS p1 `compare` unitKeyFS p2
 instance Outputable UnitKey where
    ppr pk = getPprStyle $ \sty -> sdocWithDynFlags $ \dflags ->
     case unitKeyPackageIdString dflags pk of
-      Nothing -> ftext (unitKeyFS pk)
+      Nothing -> pprUnitKey pk
       Just pkg -> text pkg
            -- Don't bother qualifying if it's wired in!
            <> (if qualPackage sty pk && not (pk `elem` wiredInUnitKeys)

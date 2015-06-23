@@ -277,6 +277,7 @@ data DumpFlag
    | Opt_D_dump_occur_anal
    | Opt_D_dump_parsed
    | Opt_D_dump_rn
+   | Opt_D_dump_shape
    | Opt_D_dump_simpl
    | Opt_D_dump_simpl_iterations
    | Opt_D_dump_spec
@@ -714,6 +715,9 @@ data DynFlags = DynFlags {
   thisIPID              :: InstalledPackageId,
                             -- ^ the IPID which identifies the textual
                             --   package being compiled.
+  thisUnitName          :: Maybe UnitName,
+                            -- ^ for one-shot compilation, the name of the unit
+                            -- being compiled
 
   -- ways
   ways                  :: [Way],       -- ^ Way flags from the command line
@@ -794,11 +798,14 @@ data DynFlags = DynFlags {
         -- ^ The @-package@ and @-hide-package@ flags from the command-line
   packageEnv            :: Maybe FilePath,
         -- ^ Filepath to the package environment file (if overriding default)
+  packageModuleMap      :: Map ModuleName Module,
+        -- ^ Backpack programmable mapping of module names to modules
 
   -- Package state
   -- NB. do not modify this field, it is calculated by
   -- Packages.initPackages
   pkgDatabase           :: Maybe [PackageConfig],
+  indefPkgDatabase      :: Maybe [IndefiniteUnitConfig],
   pkgState              :: PackageState,
   unitKeyCache           :: {-# UNPACK #-} !(IORef UnitKeyCache),
 
@@ -1454,6 +1461,7 @@ defaultDynFlags mySettings =
 
         thisPackage             = mainUnitKey,
         thisIPID                = InstalledPackageId nilFS,
+        thisUnitName            = Nothing,
 
         objectDir               = Nothing,
         dylibInstallName        = Nothing,
@@ -1496,7 +1504,9 @@ defaultDynFlags mySettings =
         extraPkgConfs           = id,
         packageFlags            = [],
         packageEnv              = Nothing,
+        packageModuleMap        = Map.empty,
         pkgDatabase             = Nothing,
+        indefPkgDatabase        = Nothing,
         -- This gets filled in with GHC.setSessionDynFlags
         pkgState                = emptyPackageState,
         unitKeyCache             = v_unsafePkgKeyCache,
@@ -1709,6 +1719,7 @@ dopt f dflags = (fromEnum f `IntSet.member` dumpFlags dflags)
           enableIfVerbose Opt_D_dump_vt_trace               = False
           enableIfVerbose Opt_D_dump_tc                     = False
           enableIfVerbose Opt_D_dump_rn                     = False
+          enableIfVerbose Opt_D_dump_shape                  = False
           enableIfVerbose Opt_D_dump_rn_stats               = False
           enableIfVerbose Opt_D_dump_hi_diffs               = False
           enableIfVerbose Opt_D_verbose_core2core           = False
@@ -2492,6 +2503,7 @@ dynamic_flags = [
   , defGhcFlag "ddump-cse"               (setDumpFlag Opt_D_dump_cse)
   , defGhcFlag "ddump-worker-wrapper"    (setDumpFlag Opt_D_dump_worker_wrapper)
   , defGhcFlag "ddump-rn-trace"          (setDumpFlag Opt_D_dump_rn_trace)
+  , defGhcFlag "ddump-shape"             (setDumpFlag Opt_D_dump_shape)
   , defGhcFlag "ddump-if-trace"          (setDumpFlag Opt_D_dump_if_trace)
   , defGhcFlag "ddump-cs-trace"          (setDumpFlag Opt_D_dump_cs_trace)
   , defGhcFlag "ddump-tc-trace"          (NoArg (do
@@ -2751,6 +2763,7 @@ package_flags = [
   , defGhcFlag "this-package-key"   (hasArg setUnitKey)
   , defGhcFlag "this-unit-key"      (hasArg setUnitKey)
   , defGhcFlag "this-ipid"          (hasArg setIPID)
+  , defGhcFlag "this-unit-name"     (hasArg setUnitName)
   , defFlag "package-id"            (HasArg exposePackageId)
   , defFlag "package"               (HasArg exposePackage)
     -- backwards compat with GHC 7.10; not deprecated for now
@@ -3756,6 +3769,9 @@ setUnitKey p s =  s{ thisPackage = stringToUnitKey p }
 
 setIPID :: String -> DynFlags -> DynFlags
 setIPID v s = s{ thisIPID = InstalledPackageId (mkFastString v) }
+
+setUnitName :: String -> DynFlags -> DynFlags
+setUnitName n s = s{ thisUnitName = Just (UnitName (mkFastString n)) }
 
 -- -----------------------------------------------------------------------------
 -- | Find the package environment (if one exists)

@@ -1,0 +1,37 @@
+[1 of 3] Processing p
+/--- Shape for p
+provides:
+requires: H -> T{T}, f
+\---
+  [1 of 2] Compiling H[boot]          ( p/H.hs-boot, nothing )
+  [2 of 2] Compiling H[merge]         ( p/H.hs-boot-merge, nothing )
+[2 of 3] Processing impl
+/--- Shape for impl
+provides: H -> impl():H
+               impl():F.T{T}, impl():F.f
+          F -> impl():F
+               T{T, T}, f
+requires:
+\---
+  [1 of 2] Compiling F                ( impl/F.hs, nothing )
+  [2 of 2] Compiling H                ( impl/H.hs, nothing )
+  Instantiating impl()
+  [1 of 2] Compiling F                ( impl/F.hs, bkp14-out/impl/Ds9t8s5SCxiCEhBLF0uo3i/F.o )
+  [2 of 2] Compiling H                ( impl/H.hs, bkp14-out/impl/Ds9t8s5SCxiCEhBLF0uo3i/H.o )
+[3 of 3] Processing q
+/--- Shape for q
+provides: H -> impl@Ds9t8s5SCxiCEhBLF0uo3i:H
+               impl@Ds9t8s5SCxiCEhBLF0uo3i:F.f, impl@Ds9t8s5SCxiCEhBLF0uo3i:F.T{T}
+          F -> impl@Ds9t8s5SCxiCEhBLF0uo3i:F
+               f, T{T, T}
+requires:
+\---
+  Instantiating q()
+  [1 of 2] Including impl
+    Instantiating impl
+    [1 of 2] Compiling F                ( impl/F.hs, bkp14-out/impl/Ds9t8s5SCxiCEhBLF0uo3i/F.o )
+    [2 of 2] Compiling H                ( impl/H.hs, bkp14-out/impl/Ds9t8s5SCxiCEhBLF0uo3i/H.o )
+  [2 of 2] Including p
+    Instantiating p(impl:H)
+    [1 of 2] Compiling H[boot]          ( p/H.hs-boot, bkp14-out/p/EtCOuyOWzau8Uni27o76zy/H.o )
+    [2 of 2] Compiling H[merge]         ( p/H.hs-boot-merge, bkp14-out/p/EtCOuyOWzau8Uni27o76zy/H.o )

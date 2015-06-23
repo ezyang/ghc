@@ -299,7 +299,7 @@ RHSs, so that they print nicely in interfaces.
 -}
 
 tidyProgram :: HscEnv -> ModGuts -> IO (CgGuts, ModDetails)
-tidyProgram hsc_env  (ModGuts { mg_module    = mod
+tidyProgram hsc_env  (ModGuts { mg_top_module= TopModule{ topModSemantic = mod }
                               , mg_exports   = exports
                               , mg_rdr_env   = rdr_env
                               , mg_tcs       = tcs

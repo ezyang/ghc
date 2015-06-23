@@ -7,7 +7,7 @@ module Packages (
         module PackageConfig,
 
         -- * Reading the package config, and processing cmdline args
-        PackageState(preloadPackages),
+        PackageState(..), -- TODO REVERT ME
         emptyPackageState,
         initPackages,
         readPackageConfigs,
@@ -18,6 +18,7 @@ module Packages (
 
         -- * Querying the package config
         lookupPackage,
+        lookupUnitName,
         searchPackageId,
         getPackageDetails,
         listVisibleModuleNames,
@@ -26,6 +27,10 @@ module Packages (
         LookupResult(..),
         ModuleSuggestion(..),
         ModuleOrigin(..),
+
+        -- * Querying the indefinite package config
+        lookupIndefiniteUnit,
+        IndefiniteLookupResult(..),
 
         -- * Inspecting the set of packages in scope
         getPackageIncludePath,
@@ -67,6 +72,7 @@ import FastString
 import ErrUtils         ( debugTraceMsg, MsgDoc )
 import Exception
 import Unique
+import {-# SOURCE #-} ShUnitKey
 
 import System.Directory
 import System.FilePath as FilePath
@@ -219,6 +225,8 @@ type UnitKeyMap = UniqFM
 -- | 'UniqFM' map from 'UnitKey' to 'PackageConfig'
 type PackageConfigMap = UnitKeyMap PackageConfig
 
+type IndefiniteUnitConfigMap = Map IndefUnitId IndefiniteUnitConfig
+
 -- | 'UniqFM' map from 'UnitKey' to (1) whether or not all modules which
 -- are exposed should be dumped into scope, (2) any custom renamings that
 -- should also be apply, and (3) what package name is associated with the
@@ -240,6 +248,13 @@ data PackageState = PackageState {
   -- may have the 'exposed' flag be 'False'.)
   pkgIdMap              :: PackageConfigMap,
 
+  -- | A mapping of 'IndefUnitId' to 'IndefiniteUnitConfig'.
+  indefUnitIdMap        :: IndefiniteUnitConfigMap,
+
+  -- | A mapping of 'UnitName' to 'IndefUnitId'.  This is used when
+  -- users refer to units, e.g. Backpack includes.
+  unitNameMap            :: Map UnitName IndefUnitId,
+
   -- | The packages we're going to link in eagerly.  This list
   -- should be in reverse dependency order; that is, a package
   -- is always mentioned before the packages it depends on.
@@ -254,6 +269,8 @@ data PackageState = PackageState {
 emptyPackageState :: PackageState
 emptyPackageState = PackageState {
     pkgIdMap = emptyUFM,
+    indefUnitIdMap = Map.empty,
+    unitNameMap = Map.empty,
     preloadPackages = [],
     moduleToPkgConfAll = Map.empty
     }
@@ -270,6 +287,28 @@ lookupPackage dflags = lookupPackage' (pkgIdMap (pkgState dflags))
 
 lookupPackage' :: PackageConfigMap -> UnitKey -> Maybe PackageConfig
 lookupPackage' = lookupUFM
+
+data IndefiniteLookupResult
+    = IndefFoundIndefinite IndefiniteUnitConfig
+    | IndefFoundDefinite PackageConfig
+    | IndefNotFound
+
+lookupIndefiniteUnit :: DynFlags -> IndefUnitId -> IndefiniteLookupResult
+lookupIndefiniteUnit dflags uid@(IndefiniteUnitId lib _) =
+    case Map.lookup uid (indefUnitIdMap st) of
+        Just cfg -> IndefFoundIndefinite cfg
+        Nothing -> case lookupUFM (pkgIdMap st) key of
+            Just pkgconf -> ASSERT ( packageUnitId pkgconf == uid )
+                            IndefFoundDefinite pkgconf
+            Nothing -> IndefNotFound
+  where st = pkgState dflags
+        key = let InstalledPackageId fs = lib
+              in fsToUnitKey fs
+
+-- | Find the package we know about with the given package name (e.g. @foo@), if any
+-- (NB: there might be a locally defined unit name which overrides this)
+lookupUnitName :: DynFlags -> UnitName -> Maybe IndefUnitId
+lookupUnitName dflags n = Map.lookup n (unitNameMap (pkgState dflags))
 
 -- | Search for packages with a given package ID (e.g. \"foo-0.1\")
 searchPackageId :: DynFlags -> SourcePackageId -> [PackageConfig]
@@ -317,9 +356,13 @@ initPackages dflags = do
   pkg_db <- case pkgDatabase dflags of
                 Nothing -> readPackageConfigs dflags
                 Just db -> return $ setBatchPackageFlags dflags db
+  indef_pkg_db <- case indefPkgDatabase dflags of
+                    Nothing -> return [] -- TODO
+                    Just db -> return db -- TODO set package flags
   (pkg_state, preload, this_pkg)
-        <- mkPackageState dflags pkg_db []
+        <- mkPackageState dflags pkg_db indef_pkg_db []
   return (dflags{ pkgDatabase = Just pkg_db,
+                  indefPkgDatabase = Just indef_pkg_db,
                   pkgState = pkg_state,
                   thisPackage = this_pkg },
           preload)
@@ -708,7 +751,9 @@ findWiredInPackages dflags pkgs vis_map = do
           where upd_pkg pkg
                   | unitKey pkg `elem` wired_in_ids
                   = pkg {
-                      unitKey = stringToUnitKey (packageNameString pkg)
+                      -- TODO: Don't trip through String
+                      unitKey = stringToUnitKey (packageNameString pkg),
+                      installedPackageId = InstalledPackageId (mkFastString (packageNameString pkg))
                     }
                   | otherwise
                   = pkg
@@ -807,17 +852,24 @@ ignorePackages flags pkgs = Map.fromList (concatMap doit flags)
 mkPackageState
     :: DynFlags
     -> [PackageConfig]          -- initial database
+    -> [IndefiniteUnitConfig]   -- initial (indefinite) database
     -> [UnitKey]              -- preloaded packages
     -> IO (PackageState,
            [UnitKey],         -- new packages to preload
            UnitKey) -- this package, might be modified if the current
                       -- package is a wired-in package.
 
-mkPackageState dflags0 pkgs0 preload0 = do
+mkPackageState dflags0 pkgs0 ipkgs0 preload0 = do
   dflags <- interpretPackageEnv dflags0
 
-  -- Compute the unit key
-  let this_package = thisPackage dflags
+  -- Compute the package key
+  this_package <-
+        case thisUnitName dflags of
+            Nothing -> return (thisPackage dflags)
+            Just unitName ->
+                newUnitKey dflags
+                  (IndefiniteUnitId (thisIPID dflags) (Just unitName))
+                  (Map.toList (sigOf dflags))
 
 {-
    Plan.
@@ -939,6 +991,12 @@ mkPackageState dflags0 pkgs0 preload0 = do
       get_exposed _                 = []
 
   let pkg_db = extendPackageConfigMap emptyPackageConfigMap pkgs3
+      ipkgs = ipkgs0 -- TODO: apply shadowing to indefinite packages too
+      indef_pkg_db = foldl add Map.empty ipkgs
+        where add m p = Map.insert (indefUnitId p) p m
+      -- TODO: make this customizably programmable
+      unitname_map = foldl add Map.empty pkgs3
+        where add pn_map p = Map.insert (packageUnitName p) (packageUnitId p) pn_map
 
   let preload2 = preload1
 
@@ -962,7 +1020,9 @@ mkPackageState dflags0 pkgs0 preload0 = do
   let pstate = PackageState{
     preloadPackages     = dep_preload,
     pkgIdMap            = pkg_db,
-    moduleToPkgConfAll  = mkModuleToPkgConfAll dflags pkg_db vis_map
+    indefUnitIdMap      = indef_pkg_db,
+    moduleToPkgConfAll  = mkModuleToPkgConfAll dflags pkg_db vis_map,
+    unitNameMap          = unitname_map
     }
   return (pstate, new_dep_preload, this_package)
 

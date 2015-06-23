@@ -1,0 +1,15 @@
+[1 of 2] Processing p
+/--- Shape for p
+provides:
+requires: A -> foo
+\---
+  [1 of 2] Compiling A[boot]          ( p/A.hs-boot, nothing )
+  [2 of 2] Compiling A[merge]         ( p/A.hs-boot-merge, nothing )
+[2 of 2] Processing q
+/--- Shape for q
+provides: B -> q(hole:A):B
+               bar
+requires: A -> foo
+\---
+  [1 of 2] Compiling A[merge]         ( q/A.hs-boot-merge, nothing )
+  [2 of 2] Compiling B                ( q/B.hs, nothing )

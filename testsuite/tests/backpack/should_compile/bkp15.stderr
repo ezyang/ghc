@@ -1,0 +1,83 @@
+[1 of 5] Processing p
+/--- Shape for p
+provides:
+requires: T -> T{T}
+          H -> f
+\---
+  [1 of 4] Compiling T[boot]          ( p/T.hs-boot, nothing )
+  [2 of 4] Compiling T[merge]         ( p/T.hs-boot-merge, nothing )
+  [3 of 4] Compiling H[boot]          ( p/H.hs-boot, nothing )
+  [4 of 4] Compiling H[merge]         ( p/H.hs-boot-merge, nothing )
+[2 of 5] Processing timpl
+/--- Shape for timpl
+provides: TImpl -> timpl():TImpl
+                   T{T, T}
+requires:
+\---
+  [1 of 1] Compiling TImpl            ( timpl/TImpl.hs, nothing )
+  Instantiating timpl()
+  [1 of 1] Compiling TImpl            ( timpl/TImpl.hs, bkp15-out/timpl/5bN3eUslK7y30Emqr9cyvC/TImpl.o )
+[3 of 5] Processing q
+/--- Shape for q
+provides: TImpl -> timpl@5bN3eUslK7y30Emqr9cyvC:TImpl
+                   T{T, T}
+          A -> q(hole:T, hole:H):A
+               x
+requires: T -> timpl@5bN3eUslK7y30Emqr9cyvC:TImpl.T{T}
+          H -> f
+\---
+  [1 of 4] Compiling H[merge]         ( q/H.hs-boot-merge, nothing )
+  [2 of 4] Compiling A                ( q/A.hs, nothing )
+  [3 of 4] Compiling T[boot]          ( q/T.hs-boot, nothing )
+  [4 of 4] Compiling T[merge]         ( q/T.hs-boot-merge, nothing )
+[4 of 5] Processing r-impl
+/--- Shape for r-impl
+provides: T -> r-impl():T
+               timpl@5bN3eUslK7y30Emqr9cyvC:TImpl.T{T}
+          H -> r-impl():H
+               f
+          TImpl -> timpl@5bN3eUslK7y30Emqr9cyvC:TImpl
+                   T{T, T}
+requires:
+\---
+  [1 of 2] Compiling T                ( r-impl/T.hs, nothing )
+  [2 of 2] Compiling H                ( r-impl/H.hs, nothing )
+  Instantiating r-impl()
+  [1 of 1] Including timpl
+    Instantiating timpl
+    [1 of 1] Compiling TImpl            ( timpl/TImpl.hs, bkp15-out/timpl/5bN3eUslK7y30Emqr9cyvC/TImpl.o )
+  [1 of 2] Compiling T                ( r-impl/T.hs, bkp15-out/r-impl/A5yYDwCGG5V76ibo5ePp0G/T.o )
+  [2 of 2] Compiling H                ( r-impl/H.hs, bkp15-out/r-impl/A5yYDwCGG5V76ibo5ePp0G/H.o )
+[5 of 5] Processing r
+/--- Shape for r
+provides: T -> r-impl@A5yYDwCGG5V76ibo5ePp0G:T
+               timpl@5bN3eUslK7y30Emqr9cyvC:TImpl.T{T}
+          H -> r-impl@A5yYDwCGG5V76ibo5ePp0G:H
+               f
+          A -> q(r-impl@A5yYDwCGG5V76ibo5ePp0G:T, r-impl@A5yYDwCGG5V76ibo5ePp0G:H):A
+               x
+requires:
+\---
+  Instantiating r()
+  [1 of 2] Including r-impl
+    Instantiating r-impl
+    [1 of 1] Including timpl
+      Instantiating timpl
+      [1 of 1] Compiling TImpl            ( timpl/TImpl.hs, bkp15-out/timpl/5bN3eUslK7y30Emqr9cyvC/TImpl.o )
+    [1 of 2] Compiling T                ( r-impl/T.hs, bkp15-out/r-impl/A5yYDwCGG5V76ibo5ePp0G/T.o )
+    [2 of 2] Compiling H                ( r-impl/H.hs, bkp15-out/r-impl/A5yYDwCGG5V76ibo5ePp0G/H.o )
+  [2 of 2] Including q
+    Instantiating q(r-impl:T, r-impl:H)
+    [1 of 2] Including p
+      Instantiating p(r-impl:T, r-impl:H)
+      [1 of 4] Compiling T[boot]          ( p/T.hs-boot, bkp15-out/p/1LOWqB5PsUoHeo9mZvSQI8/T.o )
+      [2 of 4] Compiling T[merge]         ( p/T.hs-boot-merge, bkp15-out/p/1LOWqB5PsUoHeo9mZvSQI8/T.o )
+      [3 of 4] Compiling H[boot]          ( p/H.hs-boot, bkp15-out/p/1LOWqB5PsUoHeo9mZvSQI8/H.o )
+      [4 of 4] Compiling H[merge]         ( p/H.hs-boot-merge, bkp15-out/p/1LOWqB5PsUoHeo9mZvSQI8/H.o )
+    [2 of 2] Including timpl
+      Instantiating timpl
+      [1 of 1] Compiling TImpl            ( timpl/TImpl.hs, bkp15-out/timpl/5bN3eUslK7y30Emqr9cyvC/TImpl.o )
+    [1 of 4] Compiling H[merge]         ( q/H.hs-boot-merge, bkp15-out/q/3s5LhyOS7mFCwY8kCOy5ZN/H.o )
+    [2 of 4] Compiling A                ( q/A.hs, bkp15-out/q/3s5LhyOS7mFCwY8kCOy5ZN/A.o )
+    [3 of 4] Compiling T[boot]          ( q/T.hs-boot, bkp15-out/q/3s5LhyOS7mFCwY8kCOy5ZN/T.o )
+    [4 of 4] Compiling T[merge]         ( q/T.hs-boot-merge, bkp15-out/q/3s5LhyOS7mFCwY8kCOy5ZN/T.o )

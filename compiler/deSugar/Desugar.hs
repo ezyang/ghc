@@ -70,7 +70,7 @@ deSugar :: HscEnv -> ModLocation -> TcGblEnv -> IO (Messages, Maybe ModGuts)
 
 deSugar hsc_env
         mod_loc
-        tcg_env@(TcGblEnv { tcg_mod          = mod,
+        tcg_env@(TcGblEnv { tcg_top_mod      = top_mod@TopModule{ topModSemantic = mod },
                             tcg_src          = hsc_src,
                             tcg_type_env     = type_env,
                             tcg_imports      = imports,
@@ -169,7 +169,7 @@ deSugar hsc_env
         ; safe_mode <- finalSafeMode dflags tcg_env
 
         ; let mod_guts = ModGuts {
-                mg_module       = mod,
+                mg_top_module   = top_mod,
                 mg_hsc_src      = hsc_src,
                 mg_loc          = mkFileSrcSpan mod_loc,
                 mg_exports      = exports,

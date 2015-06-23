@@ -1,0 +1,39 @@
+[1 of 3] Processing p
+/--- Shape for p
+provides: A -> p(hole:H):A
+               A{A, MkA}
+requires: H -> T{T}
+\---
+  [1 of 3] Compiling H[boot]          ( p/H.hs-boot, nothing )
+  [2 of 3] Compiling H[merge]         ( p/H.hs-boot-merge, nothing )
+  [3 of 3] Compiling A                ( p/A.hs, nothing )
+[2 of 3] Processing q
+/--- Shape for q
+provides: H -> q():H
+               T{T, T}
+requires:
+\---
+  [1 of 1] Compiling H                ( q/H.hs, nothing )
+  Instantiating q()
+  [1 of 1] Compiling H                ( q/H.hs, bkp02-out/q/Br2hqQttvyiBkpnTZJaMkb/H.o )
+[3 of 3] Processing r
+/--- Shape for r
+provides: H -> q@Br2hqQttvyiBkpnTZJaMkb:H
+               T{T, T}
+          A -> p(q@Br2hqQttvyiBkpnTZJaMkb:H):A
+               A{A, MkA}
+          R -> r():R
+               x
+requires:
+\---
+  [1 of 1] Compiling R                ( r/R.hs, nothing )
+  Instantiating r()
+  [1 of 2] Including q
+    Instantiating q
+    [1 of 1] Compiling H                ( q/H.hs, bkp02-out/q/Br2hqQttvyiBkpnTZJaMkb/H.o )
+  [2 of 2] Including p
+    Instantiating p(q:H)
+    [1 of 3] Compiling H[boot]          ( p/H.hs-boot, bkp02-out/p/I3QVFsdEOQx30HeszZagss/H.o )
+    [2 of 3] Compiling H[merge]         ( p/H.hs-boot-merge, bkp02-out/p/I3QVFsdEOQx30HeszZagss/H.o )
+    [3 of 3] Compiling A                ( p/A.hs, bkp02-out/p/I3QVFsdEOQx30HeszZagss/A.o )
+  [1 of 1] Compiling R                ( r/R.hs, bkp02-out/r/FQzMcndXWGrIczhCz8byYb/R.o )
