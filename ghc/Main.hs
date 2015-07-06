@@ -48,7 +48,7 @@ import MonadUtils       ( liftIO )
 
 -- Imports for --abi-hash
 import LoadIface           ( loadUserInterface )
-import Module              ( mkModuleName )
+import Module              ( mkModuleName, packageKeyFS )
 import Finder              ( findImportedModule, cannotFindInterface )
 import TcRnMonad           ( initIfaceCheck )
 import Binary              ( openBinMem, put_, fingerprintBinMem )
@@ -143,6 +143,7 @@ main' postLoadMode dflags0 args flagWarnings = do
                DoMake          -> (CompManager, dflt_target,    LinkBinary)
                DoMkDependHS    -> (MkDepend,    dflt_target,    LinkBinary)
                DoAbiHash       -> (OneShot,     dflt_target,    LinkBinary)
+               DoPackageKey    -> (OneShot,     dflt_target,    LinkBinary)
                _               -> (OneShot,     dflt_target,    LinkBinary)
 
   let dflags1 = case lang of
@@ -237,6 +238,7 @@ main' postLoadMode dflags0 args flagWarnings = do
        DoInteractive          -> ghciUI srcs Nothing
        DoEval exprs           -> ghciUI srcs $ Just $ reverse exprs
        DoAbiHash              -> abiHash (map fst srcs)
+       DoPackageKey           -> liftIO $ printPackageKey dflags6
        ShowPackages           -> liftIO $ showPackages dflags6
 
   liftIO $ dumpFinalStats dflags6
@@ -441,14 +443,16 @@ data PostLoadMode
   | DoInteractive           -- ghc --interactive
   | DoEval [String]         -- ghc -e foo -e bar => DoEval ["bar", "foo"]
   | DoAbiHash               -- ghc --abi-hash
+  | DoPackageKey            -- ghc --package-key
   | ShowPackages            -- ghc --show-packages
 
 doMkDependHSMode, doMakeMode, doInteractiveMode,
-  doAbiHashMode, showPackagesMode :: Mode
+  doAbiHashMode, doPackageKeyMode, showPackagesMode :: Mode
 doMkDependHSMode = mkPostLoadMode DoMkDependHS
 doMakeMode = mkPostLoadMode DoMake
 doInteractiveMode = mkPostLoadMode DoInteractive
 doAbiHashMode = mkPostLoadMode DoAbiHash
+doPackageKeyMode = mkPostLoadMode DoPackageKey
 showPackagesMode = mkPostLoadMode ShowPackages
 
 showInterfaceMode :: FilePath -> Mode
@@ -587,6 +591,7 @@ mode_flags =
   , defFlag "-make"        (PassFlag (setMode doMakeMode))
   , defFlag "-interactive" (PassFlag (setMode doInteractiveMode))
   , defFlag "-abi-hash"    (PassFlag (setMode doAbiHashMode))
+  , defFlag "-package-key" (PassFlag (setMode doPackageKeyMode))
   , defFlag "e"            (SepArg   (\s -> setMode (doEvalMode s) "-e"))
   ]
 
@@ -851,6 +856,14 @@ abiHash strs = do
   f <- fingerprintBinMem bh
 
   putStrLn (showPpr dflags f)
+
+-- -----------------------------------------------------------------------------
+-- Compute the package key
+
+-- NB: directly print the FastString so that pretty-printing facilities don't
+-- take effect.
+printPackageKey :: DynFlags -> IO ()
+printPackageKey dflags = hPutFS stdout (packageKeyFS (thisPackage dflags))
 
 -- -----------------------------------------------------------------------------
 -- Util

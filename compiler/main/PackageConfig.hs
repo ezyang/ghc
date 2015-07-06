@@ -48,6 +48,7 @@ type PackageConfig = InstalledPackageInfo
                        SourcePackageId
                        PackageName
                        Module.PackageKey
+                       VersionHash
                        Module.ModuleName
 
 -- TODO: there's no need for these to be FastString, as we don't need the uniq

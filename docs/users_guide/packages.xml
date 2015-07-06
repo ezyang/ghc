@@ -274,8 +274,40 @@ exposed-modules: Network.BSD,
           <para>Tells GHC the the module being compiled forms part of
             package key <replaceable>foo</replaceable>; internally, these
             keys are used to determine type equality and linker symbols.
-            If this flag is omitted (a very common case) then the
-            default package <literal>main</literal> is assumed.</para>
+            This option is primarily useful if you need to directly specify
+            a package key, e.g., for compiling wired in packages.  Normal
+            packages should specify <option>-version-hash</option> and
+            <option>-package-name</option> and let GHC calculate a package
+            key.
+            </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+        <term><option>-package-name</option> <replaceable>foo</replaceable>
+        <indexterm><primary><option>-package-name</option></primary>
+          </indexterm></term>
+        <listitem>
+          <para>Tells GHC that the module being compiled forms part of
+            a package named <replaceable>foo</replaceable>.  GHC uses
+            this along with <option>-version-hash</option> to determine
+            the package key of a module: the <option>-package-name</option>
+            can be used to distinguish packages that may otherwise have
+            the same <option>-version-hash</option>.</para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+        <term><option>-version-hash</option> <replaceable>hash</replaceable>
+        <indexterm><primary><option>-version-hash</option></primary>
+          </indexterm></term>
+        <listitem>
+          <para>Tells GHC that the source of a module and its dependencies can be
+          uniquely identified by
+          <replaceable>hash</replaceable>.  Version hashes are determined
+          by Cabal; a usual recipe for a version hash is that it is
+          the hash source package identifier of a package, as well as the
+          version hashes of all its textual dependencies.</para>
         </listitem>
       </varlistentry>
 
@@ -333,7 +365,7 @@ exposed-modules: Network.BSD,
 
   <para>Every complete Haskell program must define <literal>main</literal> in
    module <literal>Main</literal>
-   in package <literal>main</literal>.   (Omitting the <option>-this-package-key</option> flag compiles
+   in package <literal>main</literal>.   (Omitting the <option>-this-package-key</option>, <option>-package-name</option> or <option>-version-hash</option> flags compiles
    code for package <literal>main</literal>.) Failure to do so leads to a somewhat obscure
    link-time error of the form:
 <programlisting>
@@ -1237,8 +1269,10 @@ ghc-pkg dot | tred | dot -Tpdf >pkgs.pdf
     </itemizedlist>
 
      <para>To compile a module which is to be part of a new package,
-      use the <literal>-this-package-key</literal> option (<xref linkend="using-packages"/>).
-      Failure to use the <literal>-this-package-key</literal> option
+      use the <literal>-package-name</literal> (to identify the name of the package) and
+      <literal>-version-hash</literal> (to identify the version and the version
+      hashes of its identities.) options (<xref linkend="using-packages"/>).
+      Failure to use these options
       when compiling a package will probably result in disaster, but
       you will only discover later when you attempt to import modules
       from the package.  At this point GHC will complain that the

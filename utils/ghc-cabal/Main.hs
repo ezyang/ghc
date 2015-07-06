@@ -437,9 +437,10 @@ generate directory distdir dll0Modules config_args
           otherMods = map display (otherModules bi)
           allMods = mods ++ otherMods
       let xs = [variablePrefix ++ "_VERSION = " ++ display (pkgVersion (package pd)),
-                variablePrefix ++ "_PACKAGE_KEY = " ++ display (pkgKey lbi),
+                -- TODO: move inside withLibLBI
+                variablePrefix ++ "_PACKAGE_KEY = " ++ display (localPkgKey lbi),
                 -- copied from mkComponentsLocalBuildInfo
-                variablePrefix ++ "_LIB_NAME = " ++ packageKeyLibraryName (package pd) (pkgKey lbi),
+                variablePrefix ++ "_LIB_NAME = " ++ packageKeyLibraryName (package pd) (localPkgKey lbi),
                 variablePrefix ++ "_MODULES = " ++ unwords mods,
                 variablePrefix ++ "_HIDDEN_MODULES = " ++ unwords otherMods,
                 variablePrefix ++ "_SYNOPSIS =" ++ synopsis pd,

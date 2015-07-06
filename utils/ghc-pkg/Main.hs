@@ -1092,6 +1092,7 @@ type PackageCacheFormat = GhcPkg.InstalledPackageInfo
                             String     -- src package id
                             String     -- package name
                             String     -- package key
+                            String     -- version hash
                             ModuleName -- module name
 
 convertPackageInfoToCacheFormat :: InstalledPackageInfo -> PackageCacheFormat
@@ -1102,6 +1103,7 @@ convertPackageInfoToCacheFormat pkg =
        GhcPkg.packageName        = display (packageName pkg),
        GhcPkg.packageVersion     = packageVersion pkg,
        GhcPkg.packageKey         = display (packageKey pkg),
+       GhcPkg.versionHash        = display (versionHash pkg),
        GhcPkg.depends            = map display (depends pkg),
        GhcPkg.importDirs         = importDirs pkg,
        GhcPkg.hsLibraries        = hsLibraries pkg,

@@ -7,6 +7,7 @@ name:           rts
 version:        1.0
 id:             builtin_rts
 key:            rts
+version-hash:   00000000000000000000000000000000
 license:        BSD3
 maintainer:     glasgow-haskell-users@haskell.org
 exposed:        True

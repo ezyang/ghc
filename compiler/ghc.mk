@@ -562,6 +562,7 @@ compiler_stage2_dll0_MODULES = \
 	RdrName \
 	Rules \
 	Serialized \
+	ShPackageKey \
 	SrcLoc \
 	StaticFlags \
 	StringBuffer \

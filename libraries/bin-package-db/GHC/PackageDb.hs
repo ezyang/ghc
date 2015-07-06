@@ -66,13 +66,14 @@ import System.Directory
 -- | This is a subset of Cabal's 'InstalledPackageInfo', with just the bits
 -- that GHC is interested in.
 --
-data InstalledPackageInfo instpkgid srcpkgid srcpkgname pkgkey modulename
+data InstalledPackageInfo instpkgid srcpkgid srcpkgname pkgkey versionhash modulename
    = InstalledPackageInfo {
        installedPackageId :: instpkgid,
        sourcePackageId    :: srcpkgid,
        packageName        :: srcpkgname,
        packageVersion     :: Version,
        packageKey         :: pkgkey,
+       versionHash        :: versionhash,
        depends            :: [instpkgid],
        importDirs         :: [FilePath],
        hsLibraries        :: [String],
@@ -141,8 +142,9 @@ class BinaryStringRep a where
   toStringRep   :: a -> BS.ByteString
 
 emptyInstalledPackageInfo :: (BinaryStringRep a, BinaryStringRep b,
-                              BinaryStringRep c, BinaryStringRep d)
-                          => InstalledPackageInfo a b c d e
+                              BinaryStringRep c, BinaryStringRep d,
+                              BinaryStringRep e)
+                          => InstalledPackageInfo a b c d e f
 emptyInstalledPackageInfo =
   InstalledPackageInfo {
        installedPackageId = fromStringRep BS.empty,
@@ -150,6 +152,7 @@ emptyInstalledPackageInfo =
        packageName        = fromStringRep BS.empty,
        packageVersion     = Version [] [],
        packageKey         = fromStringRep BS.empty,
+       versionHash        = fromStringRep BS.empty,
        depends            = [],
        importDirs         = [],
        hsLibraries        = [],
@@ -174,8 +177,8 @@ emptyInstalledPackageInfo =
 -- | Read the part of the package DB that GHC is interested in.
 --
 readPackageDbForGhc :: (BinaryStringRep a, BinaryStringRep b, BinaryStringRep c,
-                        BinaryStringRep d, BinaryStringRep e) =>
-                       FilePath -> IO [InstalledPackageInfo a b c d e]
+                        BinaryStringRep d, BinaryStringRep e, BinaryStringRep f) =>
+                       FilePath -> IO [InstalledPackageInfo a b c d e f]
 readPackageDbForGhc file =
     decodeFromFile file getDbForGhc
   where
@@ -208,8 +211,9 @@ readPackageDbForGhcPkg file =
 -- | Write the whole of the package DB, both parts.
 --
 writePackageDb :: (Binary pkgs, BinaryStringRep a, BinaryStringRep b,
-                   BinaryStringRep c, BinaryStringRep d, BinaryStringRep e) =>
-                  FilePath -> [InstalledPackageInfo a b c d e] -> pkgs -> IO ()
+                   BinaryStringRep c, BinaryStringRep d, BinaryStringRep e,
+                   BinaryStringRep f) =>
+                  FilePath -> [InstalledPackageInfo a b c d e f] -> pkgs -> IO ()
 writePackageDb file ghcPkgs ghcPkgPart =
     writeFileAtomic file (runPut putDbForGhcPkg)
   where
@@ -235,7 +239,7 @@ getHeader = do
     minorVersion <- get :: Get Word32
     -- The minor version is for compatible extensions
 
-    when (majorVersion /= 1) $
+    when (majorVersion /= 2) $
       fail "unsupported ghc-pkg db format version"
     -- If we ever support multiple major versions then we'll have to change
     -- this code
@@ -254,7 +258,7 @@ putHeader = do
     put minorVersion
     put headerExtraLen
   where
-    majorVersion   = 1 :: Word32
+    majorVersion   = 2 :: Word32
     minorVersion   = 0 :: Word32
     headerExtraLen = 0 :: Word32
 
@@ -296,11 +300,11 @@ writeFileAtomic targetPath content = do
         renameFile tmpPath targetPath)
 
 instance (BinaryStringRep a, BinaryStringRep b, BinaryStringRep c,
-          BinaryStringRep d, BinaryStringRep e) =>
-         Binary (InstalledPackageInfo a b c d e) where
+          BinaryStringRep d, BinaryStringRep e, BinaryStringRep f) =>
+         Binary (InstalledPackageInfo a b c d e f) where
   put (InstalledPackageInfo
          installedPackageId sourcePackageId
-         packageName packageVersion packageKey
+         packageName packageVersion packageKey versionHash
          depends importDirs
          hsLibraries extraLibraries extraGHCiLibraries libraryDirs
          frameworks frameworkDirs
@@ -314,6 +318,7 @@ instance (BinaryStringRep a, BinaryStringRep b, BinaryStringRep c,
     put (toStringRep packageName)
     put packageVersion
     put (toStringRep packageKey)
+    put (toStringRep versionHash)
     put (map toStringRep depends)
     put importDirs
     put hsLibraries
@@ -340,6 +345,7 @@ instance (BinaryStringRep a, BinaryStringRep b, BinaryStringRep c,
     packageName        <- get
     packageVersion     <- get
     packageKey         <- get
+    versionHash        <- get
     depends            <- get
     importDirs         <- get
     hsLibraries        <- get
@@ -364,6 +370,7 @@ instance (BinaryStringRep a, BinaryStringRep b, BinaryStringRep c,
               (fromStringRep sourcePackageId)
               (fromStringRep packageName) packageVersion
               (fromStringRep packageKey)
+              (fromStringRep versionHash)
               (map fromStringRep depends)
               importDirs
               hsLibraries extraLibraries extraGHCiLibraries libraryDirs

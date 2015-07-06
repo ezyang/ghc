@@ -165,9 +165,8 @@ lookupPackageKey dflags pk
                     in (modname, Module pk' modname')
                 insts = map expandInstantiatedWith (instantiatedWith pkg)
             -- Fill in the cache with the result
-            -- TODO: read out versionHash from cache
             new_pk <- newPackageKey dflags (packageName pkg)
-                                    (VersionHash nilFS) insts
+                                    (versionHash pkg) insts
             -- Requery, this time we'll find it!
             pk_cache <- readIORef pkt_var
             ASSERT2( pk == new_pk, ppr new_pk $$ ppr pk )

@@ -727,7 +727,12 @@ data DynFlags = DynFlags {
   solverIterations      :: IntWithInf,   -- ^ Number of iterations in the constraints solver
                                          --   Typically only 1 is needed
 
-  thisPackage           :: PackageKey,   -- ^ name of package currently being compiled
+  thisPackage           :: PackageKey,   -- ^ key of package currently being compiled
+  thisPackageName       :: Maybe PackageName,
+                            -- ^ name of package currently being compiled
+  thisVersionHash       :: Maybe VersionHash,
+                            -- ^ the version hash which identifies the textual
+                            --   package being compiled.
 
   -- ways
   ways                  :: [Way],       -- ^ Way flags from the command line
@@ -1479,6 +1484,8 @@ defaultDynFlags mySettings =
         solverIterations        = treatZeroAsInf mAX_SOLVER_ITERATIONS,
 
         thisPackage             = mainPackageKey,
+        thisPackageName         = Nothing,
+        thisVersionHash         = Nothing,
 
         objectDir               = Nothing,
         dylibInstallName        = Nothing,
@@ -2770,10 +2777,9 @@ package_flags = [
       (NoArg $ do removeUserPkgConf
                   deprecate "Use -no-user-package-db instead")
 
-  , defGhcFlag "package-name"      (HasArg $ \name -> do
-                                      upd (setPackageKey name)
-                                      deprecate "Use -this-package-key instead")
+  , defGhcFlag "package-name"       (hasArg setPackageName)
   , defGhcFlag "this-package-key"   (hasArg setPackageKey)
+  , defGhcFlag "version-hash"       (hasArg setVersionHash)
   , defFlag "package-id"            (HasArg exposePackageId)
   , defFlag "package"               (HasArg exposePackage)
   , defFlag "package-key"           (HasArg exposePackageKey)
@@ -3766,6 +3772,12 @@ exposePackage' p dflags
 setPackageKey :: String -> DynFlags -> DynFlags
 setPackageKey p s =  s{ thisPackage = stringToPackageKey p }
 
+setPackageName :: String -> DynFlags -> DynFlags
+setPackageName p s = s{ thisPackageName = Just (PackageName (mkFastString p)) }
+
+setVersionHash :: String -> DynFlags -> DynFlags
+setVersionHash v s = s{ thisVersionHash = Just (VersionHash (mkFastString v)) }
+
 -- -----------------------------------------------------------------------------
 -- | Find the package environment (if one exists)
 --
@@ -4107,6 +4119,7 @@ compilerInfo dflags
        ("Support reexported-modules",  "YES"),
        ("Support thinning and renaming package flags", "YES"),
        ("Uses package keys",           "YES"),
+       ("Uses version hashes",         "YES"),
        ("Dynamic by default",          if dYNAMIC_BY_DEFAULT dflags
                                        then "YES" else "NO"),
        ("GHC Dynamic",                 if dynamicGhc
