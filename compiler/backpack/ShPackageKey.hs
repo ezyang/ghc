@@ -156,17 +156,18 @@ lookupPackageKey dflags pk
   | otherwise = do
     let pkt_var = pkgKeyCache dflags
     pk_cache <- readIORef pkt_var
-    case (lookupUFM pk_cache pk, lookupPackage dflags pk) of
+    case (lookupUFM pk_cache pk, lookupUnit dflags pk) of
         (Just r, _) -> return r
-        (Nothing, Just pkg) -> do
+        (Nothing, Just unit) -> do
+            let pkg = getPackageDetails dflags pk
             -- Try again by consulting the package database
             let expandInstantiatedWith (modname, OriginalModule ipid' modname')
                   = let pk' = resolveInstalledPackageId dflags ipid'
                     in (modname, Module pk' modname')
-                insts = map expandInstantiatedWith (instantiatedWith pkg)
+                insts = map expandInstantiatedWith (instantiatedWith unit)
             -- Fill in the cache with the result
-            new_pk <- newPackageKey dflags (packageName pkg)
-                                    (versionHash pkg) insts
+            new_pk <- newPackageKey dflags (unitName unit)
+                                           (versionHash pkg) insts
             -- Requery, this time we'll find it!
             pk_cache <- readIORef pkt_var
             ASSERT2( pk == new_pk, ppr new_pk $$ ppr pk )

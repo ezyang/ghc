@@ -1602,8 +1602,8 @@ mkQualModule :: DynFlags -> QueryQualifyModule
 mkQualModule dflags mod
      | modulePackageKey mod == thisPackage dflags = False
 
-     | [(_, pkgconfig)] <- lookup,
-       packageConfigId pkgconfig == modulePackageKey mod
+     | [(_, unit)] <- lookup,
+       packageConfigId unit == modulePackageKey mod
         -- this says: we are given a module P:M, is there just one exposed package
         -- that exposes a module M, and is it package P?
      = False

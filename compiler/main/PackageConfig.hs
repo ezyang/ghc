@@ -15,6 +15,14 @@ module PackageConfig (
         -- * VersionHash
         VersionHash(..),
 
+        -- * The UnitConfig type: information about a unit
+        UnitConfig,
+        InstalledUnitInfo(..),
+        InstalledUnitId,
+        UnitName,
+        getPrimaryUnit,
+        unitNameString,
+
         -- * The PackageConfig type: information about a package
         PackageConfig,
         InstalledPackageInfo(..),
@@ -38,15 +46,27 @@ import FastString
 import Outputable
 import Module
 import Unique
+import Util
 
 -- -----------------------------------------------------------------------------
--- Our PackageConfig type is the InstalledPackageInfo from bin-package-db,
--- which is similar to a subset of the InstalledPackageInfo type from Cabal.
+-- Take InstalledPackageInfo and InstalledUnitInfo from bin-package-db
+-- and fill in the type parameters, calling them PackageConfig and UnitConfig.
+-- These model the InstalledPackageInfo type from Cabal, though there
+-- are some differences (e.g. units.)
+
+type UnitConfig = InstalledUnitInfo
+                       InstalledPackageId
+                       InstalledUnitId
+                       UnitName
+                       Module.PackageKey
+                       ModuleName
 
 type PackageConfig = InstalledPackageInfo
                        InstalledPackageId
+                       InstalledUnitId
                        SourcePackageId
                        PackageName
+                       UnitName
                        Module.PackageKey
                        VersionHash
                        Module.ModuleName
@@ -59,6 +79,17 @@ newtype InstalledPackageId = InstalledPackageId FastString deriving (Eq, Ord)
 newtype SourcePackageId    = SourcePackageId    FastString deriving (Eq, Ord)
 newtype PackageName        = PackageName        FastString deriving (Eq, Ord)
 newtype VersionHash        = VersionHash        FastString deriving (Eq, Ord)
+
+-- TODO: Newtype these
+
+-- | An installed unit ID uniquely identifies a unit, in much the same
+-- way an installed package ID uniquely identifies a package.
+type InstalledUnitId = InstalledPackageId
+
+-- | A unit name is similar to a package name, but it is not associated
+-- with a Cabal file (if @p@ is a 'UnitName', you can't @cabal install p@);
+-- these show up in Backpack files.
+type UnitName = PackageName
 
 instance BinaryStringRep InstalledPackageId where
   fromStringRep = InstalledPackageId . mkFastStringByteString
@@ -134,9 +165,31 @@ packageNameString pkg = unpackFS str
   where
     PackageName str = packageName pkg
 
+unitNameString :: UnitConfig -> String
+unitNameString pkg = unpackFS str
+  where
+    PackageName str = unitName pkg
+
+-- | This is a temporary function intended to ease transition of
+-- GHC's internals to a unit/packages world.  Eventually, get
+-- rid of this function by refactoring it away!  (This function
+-- works by assuming that there is only one unit per package.)
+getPrimaryUnit :: PackageConfig -> UnitConfig
+getPrimaryUnit p@InstalledPackageInfo { units = [u] } =
+   ASSERT2( packageName p == unitName u ,
+            ppr (installedPackageId p) <+> ppr (packageName p)
+                                       <+> ppr (unitName u) )
+   ASSERT2( installedPackageId p == installedUnitId u ,
+            ppr (installedPackageId p) <+> ppr (installedUnitId u) )
+   u
+getPrimaryUnit p =
+    pprPanic "Package with multiple units not supported" (ppr (installedPackageId p))
+
+
 pprPackageConfig :: PackageConfig -> SDoc
-pprPackageConfig InstalledPackageInfo {..} =
-    vcat [
+pprPackageConfig p@InstalledPackageInfo {..} =
+  let InstalledUnitInfo {..} = getPrimaryUnit p
+  in vcat [
       field "name"                 (ppr packageName),
       field "version"              (text (showVersion packageVersion)),
       field "id"                   (ppr installedPackageId),
@@ -155,7 +208,7 @@ pprPackageConfig InstalledPackageInfo {..} =
       field "extra-ghci-libraries" (fsep (map text extraGHCiLibraries)),
       field "include-dirs"         (fsep (map text includeDirs)),
       field "includes"             (fsep (map text includes)),
-      field "depends"              (fsep (map ppr  depends)),
+      field "depends"              (fsep (map ppr  unitDepends)),
       field "cc-options"           (fsep (map text ccOptions)),
       field "ld-options"           (fsep (map text ldOptions)),
       field "framework-dirs"       (fsep (map text frameworkDirs)),
@@ -180,7 +233,7 @@ pprPackageConfig InstalledPackageInfo {..} =
 -- wired-in packages like @base@ & @rts@, we don't necessarily know what the
 -- version is, so these are handled specially; see #wired_in_packages#.
 
--- | Get the GHC 'PackageKey' right out of a Cabalish 'PackageConfig'
-packageConfigId :: PackageConfig -> PackageKey
+-- | Get the GHC 'PackageKey' right out of a Cabalish 'UnitConfig'
+packageConfigId :: UnitConfig -> PackageKey
 packageConfigId = packageKey
 

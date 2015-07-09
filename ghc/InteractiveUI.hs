@@ -2242,7 +2242,7 @@ newDynFlags interactive_only minus_opts = do
               "package flags have changed, resetting and loading new packages..."
           GHC.setTargets []
           _ <- GHC.load LoadAllTargets
-          liftIO $ linkPackages dflags2 new_pkgs
+          liftIO $ linkUnits dflags2 new_pkgs
           -- package flags changed, we can't re-use any of the old context
           setContextAfterLoad False []
           -- and copy the package state to the interactive DynFlags

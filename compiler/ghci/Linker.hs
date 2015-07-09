@@ -15,7 +15,7 @@ module Linker ( getHValue, showLinkerState,
                 linkExpr, linkDecls, unload, withExtendedLinkEnv,
                 extendLinkEnv, deleteFromLinkEnv,
                 extendLoadedPkgs,
-                linkPackages,initDynLinker,linkModule,
+                linkUnits,initDynLinker,linkModule,
                 linkCmdLineLibs,
 
                 -- Saving/restoring globals
@@ -194,7 +194,7 @@ linkDependencies hsc_env pls span needed_mods = do
                                maybe_normal_osuf span needed_mods
 
    -- Link the packages and modules required
-   pls1 <- linkPackages' dflags pkgs pls
+   pls1 <- linkUnits' dflags pkgs pls
    linkModules dflags pls1 lnks
 
 
@@ -284,7 +284,7 @@ reallyInitDynLinker dflags =
         ; initObjLinker
 
           -- (b) Load packages from the command-line (Note [preload packages])
-        ; pls <- linkPackages' dflags (preloadPackages (pkgState dflags)) pls0
+        ; pls <- linkUnits' dflags (preloadPackages (pkgState dflags)) pls0
 
           -- steps (c), (d) and (e)
         ; linkCmdLineLibs' dflags pls
@@ -1059,7 +1059,7 @@ showLS (Framework nm) = "(framework) " ++ nm
 -- automatically, and it doesn't matter what order you specify the input
 -- packages.
 --
-linkPackages :: DynFlags -> [PackageKey] -> IO ()
+linkUnits :: DynFlags -> [PackageKey] -> IO ()
 -- NOTE: in fact, since each module tracks all the packages it depends on,
 --       we don't really need to use the package-config dependencies.
 --
@@ -1068,16 +1068,16 @@ linkPackages :: DynFlags -> [PackageKey] -> IO ()
 -- perhaps makes the error message a bit more localised if we get a link
 -- failure.  So the dependency walking code is still here.
 
-linkPackages dflags new_pkgs = do
+linkUnits dflags new_pkgs = do
   -- It's probably not safe to try to load packages concurrently, so we take
   -- a lock.
   initDynLinker dflags
   modifyPLS_ $ \pls -> do
-    linkPackages' dflags new_pkgs pls
+    linkUnits' dflags new_pkgs pls
 
-linkPackages' :: DynFlags -> [PackageKey] -> PersistentLinkerState
+linkUnits' :: DynFlags -> [PackageKey] -> PersistentLinkerState
              -> IO PersistentLinkerState
-linkPackages' dflags new_pks pls = do
+linkUnits' dflags new_pks pls = do
     pkgs' <- link (pkgs_loaded pls) new_pks
     return $! pls { pkgs_loaded = pkgs' }
   where
@@ -1089,25 +1089,26 @@ linkPackages' dflags new_pks pls = do
         | new_pkg `elem` pkgs   -- Already linked
         = return pkgs
 
-        | Just pkg_cfg <- lookupPackage dflags new_pkg
+        | Just pkg_cfg <- lookupUnit dflags new_pkg
         = do {  -- Link dependents first
-               pkgs' <- link pkgs [ resolveInstalledPackageId dflags ipid
-                                  | ipid <- depends pkg_cfg ]
+               pkgs' <- link pkgs [ resolveInstalledUnitId dflags iuid
+                                  | iuid <- unitDepends pkg_cfg ]
                 -- Now link the package itself
-             ; linkPackage dflags pkg_cfg
+             ; linkUnit dflags pkg_cfg
              ; return (new_pkg : pkgs') }
 
         | otherwise
         = throwGhcExceptionIO (CmdLineError ("unknown package: " ++ packageKeyString new_pkg))
 
 
-linkPackage :: DynFlags -> PackageConfig -> IO ()
-linkPackage dflags pkg
+linkUnit :: DynFlags -> UnitConfig -> IO ()
+linkUnit dflags unit
    = do
         let platform  = targetPlatform dflags
             dirs      =  Packages.libraryDirs pkg
+            pkg       = parentPackageDetails dflags unit
 
-        let hs_libs   =  Packages.hsLibraries pkg
+        let hs_libs   =  Packages.hsLibraries unit
             -- The FFI GHCi import lib isn't needed as
             -- compiler/ghci/Linker.hs + rts/Linker.c link the
             -- interpreted references to FFI to the compiled FFI.

@@ -161,8 +161,8 @@ findExposedPackageModule :: HscEnv -> ModuleName -> Maybe FastString
                          -> IO FindResult
 findExposedPackageModule hsc_env mod_name mb_pkg
   = case lookupModuleWithSuggestions (hsc_dflags hsc_env) mod_name mb_pkg of
-     LookupFound m pkg_conf ->
-       findPackageModule_ hsc_env m pkg_conf
+     LookupFound m unit_conf ->
+       findPackageModule_ hsc_env m unit_conf
      LookupMultiple rs ->
        return (FoundMultiple rs)
      LookupHidden pkg_hiddens mod_hiddens ->
@@ -256,11 +256,11 @@ findPackageModule :: HscEnv -> Module -> IO FindResult
 findPackageModule hsc_env mod = do
   let
         dflags = hsc_dflags hsc_env
-        pkg_id = modulePackageKey mod
+        pk = modulePackageKey mod
   --
-  case lookupPackage dflags pkg_id of
-     Nothing -> return (NoPackage pkg_id)
-     Just pkg_conf -> findPackageModule_ hsc_env mod pkg_conf
+  case lookupUnit dflags pk of
+     Nothing -> return (NoPackage pk)
+     Just unit -> findPackageModule_ hsc_env mod unit
 
 -- | Look up the interface file associated with module @mod@.  This function
 -- requires a few invariants to be upheld: (1) the 'Module' in question must
@@ -269,9 +269,9 @@ findPackageModule hsc_env mod = do
 -- the 'PackageConfig' must be consistent with the package key in the 'Module'.
 -- The redundancy is to avoid an extra lookup in the package state
 -- for the appropriate config.
-findPackageModule_ :: HscEnv -> Module -> PackageConfig -> IO FindResult
-findPackageModule_ hsc_env mod pkg_conf =
-  ASSERT( modulePackageKey mod == packageConfigId pkg_conf )
+findPackageModule_ :: HscEnv -> Module -> UnitConfig -> IO FindResult
+findPackageModule_ hsc_env mod unit_conf =
+  ASSERT( modulePackageKey mod == packageConfigId unit_conf )
   modLocationCache hsc_env mod $
 
   -- special case for GHC.Prim; we won't find it in the filesystem.
@@ -289,7 +289,7 @@ findPackageModule_ hsc_env mod pkg_conf =
 
      mk_hi_loc = mkHiOnlyModLocation dflags package_hisuf
 
-     import_dirs = importDirs pkg_conf
+     import_dirs = importDirs unit_conf
       -- we never look for a .hi-boot file in an external package;
       -- .hi-boot files only make sense for the home package.
   in
@@ -619,7 +619,7 @@ cantFindErr cannot_find _ dflags mod_name find_result
      -- FastString and see if it means anything.
      | (pkg:pkgs) <- searchPackageId dflags (SourcePackageId (packageKeyFS pk))
      = parens (text "This package key looks like the source package ID;" $$
-       text "the real package key is" <+> quotes (ftext (packageKeyFS (packageKey pkg))) $$
+       text "the real package key is" <+> quotes (ftext (packageKeyFS (packageKey (getPrimaryUnit pkg)))) $$
        (if null pkgs then Outputable.empty
         else text "and" <+> int (length pkgs) <+> text "other candidates"))
      -- Todo: also check if it looks like a package name!

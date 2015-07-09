@@ -1089,8 +1089,10 @@ updateDBCache verbosity db = do
 
 type PackageCacheFormat = GhcPkg.InstalledPackageInfo
                             String     -- installed package id
+                            String     -- installed unit id
                             String     -- src package id
                             String     -- package name
+                            String     -- unit name
                             String     -- package key
                             String     -- version hash
                             ModuleName -- module name
@@ -1102,11 +1104,19 @@ convertPackageInfoToCacheFormat pkg =
        GhcPkg.sourcePackageId    = display (sourcePackageId pkg),
        GhcPkg.packageName        = display (packageName pkg),
        GhcPkg.packageVersion     = packageVersion pkg,
-       GhcPkg.packageKey         = display (packageKey pkg),
        GhcPkg.versionHash        = display (versionHash pkg),
-       GhcPkg.depends            = map display (depends pkg),
-       GhcPkg.importDirs         = importDirs pkg,
-       GhcPkg.hsLibraries        = hsLibraries pkg,
+       GhcPkg.units              = [ GhcPkg.InstalledUnitInfo {
+           GhcPkg.unitName           = display (packageName pkg),
+           GhcPkg.unitDepends        = map display (depends pkg),
+           GhcPkg.parentPackageId    = display (installedPackageId pkg),
+           GhcPkg.installedUnitId    = display (installedPackageId pkg),
+           GhcPkg.packageKey         = display (packageKey pkg),
+           GhcPkg.importDirs         = importDirs pkg,
+           GhcPkg.hsLibraries        = hsLibraries pkg,
+           GhcPkg.exposedModules     = map convertExposed (exposedModules pkg),
+           GhcPkg.hiddenModules      = hiddenModules pkg,
+           GhcPkg.instantiatedWith   = map convertInst (instantiatedWith pkg)
+        }],
        GhcPkg.extraLibraries     = extraLibraries pkg,
        GhcPkg.extraGHCiLibraries = extraGHCiLibraries pkg,
        GhcPkg.libraryDirs        = libraryDirs pkg,
@@ -1118,9 +1128,6 @@ convertPackageInfoToCacheFormat pkg =
        GhcPkg.includeDirs        = includeDirs pkg,
        GhcPkg.haddockInterfaces  = haddockInterfaces pkg,
        GhcPkg.haddockHTMLs       = haddockHTMLs pkg,
-       GhcPkg.exposedModules     = map convertExposed (exposedModules pkg),
-       GhcPkg.hiddenModules      = hiddenModules pkg,
-       GhcPkg.instantiatedWith   = map convertInst (instantiatedWith pkg),
        GhcPkg.exposed            = exposed pkg,
        GhcPkg.trusted            = trusted pkg
     }
