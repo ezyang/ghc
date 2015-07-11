@@ -181,7 +181,7 @@ renameHoleModule dflags env m
     shpk <- lookupPackageKey dflags (modulePackageKey m)
     case shpk of
         ShPackageKey { shPackageKeyPackageName = pn,
-                       shPackageKeyVersionHash = vh,
+                       shPackageKeyLibraryName = vh,
                        shPackageKeyInsts = insts,
                        shPackageKeyFreeHoles = in_scope }
             | isNullUFM (intersectUFM_C const in_scope env) -> return (m, in_scope)
@@ -192,8 +192,8 @@ renameHoleModule dflags env m
                             return (modname, mod')) insts
                 (pk', in_scope') <- newPackageKeyWithScope dflags pn vh insts'
                 return (mkModule pk' (moduleName m), in_scope')
-        ShWiredPackageKey pk | pk == holePackageKey -> return (m, unitUniqSet (moduleName m))
-        ShWiredPackageKey _ -> return (m, emptyUniqSet)
+        ShDefinitePackageKey pk | pk == holePackageKey -> return (m, unitUniqSet (moduleName m))
+        ShDefinitePackageKey _ -> return (m, emptyUniqSet)
   | Just (m', in_scope') <- lookupUFM env (moduleName m) = return (m', in_scope')
   -- NB m = HOLE:Blah, that's what's in scope.
   | otherwise = return (m, unitUniqSet (moduleName m))
@@ -376,7 +376,7 @@ rnModIface hsc_env pk iface = do
     hmap <- mkShHoleSubst dflags (listToUFM
                 (case shpk of
                     ShPackageKey { shPackageKeyInsts = insts } -> insts
-                    ShWiredPackageKey{} -> []))
+                    ShDefinitePackageKey{} -> []))
     if (not (isNullUFM hmap))
       then do
         (mod, _) <- renameHoleModule dflags hmap (mi_module iface)

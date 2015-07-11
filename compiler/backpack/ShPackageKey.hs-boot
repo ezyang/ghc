@@ -1,11 +1,11 @@
 module ShPackageKey where
-import {-# SOURCE #-} PackageConfig (PackageName, VersionHash)
+import {-# SOURCE #-} PackageConfig (PackageName, LibraryName)
 import {-# SOURCE #-} Module (Module, ModuleName, PackageKey)
 import {-# SOURCE #-} DynFlags (DynFlags)
 import Outputable (SDoc)
 newPackageKey :: DynFlags
               -> PackageName
-              -> VersionHash
+              -> LibraryName
               -> [(ModuleName, Module)] -- hole instantiations
               -> IO PackageKey
 pprPackageKey :: PackageKey -> SDoc

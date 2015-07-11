@@ -405,8 +405,7 @@ shPackage
          psh <- foldM preshape emptyPreShape decls
          let insts = do m <- uniqSetToList (psh_requires psh)
                         return (m, mkModule holePackageKey m)
-             emptyVersionHash = VersionHash nilFS -- WRONG, get from dynflags
-         pk <- liftIO $ newPackageKey dflags name emptyVersionHash insts
+         pk <- liftIO $ newPackageKey dflags name (thisLibraryName dflags) insts
          updGblEnv (\shg -> shg { shg_pk = pk }) $ do
          setThisPackageM pk $ do
          -- Shape each declaration, building the shape
