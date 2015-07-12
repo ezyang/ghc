@@ -123,7 +123,7 @@ findExactModule hsc_env mod =
     let dflags = hsc_dflags hsc_env
     in if modulePackageKey mod == thisPackage dflags
        then findHomeModule hsc_env (moduleName mod)
-       else findPackageModule hsc_env mod
+       else findLocalModule hsc_env mod `orIfNotFound` findPackageModule hsc_env mod
 
 -- -----------------------------------------------------------------------------
 -- Helpers
@@ -250,6 +250,22 @@ findHomeModule hsc_env mod_name =
         then return (Found (error "GHC.Prim ModLocation") mod)
         else searchPathExts home_path mod exts
 
+
+-- | Search for a module which is not the home package key, but could
+-- have been one we compiled in this session (can occur with Backpack)
+-- TODO: cache
+findLocalModule :: HscEnv -> Module -> IO FindResult
+findLocalModule hsc_env mod =
+    let
+     dflags = hsc_dflags hsc_env
+     home_path = importPaths dflags
+     hisuf = hiSuf dflags
+     exts = [ (hisuf,                mkHiOnlyModLocation dflags hisuf)
+            , (addBootSuffix hisuf,  mkHiOnlyModLocation dflags hisuf)
+            ]
+    in searchPathExts
+        (map (</> packageKeyString (modulePackageKey mod)) home_path)
+        mod exts
 
 -- | Search for a module in external packages only.
 findPackageModule :: HscEnv -> Module -> IO FindResult

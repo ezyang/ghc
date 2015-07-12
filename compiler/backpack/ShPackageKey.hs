@@ -172,7 +172,7 @@ pprPackageKey pk = getPprStyle $ \sty ->
                                                 (ppr modname <+> text "->")
                                        <+> ppr m
                                      | (modname, m) <- shPackageKeyInsts shpk]))
-            -- <> ifPprDebug (braces (ftext (packageKeyFS pk)))
+            <> ifPprDebug (braces (ftext (packageKeyFS pk)))
         ShDefinitePackageKey pk -> ftext (packageKeyFS pk)
 
 -- NB: newPackageKey and lookupPackageKey are mutually recursive; this

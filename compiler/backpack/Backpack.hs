@@ -142,8 +142,9 @@ doBackpack src_filename = do
                 let pkg_key = unpackFS (packageKeyFS pk)
                     name_outdir p | Just f <- p dflags = Just (f </> pkg_name)
                                   | otherwise = Nothing -- inline ok!
-                    key_outdir p | Just f <- p dflags = Just (f </> pkg_key)
-                                 | otherwise = Just ("out" </> pkg_key)
+                    key_base p | Just f <- p dflags = f
+                               | otherwise          = "out"
+                    key_outdir p = Just (key_base p </> pkg_key)
                     outdir | target == HscNothing = name_outdir
                            | otherwise = key_outdir
                 -- Setup the dflags for the package, and type-check/compile it!
@@ -156,7 +157,15 @@ doBackpack src_filename = do
                     thisPackage = pk,
                     objectDir   = outdir objectDir,
                     hiDir       = outdir hiDir,
-                    stubDir     = outdir stubDir
+                    stubDir     = outdir stubDir,
+                    importPaths  = importPaths dflags ++
+                                    if target /= HscNothing
+                                        -- Hack: So we can find them when we flush 'em
+                                        -- out; if we arrange for them to stick
+                                        -- in the cache this shouldn't be
+                                        -- necessary.
+                                        then [key_base hiDir]
+                                        else []
                   } )) $ do
                     let bs = BkpSummary {
                             bs_pkg_name = unLoc (hspkgName (unLoc pkg)),

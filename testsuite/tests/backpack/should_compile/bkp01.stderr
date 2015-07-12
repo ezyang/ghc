@@ -5,8 +5,8 @@ provides: P -> THIS:P
           Q -> THIS:Q
                THIS:P.hello, world
 requires:
-[1 of 2] Compiling P                ( p-impls/P.hs, nothing )
-[2 of 2] Compiling Q                ( p-impls/Q.hs, nothing )
+[1 of 2] Compiling P                ( p-impls/P.hs, bkp01/G68Rkue9arSEy4PrMPwSZ4/P.o )
+[2 of 2] Compiling Q                ( p-impls/Q.hs, bkp01/G68Rkue9arSEy4PrMPwSZ4/Q.o )
 ==== Package q ====
 Shape for q
 provides: P -> p-impls():P
@@ -17,4 +17,4 @@ provides: P -> p-impls():P
                   main
 requires:
 [1 of 2] Including p-impls
-[2 of 2] Compiling Main             ( q/Main.hs, nothing )
+[2 of 2] Compiling Main             ( q/Main.hs, bkp01/Br2hqQttvyiBkpnTZJaMkb/Main.o )
