@@ -96,9 +96,11 @@ doBackpack src_filename = do
         PFailed span err -> do
             liftIO $ throwOneError (mkPlainErrMsg dflags span err)
         POk _ bkp -> do
+            hpt_cache_ref <- liftIO $ newIORef Map.empty
             forM_ bkp $ \pkg -> do
                 let pkg_name = let PackageName fs_pn = unLoc (hspkgName (unLoc pkg))
                                in unpackFS fs_pn
+                    is_exe = pkg_name == "main"
                 liftIO . compilationProgressMsg dflags
                        $ "==== Package " ++ pkg_name ++ " ===="
                 -- Shape the package
@@ -109,7 +111,7 @@ doBackpack src_filename = do
                           . runHsc hsc_env
                           . ioMsgMaybe
                           . initShM hsc_env (realSrcLocSpan loc)
-                          $ shPackage pkg
+                          $ shPackage is_exe pkg
                 -- Record the shape in the EPS
                 sh_subst <- liftIO $ computeShapeSubst hsc_env sh
                 updateEpsGhc_ (\eps -> eps { eps_shape = sh_subst } )
@@ -174,6 +176,21 @@ doBackpack src_filename = do
                             bs_path = src_filename
                         }
                     compilePackage bs pkg
+                    hsc_env <- getSession
+                    let dflags = hsc_dflags hsc_env
+                    liftIO $ modifyIORef' hpt_cache_ref (Map.insert pk (hsc_HPT hsc_env))
+                    when is_exe $ do
+                        -- Link it (cribbed from GhcMake)
+                        let no_hs_main = gopt Opt_NoHsMain dflags
+                            a_root_is_Main = True -- TODO: test properly
+                            do_linking = a_root_is_Main || no_hs_main ||
+                                         ghcLink dflags == LinkDynLib ||
+                                         ghcLink dflags == LinkStaticLib
+                        hpt_cache <- liftIO $ readIORef hpt_cache_ref
+                        -- DynFlags link
+                        r <- liftIO $ linkMany (ghcLink dflags) dflags do_linking hpt_cache
+                        -- TODO: test success
+                        return ()
                 -- Clear the EPS, because everything was loaded modulo a shape
                 -- and it might be out-of-date the next time we shape.
                 -- TODO: only eliminate things which depend on holes.

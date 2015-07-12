@@ -5,7 +5,7 @@ package p-impls where
         import P
         world = "World"
 
-package q where
+package main where
     include p-impls
     module Main where
         import P

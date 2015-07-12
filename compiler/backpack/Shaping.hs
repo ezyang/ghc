@@ -394,8 +394,9 @@ mergePreShapes psh1 psh2 =
 -}
 
 -- | Shape a 'HsPackage'.
-shPackage :: LHsPackage -> ShM (PackageKey, Shape)
+shPackage :: Bool -> LHsPackage -> ShM (PackageKey, Shape)
 shPackage
+    is_exe
     (L loc HsPackage { hspkgName = L _ name@(PackageName fs_name)
                      , hspkgExports = Nothing -- XXX incomplete
                      , hspkgBody = decls })
@@ -405,7 +406,11 @@ shPackage
          psh <- foldM preshape emptyPreShape decls
          let insts = do m <- uniqSetToList (psh_requires psh)
                         return (m, mkModule holePackageKey m)
-         pk <- liftIO $ newPackageKey dflags name (thisLibraryName dflags) insts
+         when (not (null insts) && is_exe) $
+            failSh (text "Main package cannot have holes" <+> ppr (map fst insts))
+         pk <- if is_exe
+                then return mainPackageKey
+                else liftIO $ newPackageKey dflags name (thisLibraryName dflags) insts
          updGblEnv (\shg -> shg { shg_pk = pk }) $ do
          setThisPackageM pk $ do
          -- Shape each declaration, building the shape
