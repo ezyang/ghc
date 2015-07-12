@@ -1028,6 +1028,9 @@ def backpack_compile( name, way, extra_hc_opts ):
 def backpack_compile_fail( name, way, extra_hc_opts ):
     return do_compile( name, way, 1, '', [], extra_hc_opts, backpack=1 )
 
+def backpack_run( name, way, extra_hc_opts ):
+    return compile_and_run__( name, way, '', [], extra_hc_opts, backpack=1 )
+
 def multimod_compile( name, way, top_mod, extra_hc_opts ):
     return do_compile( name, way, 0, top_mod, [], extra_hc_opts )
 
@@ -1110,7 +1113,7 @@ def compile_cmp_asm( name, way, extra_hc_opts ):
 # -----------------------------------------------------------------------------
 # Compile-and-run tests
 
-def compile_and_run__( name, way, top_mod, extra_mods, extra_hc_opts ):
+def compile_and_run__( name, way, top_mod, extra_mods, extra_hc_opts, backpack=0 ):
     # print 'Compile and run, extra args = ', extra_hc_opts
     pretest_cleanup(name)
 
@@ -1126,7 +1129,7 @@ def compile_and_run__( name, way, top_mod, extra_mods, extra_hc_opts ):
         if extra_mods:
            force = 1
 
-        result = simple_build( name, way, extra_hc_opts, 0, top_mod, 1, 1, force)
+        result = simple_build( name, way, extra_hc_opts, 0, top_mod, 1, 1, force, backpack = backpack)
         if badResult(result):
             return result
 
@@ -1246,10 +1249,12 @@ def simple_build( name, way, extra_hc_opts, should_fail, top_mod, link, addsuf, 
         to_do = '--make '
         if link:
             to_do = to_do + '-o ' + name
+    elif backpack:
+        if link:
+            to_do = '-o ' + name
+        to_do = to_do + ' --backpack '
     elif link:
         to_do = '-o ' + name
-    elif backpack:
-        to_do = '--backpack '
     elif opts.compile_to_hc:
         to_do = '-C'
     else:
@@ -1259,7 +1264,7 @@ def simple_build( name, way, extra_hc_opts, should_fail, top_mod, link, addsuf, 
     if len(opts.compiler_stats_range_fields) > 0:
         extra_hc_opts += ' +RTS -V0 -t' + stats_file + ' --machine-readable -RTS'
     if backpack:
-        extra_hc_opts += ' -outputdir ' + name
+        extra_hc_opts += ' -outputdir ' + name + '-out'
 
     # Required by GHC 7.3+, harmless for earlier versions:
     if (getTestOpts().c_src or

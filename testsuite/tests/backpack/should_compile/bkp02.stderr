@@ -11,7 +11,7 @@ Shape for q
 provides: H -> THIS:H
                T{T, T}
 requires:
-[1 of 1] Compiling H                ( q/H.hs, nothing )
+[1 of 1] Compiling H                ( q/H.hs, bkp02-out/Br2hqQttvyiBkpnTZJaMkb/H.o )
 ==== Package r ====
 Shape for r
 provides: H -> q():H
@@ -23,4 +23,4 @@ provides: H -> q():H
 requires:
 [1 of 3] Including q
 [2 of 3] Including p
-[3 of 3] Compiling R                ( r/R.hs, nothing )
+[3 of 3] Compiling R                ( r/R.hs, bkp02-out/FQzMcndXWGrIczhCz8byYb/R.o )
