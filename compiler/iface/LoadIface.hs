@@ -26,7 +26,7 @@ module LoadIface (
         initExternalPackageState,
         computeInterface,
 
-        ifaceStats, pprModIface, showIface
+        ifaceStats, pprModIface, showIface, pprDeps
    ) where
 
 #include "HsVersions.h"
@@ -543,13 +543,18 @@ computeInterface doc_str hi_boot_file mod
     -- TODO: more caching
     dflags <- getDynFlags
     hsc_env <- getTopEnv
-    imod <- liftIO $ generalizeHoleModule dflags mod
-    r <- findAndReadIfaceWithIIT doc_str imod
+    -- First, check and see if we have the EXACT module available
+    r <- findAndReadIface doc_str mod False
     case r of
-        Failed{} -> return r
-        Succeeded (iface0, doc) -> do
-            iface <- liftIO $ rnModIface hsc_env (modulePackageKey mod) iface0
-            return (Succeeded (iface, doc))
+      Succeeded (iface, path) -> return (Succeeded (iface, text path))
+      Failed _ -> do
+        imod <- liftIO $ generalizeHoleModule dflags mod
+        r <- findAndReadIfaceWithIIT doc_str imod
+        case r of
+            Failed{} -> return r
+            Succeeded (iface0, doc) -> do
+                iface <- liftIO $ rnModIface hsc_env (modulePackageKey mod) iface0
+                return (Succeeded (iface, doc))
 
 wantHiBootFile :: DynFlags -> ExternalPackageState -> Module -> WhereFrom
                -> MaybeErr MsgDoc IsBootInterface
@@ -853,6 +858,7 @@ initExternalPackageState
       eps_HIT          = emptyUFM,
       eps_shape        = emptyNameEnv,
       eps_PTE          = emptyTypeEnv,
+      eps_BT           = Map.empty,
       eps_inst_env     = emptyInstEnv,
       eps_fam_inst_env = emptyFamInstEnv,
       eps_EST          = Map.empty,

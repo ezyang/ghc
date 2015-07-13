@@ -41,14 +41,17 @@ import Maybes
 import Panic
 import HeaderInfo
 import Bag
+import ShPackageKey
 
 import IfaceSyn
+import UniqSet
 
 import Data.Either
 import GHC.Fingerprint
 import Data.IORef
 import Control.Monad
 import qualified Data.Map as Map
+import Data.Map (Map)
 import System.FilePath
 import qualified Data.Traversable as T
 import Control.Exception
@@ -63,6 +66,8 @@ data BkpSummary
           -- ^ Identity of a package
         bs_internal_shape :: Shape,
         bs_path :: FilePath,
+        bs_hpt_cache :: IORef (Map PackageKey HomePackageTable),
+        bs_old_dflags :: DynFlags,
           -- ^ Location of the Backpack file
         bs_decls :: Int
           -- ^ Cache of the number of declarations in the package.
@@ -71,6 +76,13 @@ data BkpSummary
 -- | Apply a function on 'DynFlags' on an 'HscEnv'
 overHscDynFlags :: (DynFlags -> DynFlags) -> HscEnv -> HscEnv
 overHscDynFlags f hsc_env = hsc_env { hsc_dflags = f (hsc_dflags hsc_env) }
+
+lookupBackpack :: PackageName -> Ghc LHsPackage
+lookupBackpack pn = do
+    eps <- getEpsGhc
+    case Map.lookup pn (eps_BT eps) of
+        Nothing -> panic "nothing"
+        Just p -> return p
 
 -- | Entry point to compile a Backpack file.
 -- NB: inside of this is in the Ghc monad because we want to update
@@ -97,107 +109,123 @@ doBackpack src_filename = do
             liftIO $ throwOneError (mkPlainErrMsg dflags span err)
         POk _ bkp -> do
             hpt_cache_ref <- liftIO $ newIORef Map.empty
-            forM_ bkp $ \pkg -> do
-                let pkg_name = let PackageName fs_pn = unLoc (hspkgName (unLoc pkg))
-                               in unpackFS fs_pn
-                    is_exe = pkg_name == "main"
-                liftIO . compilationProgressMsg dflags
-                       $ "==== Package " ++ pkg_name ++ " ===="
-                -- Shape the package
-                -- TODO: when export specification is implemented for
-                -- packages, need to return both the unfiltered and
-                -- the filtered provisions.
-                (pk, sh) <- liftIO
-                          . runHsc hsc_env
-                          . ioMsgMaybe
-                          . initShM hsc_env (realSrcLocSpan loc)
-                          $ shPackage is_exe pkg
-                -- Record the shape in the EPS
-                sh_subst <- liftIO $ computeShapeSubst hsc_env sh
-                updateEpsGhc_ (\eps -> eps { eps_shape = sh_subst } )
-                eps <- getEpsGhc
-                -- Figure out if we should generate code or not.
-                -- If there are holes, we can't generate code.
-                let (target, set_write_interface)
-                           | hscTarget dflags == HscNothing = (HscNothing, False)
-                           -- NB: if we set the target to HscNothing because
-                           -- we can't compile indefinite packages, we should
-                           -- still write the interface files
-                           | not (Map.null (sh_requires sh)) = (HscNothing, True)
-                           | otherwise = (hscTarget dflags, False)
-                -- Figure out where to put the build products.  This is a
-                -- little subtle, since there are two choices for where
-                -- to put things:
-                --
-                --      1. Inline with the hs files / organized by package
-                --         name;
-                --      2. In a separate directory per package key.
-                --
-                -- (1) is acceptable when we are typechecking an indefinite
-                -- package, or compiling a definite package with no holes.
-                -- However, when compiling a definite package with holes,
-                -- we might instantiate it multiple times, so we must do (2)
-                -- to disambiguate between the cases.
-                --
-                -- To keep things predictable, if we're compiling we always
-                -- organize by pk.
-                let pkg_key = unpackFS (packageKeyFS pk)
-                    name_outdir p | Just f <- p dflags = Just (f </> pkg_name)
-                                  | otherwise = Nothing -- inline ok!
-                    key_base p | Just f <- p dflags = f
-                               | otherwise          = "out"
-                    key_outdir p = Just (key_base p </> pkg_key)
-                    outdir | target == HscNothing = name_outdir
-                           | otherwise = key_outdir
-                -- Setup the dflags for the package, and type-check/compile it!
-                withTempSession (overHscDynFlags (\dflags ->
-                  (if set_write_interface
-                    then flip gopt_set Opt_WriteInterface
-                    else id) $
-                  dflags {
-                    hscTarget   = target,
-                    thisPackage = pk,
-                    objectDir   = outdir objectDir,
-                    hiDir       = outdir hiDir,
-                    stubDir     = outdir stubDir,
-                    importPaths  = importPaths dflags ++
-                                    if target /= HscNothing
-                                        -- Hack: So we can find them when we flush 'em
-                                        -- out; if we arrange for them to stick
-                                        -- in the cache this shouldn't be
-                                        -- necessary.
-                                        then [key_base hiDir]
-                                        else []
-                  } )) $ do
-                    let bs = BkpSummary {
-                            bs_pkg_name = unLoc (hspkgName (unLoc pkg)),
-                            bs_internal_shape = sh, -- TODO watch out with exportspcs!
-                            bs_decls = length (hspkgBody (unLoc pkg)),
-                            bs_path = src_filename
-                        }
-                    compilePackage bs pkg
-                    hsc_env <- getSession
-                    let dflags = hsc_dflags hsc_env
-                    liftIO $ modifyIORef' hpt_cache_ref (Map.insert pk (hsc_HPT hsc_env))
-                    when is_exe $ do
-                        -- Link it (cribbed from GhcMake)
-                        let no_hs_main = gopt Opt_NoHsMain dflags
-                            a_root_is_Main = True -- TODO: test properly
-                            do_linking = a_root_is_Main || no_hs_main ||
-                                         ghcLink dflags == LinkDynLib ||
-                                         ghcLink dflags == LinkStaticLib
-                        hpt_cache <- liftIO $ readIORef hpt_cache_ref
-                        -- DynFlags link
-                        r <- liftIO $ linkMany (ghcLink dflags) dflags do_linking hpt_cache
-                        -- TODO: test success
-                        return ()
-                -- Clear the EPS, because everything was loaded modulo a shape
-                -- and it might be out-of-date the next time we shape.
-                -- TODO: only eliminate things which depend on holes.
-                updateEpsGhc_ (\eps -> initExternalPackageState {
-                        eps_IIT = eps_IIT eps,
-                        eps_EST = eps_EST eps
-                    } )
+            forM_ bkp (shapeAndCompilePackage dflags src_filename hpt_cache_ref emptyUFM)
+
+shapeAndCompilePackage dflags src_filename hpt_cache_ref hsubst pkg = do
+    hsc_env <- getSession
+    let pkg_name = let PackageName fs_pn = unLoc (hspkgName (unLoc pkg))
+                   in unpackFS fs_pn
+        is_exe = pkg_name == "main"
+    -- Shape the package
+    -- TODO: when export specification is implemented for
+    -- packages, need to return both the unfiltered and
+    -- the filtered provisions.
+    liftIO . compilationProgressMsg dflags
+        $ "==== Package " ++ pkg_name ++ " ===="
+    (pk, sh) <- liftIO
+              . runHsc hsc_env
+              . ioMsgMaybe
+              . initShM hsc_env
+              $ shPackage is_exe pkg hsubst
+    hpt_cache <- liftIO $ readIORef hpt_cache_ref
+    when (Map.notMember pk hpt_cache) $ do
+    shpk <- liftIO $ lookupPackageKey dflags pk
+    -- Record the shape in the EPS
+    sh_subst <- liftIO $ computeShapeSubst hsc_env sh
+    updateEpsGhc_ (\eps -> eps { eps_shape = sh_subst } )
+    eps <- getEpsGhc
+    -- Figure out if we should generate code or not.
+    -- If there are holes, we can't generate code.
+    let (target, set_write_interface)
+               | hscTarget dflags == HscNothing = (HscNothing, False)
+               -- NB: if we set the target to HscNothing because
+               -- we can't compile indefinite packages, we should
+               -- still write the interface files
+               | ShPackageKey { shPackageKeyFreeHoles = fh } <- shpk
+               , not (isEmptyUniqSet fh) = (HscNothing, True)
+               | otherwise = (hscTarget dflags, False)
+    -- Figure out where to put the build products.  This is a
+    -- little subtle, since there are two choices for where
+    -- to put things:
+    --
+    --      1. Inline with the hs files / organized by package
+    --         name;
+    --      2. In a separate directory per package key.
+    --
+    -- (1) is acceptable when we are typechecking an indefinite
+    -- package, or compiling a definite package with no holes.
+    -- However, when compiling a definite package with holes,
+    -- we might instantiate it multiple times, so we must do (2)
+    -- to disambiguate between the cases.
+    --
+    -- To keep things predictable, if we're compiling we always
+    -- organize by pk.
+    let pkg_key = unpackFS (packageKeyFS pk)
+        name_outdir p | Just f <- p dflags = Just (f </> pkg_name)
+                      | otherwise = Nothing -- inline ok!
+        key_base p | Just f <- p dflags = f
+                   | otherwise          = "out"
+        key_outdir p = Just (key_base p </> pkg_key)
+        outdir | target == HscNothing = name_outdir
+               | otherwise = key_outdir
+    -- Setup the dflags for the package, and type-check/compile it!
+    let old_dflags = dflags
+    withTempSession (overHscDynFlags (\dflags ->
+      (if set_write_interface
+        then flip gopt_set Opt_WriteInterface
+        else id) $
+      dflags {
+        hscTarget   = target,
+        thisPackage = pk,
+        objectDir   = outdir objectDir,
+        hiDir       = outdir hiDir,
+        stubDir     = outdir stubDir,
+        importPaths  = importPaths dflags ++
+                        if target /= HscNothing
+                            -- Hack: So we can find them when we flush 'em
+                            -- out; if we arrange for them to stick
+                            -- in the cache this shouldn't be
+                            -- necessary.
+                            then [key_base hiDir]
+                            else []
+      } )) $ do
+        let bs = BkpSummary {
+                bs_pkg_name = unLoc (hspkgName (unLoc pkg)),
+                bs_internal_shape = sh, -- TODO watch out with exportspcs!
+                bs_decls = length (hspkgBody (unLoc pkg)),
+                bs_hpt_cache = hpt_cache_ref,
+                bs_old_dflags = old_dflags,
+                bs_path = src_filename
+            }
+        updateEpsGhc_ (\eps -> eps {
+             eps_BT = Map.insert (bs_pkg_name bs) pkg (eps_BT eps)
+            } )
+        compilePackage bs pkg
+        hsc_env <- getSession
+        let dflags = hsc_dflags hsc_env
+        when (hscTarget dflags /= HscNothing) $
+            liftIO $ modifyIORef' hpt_cache_ref (Map.insert pk (hsc_HPT hsc_env))
+        when is_exe $ do
+            -- Link it (cribbed from GhcMake)
+            let no_hs_main = gopt Opt_NoHsMain dflags
+                a_root_is_Main = True -- TODO: test properly
+                do_linking = a_root_is_Main || no_hs_main ||
+                             ghcLink dflags == LinkDynLib ||
+                             ghcLink dflags == LinkStaticLib
+            hpt_cache <- liftIO $ readIORef hpt_cache_ref
+            -- DynFlags link
+            r <- liftIO $ linkMany (ghcLink dflags) dflags do_linking hpt_cache
+            -- TODO: test success
+            return ()
+    -- Clear the EPS, because everything was loaded modulo a shape
+    -- and it might be out-of-date the next time we shape.
+    -- TODO: only eliminate things which depend on holes.
+    when (target == HscNothing) $
+        updateEpsGhc_ (\eps -> initExternalPackageState {
+                eps_IIT = eps_IIT eps,
+                eps_EST = eps_EST eps,
+                eps_BT = eps_BT eps
+            } )
 
 -- | Compiles a Backpack package.
 compilePackage :: BkpSummary -> LHsPackage -> Ghc ()
@@ -277,6 +305,8 @@ getEpsGhc = do
     hsc_env <- getSession
     liftIO $ readIORef (hsc_EPS hsc_env)
 
+pprModIfaceSimple iface = ppr (mi_module iface) $$ pprDeps (mi_deps iface)
+
 -- | Compile a (non-located) package declaration.  Updates the session.
 compilePkgDecl' :: BkpSummary -> Int -> RealSrcSpan -> HsPkgDecl -> Ghc ()
 compilePkgDecl' bs i _ (ModuleD hsmod@(L _ HsModule { hsmodName = Just (L _ modname) })) = do
@@ -338,15 +368,15 @@ compilePkgDecl' bs i loc (IncludeD IncludeDecl{ idPackageName = L _ name@(Packag
     liftIO . compilationProgressMsg dflags $
         (showModuleIndex (i, bs_decls bs) ++ "Including " ++ unpackFS fs_name)
     -- Typecheck it
-    new_ifaces <- tcInclude loc (bs_internal_shape bs) name ispec
+    new_ifaces <- tcInclude bs loc (bs_internal_shape bs) name ispec
     -- TODO: need to COMPILE the includes if we instantiate them
     -- Put the includes into scope
     let ifaces1 = addListToUFM_C mergeModIfaceForImport (hsc_ifaces hsc_env) new_ifaces
         hsc_env1 = hsc_env { hsc_ifaces = ifaces1 }
     setSession hsc_env1
 
-tcInclude :: RealSrcSpan -> Shape -> PackageName -> Maybe LInclSpec -> Ghc [(ModuleName, ModIface)]
-tcInclude loc sh n ispec = do
+tcInclude :: BkpSummary -> RealSrcSpan -> Shape -> PackageName -> Maybe LInclSpec -> Ghc [(ModuleName, ModIface)]
+tcInclude bs loc sh n ispec = do
     hsc_env <- getSession
     dflags <- getDynFlags
     eps <- liftIO $ readIORef (hsc_EPS hsc_env)
@@ -363,17 +393,33 @@ tcInclude loc sh n ispec = do
                              case r of
                                 Failed err -> pprPanic "oops" err -- liftIO $ throwGhcExceptionIO (ProgramError (showSDoc dflags err))
                                 Succeeded (x, _) -> return x
-            -- NB: no fixpointing is necessary
-            prov_ifaces <- forM (Map.toList provs) $ \(modname, (m, _)) -> do
-                                m' <- fmap fst . liftIO $ renameHoleModule dflags hsubst m
-                                iface <- ifExc $ computeInterface (text "prov_iface") False m'
-                                return (modname, iface)
-            req_ifaces <- forM (Map.toList reqs) $ \(modname, (ms, _)) -> do
-                                ms' <- mapM (fmap fst . liftIO . renameHoleModule dflags hsubst) ms
-                                ifaces <- mapM (ifExc . computeInterface (text "req_iface") False) ms'
-                                mapM_ (addIfaceToHIT dflags loc) ifaces
-                                return [(modname, iface) | iface <- ifaces]
-            return (prov_ifaces ++ concat req_ifaces)
+            -- TODO: If we are COMPILING, gotta compile this package
+            -- and use those interfaces
+            if hscTarget dflags /= HscNothing
+                then do pkg <- lookupBackpack n
+                        shapeAndCompilePackage (bs_old_dflags bs) (bs_path bs) (bs_hpt_cache bs) hsubst pkg
+                        prov_ifaces <- forM (Map.toList provs) $ \(modname, (m, _)) -> do
+                                            m' <- fmap fst . liftIO $ renameHoleModule dflags hsubst m
+                                            iface <- liftIO . initIfaceCheck hsc_env $ loadSysInterface (text "prov_iface") m'
+                                            return (modname, iface)
+
+                        req_ifaces <- forM (Map.toList reqs) $ \(modname, (ms, _)) -> do
+                                            ms' <- mapM (fmap fst . liftIO . renameHoleModule dflags hsubst) ms
+                                            ifaces <- mapM (liftIO . initIfaceCheck hsc_env . loadSysInterface (text "req_iface")) ms'
+                                            return [(modname, iface) | iface <- ifaces]
+
+                        return (prov_ifaces ++ concat req_ifaces)
+                else do -- NB: no fixpointing is necessary
+                        prov_ifaces <- forM (Map.toList provs) $ \(modname, (m, _)) -> do
+                                            m' <- fmap fst . liftIO $ renameHoleModule dflags hsubst m
+                                            iface <- ifExc $ computeInterface (text "prov_iface") False m'
+                                            return (modname, iface)
+                        req_ifaces <- forM (Map.toList reqs) $ \(modname, (ms, _)) -> do
+                                            ms' <- mapM (fmap fst . liftIO . renameHoleModule dflags hsubst) ms
+                                            ifaces <- mapM (ifExc . computeInterface (text "req_iface") False) ms'
+                                            mapM_ (addIfaceToHIT dflags loc) ifaces
+                                            return [(modname, iface) | iface <- ifaces]
+                        return (prov_ifaces ++ concat req_ifaces)
 
 -- throwErrors :: ErrorMessages -> Hsc a
 -- throwErrors = liftIO . throwIO . mkSrcErr
@@ -393,7 +439,8 @@ addIfaceToHIT dflags loc iface = do
                 Just (_, True) -> (eps, Just stale_msg)
                 Just (iface', False) -> case mergeModIface iface' iface of
                     Failed err -> (eps, Just (format_msgs err))
-                    Succeeded iface'' -> pprTrace "merge ok" (ppr (mi_exports iface') $$ ppr (mi_exports iface) $$ ppr (mi_exports iface'')) $ (addToHIT eps iface'', Nothing)
+                    Succeeded iface'' -> {- pprTrace "merge ok" (ppr (mi_exports iface') $$ ppr (mi_exports iface) $$ ppr (mi_exports iface'')) $ -}
+                                         (addToHIT eps iface'', Nothing)
         case mb_err of
             Just err -> liftIO . throwIO $ mkSrcErr err
             Nothing -> return ()

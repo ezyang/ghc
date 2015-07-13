@@ -22,5 +22,18 @@ provides: H -> q():H
                x
 requires:
 [1 of 3] Including q
+==== Package q ====
+Shape for q
+provides: H -> THIS:H
+               T{T, T}
+requires:
 [2 of 3] Including p
+==== Package p ====
+Shape for p
+provides: A -> THIS:A
+               A{A, MkA}
+requires: H -> THIS:H
+               T{T}
+[1 of 2] Compiling H[abstract sig]  ( p/H.hsig, nothing )
+[2 of 2] Compiling A                ( p/A.hs, bkp02-out/I3QVFsdEOQx30HeszZagss/A.o )
 [3 of 3] Compiling R                ( r/R.hs, bkp02-out/FQzMcndXWGrIczhCz8byYb/R.o )

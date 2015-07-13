@@ -2253,6 +2253,8 @@ type PackageFamInstEnv = FamInstEnv
 type PackageVectInfo   = VectInfo
 type PackageAnnEnv     = AnnEnv
 
+type BackpackTable = Map PackageName LHsPackage
+
 -- | Boolean records whether or not the interface has been loaded
 -- into the EPS.
 type HoleIfaceTable = ModuleNameEnv (ModIface, Bool)
@@ -2300,6 +2302,9 @@ data ExternalPackageState
 
         eps_EST :: !ExternalShapeTable,
                 -- ^ Shapes of packages, for when we include them.
+
+        eps_BT :: !BackpackTable,
+                -- ^ Backpack sources for recompiling
 
         eps_IIT :: !IndefiniteIfaceTable,
                 -- ^ The unshaped, uninstantiated 'ModIface's for modules

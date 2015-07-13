@@ -147,15 +147,15 @@ liftTcToSh hsc_src mod loc do_this = do
         Nothing -> failM
         Just x -> return x
 
-initShM :: HscEnv -> RealSrcSpan -> ShM a -> IO (Messages, Maybe a)
-initShM hsc_env loc do_this = do
+initShM :: HscEnv -> ShM a -> IO (Messages, Maybe a)
+initShM hsc_env do_this = do
     errs_var <- newIORef emptyMessages
     let gbl_env = ShGblEnv {
                 -- Will get filled in soon
                 shg_pk = panic "shg_pk: not initialized"
             }
         lcl_env = ShLclEnv {
-                shl_loc = loc, -- Should be overridden soon
+                shl_loc = panic "initShM sh_loc", -- Should be overridden soon
                 shl_errs = errs_var -- tcl_errs
             }
         hsc_env' = hsc_env {
@@ -394,18 +394,21 @@ mergePreShapes psh1 psh2 =
 -}
 
 -- | Shape a 'HsPackage'.
-shPackage :: Bool -> LHsPackage -> ShM (PackageKey, Shape)
+shPackage :: Bool -> LHsPackage -> ShHoleSubst -> ShM (PackageKey, Shape)
 shPackage
     is_exe
     (L loc HsPackage { hspkgName = L _ name@(PackageName fs_name)
                      , hspkgExports = Nothing -- XXX incomplete
                      , hspkgBody = decls })
+    hsubst
     = setSrcSpanSh loc $
       do dflags <- getDynFlags
          -- Pre-pass, to calculate the requirements
          psh <- foldM preshape emptyPreShape decls
-         let insts = do m <- uniqSetToList (psh_requires psh)
-                        return (m, mkModule holePackageKey m)
+         insts <- forM (uniqSetToList (psh_requires psh)) $ \m -> do
+                        let mod0 = mkModule holePackageKey m
+                        (mod, _) <- liftIO $ renameHoleModule dflags hsubst mod0
+                        return (m, mod)
          when (not (null insts) && is_exe) $
             failSh (text "Main package cannot have holes" <+> ppr (map fst insts))
          pk <- if is_exe
@@ -628,7 +631,7 @@ mergeModIface' :: [(Fingerprint, IfaceDecl)] -> ModIface -> ModIface -> ModIface
 mergeModIface' merged_decls iface1 iface2 =
     let fixities = mergeFixities (mi_fixities iface1) (mi_fixities iface2)
         warns = mergeWarnings (mi_warns iface1) (mi_warns iface2)
-    in ASSERT( mi_module iface1 == mi_module iface2 )
+    in ASSERT2( mi_module iface1 == mi_module iface2, ppr (mi_module iface1) <+> ppr (mi_module iface2) )
        (emptyModIface (mi_module iface1)) {
         -- Fake in-memory interfaces always have empty sig-of
         mi_sig_of = Nothing,
