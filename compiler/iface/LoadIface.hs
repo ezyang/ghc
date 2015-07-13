@@ -26,7 +26,7 @@ module LoadIface (
         initExternalPackageState,
         computeInterface,
 
-        ifaceStats, pprModIface, showIface, pprDeps
+        ifaceStats, pprModIface, pprModIfaceSimple, showIface
    ) where
 
 #include "HsVersions.h"
@@ -935,6 +935,11 @@ showIface hsc_env filename = do
        readBinIface IgnoreHiWay TraceBinIFaceReading filename
    let dflags = hsc_dflags hsc_env
    log_action dflags dflags SevDump noSrcSpan defaultDumpStyle (pprModIface iface)
+
+-- Show a ModIface but don't display details; suitable for ModIfaces stored in
+-- the EPT.
+pprModIfaceSimple :: ModIface -> SDoc
+pprModIfaceSimple iface = ppr (mi_module iface) $$ pprDeps (mi_deps iface) $$ nest 2 (vcat (map pprExport (mi_exports iface)))
 
 pprModIface :: ModIface -> SDoc
 -- Show a ModIface

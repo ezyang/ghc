@@ -413,7 +413,9 @@ link' dflags batch_attempt_linking hpt_map
           else do
 
         let getOfiles (LM _ _ us) = map nameOfObject (filter isObject us)
-            obj_files = concatMap getOfiles linkables
+            -- TODO: nub here is kind of a hack, but the current HMI could
+            -- be duplicated if it was used to fill in holes elsewhere
+            obj_files = nubSort (concatMap getOfiles linkables)
 
             exe_file = exeFileName staticLink dflags
 

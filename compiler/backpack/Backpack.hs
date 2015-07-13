@@ -170,7 +170,7 @@ shapeAndCompilePackage dflags src_filename hpt_cache_ref hsubst pkg = do
                | otherwise = key_outdir
     -- Setup the dflags for the package, and type-check/compile it!
     let old_dflags = dflags
-    withTempSession (overHscDynFlags (\dflags ->
+    withTempSession (\hsc_env -> overHscDynFlags (\dflags ->
       (if set_write_interface
         then flip gopt_set Opt_WriteInterface
         else id) $
@@ -188,7 +188,8 @@ shapeAndCompilePackage dflags src_filename hpt_cache_ref hsubst pkg = do
                             -- necessary.
                             then [key_base hiDir]
                             else []
-      } )) $ do
+      -- NB: reset hsc_ifaces since this dictates visibility
+      } ) hsc_env { hsc_ifaces = emptyUFM } ) $ do
         let bs = BkpSummary {
                 bs_pkg_name = unLoc (hspkgName (unLoc pkg)),
                 bs_internal_shape = sh, -- TODO watch out with exportspcs!
@@ -262,7 +263,9 @@ hsModuleToModSummary dflags hsc_src bs
                                   HsigFile -> "hsig")
     -- This duplicates a pile of logic in GhcMake
     time <- getModificationUTCTime (bs_path bs) -- TODO cache me
-    let this_package | HsigFile <- hsc_src = holePackageKey
+    let this_package | HsigFile <- hsc_src
+                     -- TODO: Hmmmm
+                     , hscTarget dflags /= HscNothing = holePackageKey
                      | otherwise = thisPackage dflags
         this_mod = mkModule this_package modname
     hi_timestamp <- modificationTimeIfExists (ml_hi_file location)
@@ -304,8 +307,6 @@ getEpsGhc :: GhcMonad m => m ExternalPackageState
 getEpsGhc = do
     hsc_env <- getSession
     liftIO $ readIORef (hsc_EPS hsc_env)
-
-pprModIfaceSimple iface = ppr (mi_module iface) $$ pprDeps (mi_deps iface)
 
 -- | Compile a (non-located) package declaration.  Updates the session.
 compilePkgDecl' :: BkpSummary -> Int -> RealSrcSpan -> HsPkgDecl -> Ghc ()
@@ -356,6 +357,7 @@ compilePkgDecl' bs i loc (SignatureD hsmod@(L _ HsModule { hsmodName = Just (L _
     hsc_env <- getSession
     let ifaces1 = addToUFM_C mergeModIfaceForImport (hsc_ifaces hsc_env) modname iface
         hsc_env1 = hsc_env { hsc_ifaces = ifaces1 }
+    pprTrace "ifaces1" (vcat (map pprModIfaceSimple (eltsUFM (hsc_ifaces hsc_env)))) $ return ()
     setSession hsc_env1
 
 -- These should have already been caught by shaping

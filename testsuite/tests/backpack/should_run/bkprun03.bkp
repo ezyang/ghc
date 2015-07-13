@@ -1,0 +1,18 @@
+package p where
+    signature H where
+        x :: Bool
+    module PP where
+        y = False
+    module P where
+        import PP
+        import H
+        z = x || y
+
+package main where
+    module H where
+        x = False
+        y = True
+    include p
+    module Main where
+        import P
+        main = print z

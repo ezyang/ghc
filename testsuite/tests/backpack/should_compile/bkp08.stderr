@@ -3,7 +3,7 @@ Shape for q
 provides: H -> THIS:H
                T{T, T, x}
 requires:
-[1 of 1] Compiling H                ( q/H.hs, nothing )
+[1 of 1] Compiling H                ( q/H.hs, bkp08-out/Br2hqQttvyiBkpnTZJaMkb/H.o )
 ==== Package r ====
 Shape for r
 provides:
@@ -18,5 +18,16 @@ provides: H -> q():H
                f
 requires:
 [1 of 3] Including q
+==== Package q ====
+Shape for q
+provides: H -> THIS:H
+               T{T, T, x}
+requires:
 [2 of 3] Including r
-[3 of 3] Compiling M                ( p/M.hs, nothing )
+==== Package r ====
+Shape for r
+provides:
+requires: H -> THIS:H
+               T{T}
+[1 of 1] Compiling H[abstract sig]  ( r/H.hsig, nothing )
+[3 of 3] Compiling M                ( p/M.hs, bkp08-out/3TzWjyLYxpKKUrnKgPCj8v/M.o )
