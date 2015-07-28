@@ -100,9 +100,8 @@ module DynFlags (
         parseDynamicFilePragma,
         parseDynamicFlagsFull,
 
-        -- ** Package key cache
+        -- ** Unit key cache
         UnitKeyCache,
-        ShUnitKey(..),
 
         -- ** Available DynFlags
         allFlags,
@@ -182,7 +181,6 @@ import System.IO.Unsafe ( unsafeDupablePerformIO )
 #endif
 import {-# SOURCE #-} ErrUtils ( Severity(..), MsgDoc, mkLocMessage )
 import UniqFM
-import UniqSet
 
 import System.IO.Unsafe ( unsafePerformIO )
 import Data.IORef
@@ -667,25 +665,6 @@ getSigOf dflags n = Map.lookup n (sigOf dflags)
 -- NameCache updNameCache
 type UnitKeyEnv = UniqFM
 type UnitKeyCache = UnitKeyEnv ShUnitKey
-
--- | An elaborated representation of a 'UnitKey', which records
--- all of the components that go into the hashed 'UnitKey'.
-data ShUnitKey
-    = ShUnitKey {
-          shUnitKeyUnitName          :: !UnitName,
-          shUnitKeyIPID              :: !InstalledPackageId,
-          shUnitKeyInsts             :: ![(ModuleName, Module)],
-          shUnitKeyFreeHoles         :: UniqSet ModuleName
-      }
-    | ShDefiniteUnitKey {
-          shUnitKey :: !UnitKey
-      }
-    deriving Eq
-
-instance Outputable ShUnitKey where
-    ppr (ShUnitKey pn vh insts fh)
-        = ppr pn <+> ppr vh <+> ppr insts <+> parens (ppr fh)
-    ppr (ShDefiniteUnitKey pk) = ppr pk
 
 -- | Contains not only a collection of 'GeneralFlag's but also a plethora of
 -- information relating to the compilation of a single file or GHC session

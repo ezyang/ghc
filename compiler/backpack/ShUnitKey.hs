@@ -1,11 +1,16 @@
 {-# LANGUAGE CPP #-}
 module ShUnitKey(
     ShFreeHoles,
-    calcModuleFreeHoles,
 
     newUnitKey,
+    newUnitKey',
     newUnitKeyWithScope,
+    newShUnitKey,
     lookupUnitKey,
+
+    unitKeyInsts,
+    unitKeyFreeHoles,
+    moduleFreeHoles,
 
     generalizeHoleModule,
     canonicalizeModule,
@@ -56,8 +61,8 @@ import Data.Function
 -- Thus, we maintain the invariant: for every UnitKey
 -- in our system, either:
 --
---      1. It is in the installed package database (lookupPackage)
---         so we can lookup the recorded instantiatedWith
+--      1. It is not a Backpack package key (so the MD5 hash
+--         is truly opaque), or
 --      2. We've recorded the associated mapping in the
 --         UnitKeyCache.
 --
@@ -79,55 +84,73 @@ import Data.Function
 -- If this set is empty no substitutions are possible.
 type ShFreeHoles = UniqSet ModuleName
 
+-- shUnitKeyInsts
+unitKeyInsts :: DynFlags -> UnitKey -> IO [(ModuleName, Module)]
+unitKeyInsts dflags pk = do
+    mb_shpk <- lookupUnitKey dflags pk
+    case mb_shpk of
+        Nothing -> return []
+        Just shpk -> return (shUnitKeyInsts shpk)
+
+-- | Returns the free holes of a 'UnitKey'. NB: if this
+-- 'UnitKey' is a 'holeUnitKey', this will return an
+-- empty set; use 'moduleFreeHoles' to handle HOLE:A properly.
+unitKeyFreeHoles :: DynFlags -> UnitKey -> IO (UniqSet ModuleName)
+unitKeyFreeHoles dflags pk = do
+    mb_shpk <- lookupUnitKey dflags pk
+    case mb_shpk of
+        Nothing -> return emptyUniqSet
+        Just shpk -> return (shUnitKeyFreeHoles shpk)
+
 -- | Calculate the free holes of a 'Module'.
-calcModuleFreeHoles :: DynFlags -> Module -> IO ShFreeHoles
-calcModuleFreeHoles dflags m
+moduleFreeHoles :: DynFlags -> Module -> IO ShFreeHoles
+moduleFreeHoles dflags m
     | moduleUnitKey m == holeUnitKey = return (unitUniqSet (moduleName m))
-    | otherwise = do
-        shpk <- lookupUnitKey dflags (moduleUnitKey m)
-        return $ case shpk of
-            ShDefiniteUnitKey{} -> emptyUniqSet
-            ShUnitKey{ shUnitKeyFreeHoles = in_scope } -> in_scope
+    | otherwise = unitKeyFreeHoles dflags (moduleUnitKey m)
 
 -- | Calculate the free holes of the hole map @[('ModuleName', 'Module')]@.
 calcInstsFreeHoles :: DynFlags -> [(ModuleName, Module)] -> IO ShFreeHoles
 calcInstsFreeHoles dflags insts =
-    fmap unionManyUniqSets (mapM (calcModuleFreeHoles dflags . snd) insts)
+    fmap unionManyUniqSets (mapM (moduleFreeHoles dflags . snd) insts)
 
 -- | Given a 'UnitName', an 'InstalledPackageId', and sorted mapping of holes to
 -- their implementations, compute the 'UnitKey' associated with it, as well
 -- as the recursively computed 'ShFreeHoles' of holes that may be substituted.
 newUnitKeyWithScope :: DynFlags
-                       -> UnitName
-                       -> InstalledPackageId
+                       -> IndefiniteUnitId
                        -> [(ModuleName, Module)]
                        -> IO (UnitKey, ShFreeHoles)
-newUnitKeyWithScope dflags pn ipid insts = do
+newUnitKeyWithScope dflags uid insts = do
     fhs <- calcInstsFreeHoles dflags insts
-    pk <- newUnitKey' dflags (ShUnitKey pn ipid insts fhs)
+    pk <- newUnitKey' dflags (ShUnitKey uid insts fhs)
     return (pk, fhs)
 
 -- | Given a 'UnitName' and sorted mapping of holes to
 -- their implementations, compute the 'UnitKey' associated with it.
 -- (Analogous to 'newGlobalBinder').
 newUnitKey :: DynFlags
-              -> UnitName
-              -> InstalledPackageId
+              -> IndefiniteUnitId
               -> [(ModuleName, Module)]
               -> IO UnitKey
-newUnitKey dflags pn ipid insts = do
-    (pk, _) <- newUnitKeyWithScope dflags pn ipid insts
-    return pk
+newUnitKey dflags uid insts = do
+    fmap fst $ newUnitKeyWithScope dflags uid insts
+
+-- | Compute a 'ShUnitKey'.
+newShUnitKey :: DynFlags
+                -> IndefiniteUnitId
+                -> [(ModuleName, Module)]
+                -> IO ShUnitKey
+newShUnitKey dflags uid insts = do
+    fhs <- calcInstsFreeHoles dflags insts
+    return (ShUnitKey uid insts fhs)
 
 -- | Given a 'ShUnitKey', compute the 'UnitKey' associated with it.
 -- This function doesn't calculate the 'ShFreeHoles', because it is
 -- provided with 'ShUnitKey'.
 newUnitKey' :: DynFlags -> ShUnitKey -> IO UnitKey
-newUnitKey' _ (ShDefiniteUnitKey pk) = return pk
-newUnitKey' dflags
-               shpk@(ShUnitKey pn ipid insts fhs) = do
+newUnitKey' dflags shpk@(ShUnitKey uid insts fhs) = do
     ASSERTM( fmap (==fhs) (calcInstsFreeHoles dflags insts) )
-    let pk = mkUnitKey pn ipid insts
+    let pk = mkUnitKey uid insts
         pkt_var = unitKeyCache dflags
     pk_cache <- readIORef pkt_var
     let consistent pk_cache = maybe True (==shpk) (lookupUFM pk_cache pk)
@@ -145,33 +168,33 @@ newUnitKey' dflags
 -- MD5 hashes.
 lookupUnitKey :: DynFlags
                  -> UnitKey
-                 -> IO ShUnitKey
+                 -> IO (Maybe ShUnitKey)
 lookupUnitKey dflags pk
   | pk `elem` wiredInUnitKeys
      || pk == mainUnitKey
      || pk == holeUnitKey
-  = return (ShDefiniteUnitKey pk)
+  = return Nothing
   | otherwise = do
     let pkt_var = unitKeyCache dflags
     pk_cache <- readIORef pkt_var
     case lookupUFM pk_cache pk of
-        Just r -> return r
-        _ -> return (ShDefiniteUnitKey pk)
+        Just r -> return (Just r)
+        _ -> return Nothing
 
 pprUnitKey :: UnitKey -> SDoc
 pprUnitKey pk = sdocWithDynFlags $ \dflags ->
     -- name cache is a memotable
-    let shpk = unsafePerformIO (lookupUnitKey dflags pk)
-    in case shpk of
-        shpk@ShUnitKey{} ->
-            ppr (shUnitKeyUnitName shpk) <>
+    let mb_shpk = unsafePerformIO (lookupUnitKey dflags pk)
+    in case mb_shpk of
+        Just shpk ->
+            ppr (shUnitKeyUnitId shpk) <>
                 parens (hsep
                     (punctuate comma [ ppUnless (moduleName m == modname)
                                                 (ppr modname <+> text "->")
                                        <+> ppr m
                                      | (modname, m) <- shUnitKeyInsts shpk]))
             <> ifPprDebug (braces (ftext (unitKeyFS pk)))
-        ShDefiniteUnitKey pk -> ftext (unitKeyFS pk)
+        Nothing -> ftext (unitKeyFS pk)
 
 -- NB: newUnitKey and lookupUnitKey are mutually recursive; this
 -- recursion is guaranteed to bottom out because you can't set up cycles
@@ -188,12 +211,16 @@ pprUnitKey pk = sdocWithDynFlags $ \dflags ->
 
 -- | Generates a 'UnitKey'.  Don't call this directly; you probably
 -- want to cache the result.
-mkUnitKey :: UnitName
-             -> InstalledPackageId
+mkUnitKey :: IndefiniteUnitId
              -> [(ModuleName, Module)] -- hole instantiations
              -> UnitKey
-mkUnitKey (UnitName fsUnitName)
-             (InstalledPackageId fsIPID) unsorted_holes =
+mkUnitKey (IndefiniteUnitId (InstalledPackageId fsIPID) Nothing) holes =
+    ASSERT ( null holes )
+    fsToUnitKey fsIPID
+mkUnitKey (IndefiniteUnitId
+                 (InstalledPackageId fsIPID)
+                 (Just (UnitName fsUnitName)))
+             unsorted_holes =
     -- NB: don't use concatFS here, it's not much of an improvement
     fingerprintUnitKey . fingerprintString $
         unpackFS fsUnitName ++ "\n" ++
@@ -216,14 +243,13 @@ generalizeHoleModule dflags m = do
 -- @p(A -> q():A) generalizes to p(A -> HOLE:A)@.
 generalizeHoleUnitKey :: DynFlags -> UnitKey -> IO UnitKey
 generalizeHoleUnitKey dflags pk = do
-    shpk <- lookupUnitKey dflags pk
-    case shpk of
-        ShDefiniteUnitKey _ -> return pk
-        ShUnitKey { shUnitKeyUnitName = pn,
-                       shUnitKeyIPID = ipid,
-                       shUnitKeyInsts = insts0 }
+    mb_shpk <- lookupUnitKey dflags pk
+    case mb_shpk of
+        Nothing -> return pk
+        Just ShUnitKey { shUnitKeyUnitId = uid,
+                            shUnitKeyInsts = insts0 }
           -> let insts = map (\(x, _) -> (x, mkModule holeUnitKey x)) insts0
-             in newUnitKey dflags pn ipid insts
+             in newUnitKey dflags uid insts
 
 -- | Canonicalize a 'Module' so that it uniquely identifies a module.
 -- For example, @p(A -> M):A@ canonicalizes to @M@.  Useful for making
@@ -231,9 +257,9 @@ generalizeHoleUnitKey dflags pk = do
 canonicalizeModule :: DynFlags -> Module -> IO Module
 canonicalizeModule dflags m = do
     let pk = moduleUnitKey m
-    shpk <- lookupUnitKey dflags pk
-    return $ case shpk of
-        ShUnitKey { shUnitKeyInsts = insts }
+    mb_shpk <- lookupUnitKey dflags pk
+    return $ case mb_shpk of
+        Just ShUnitKey { shUnitKeyInsts = insts }
             | Just m' <- lookup (moduleName m) insts -> m'
         _ -> m
 

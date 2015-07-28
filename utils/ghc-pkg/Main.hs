@@ -1087,6 +1087,7 @@ type PackageCacheFormat = GhcPkg.InstalledPackageInfo
                             String     -- src package id
                             String     -- package name
                             String     -- unit key
+                            String     -- unit name
                             ModuleName -- module name
 
 convertPackageInfoToCacheFormat :: InstalledPackageInfo -> PackageCacheFormat
@@ -1097,6 +1098,7 @@ convertPackageInfoToCacheFormat pkg =
        GhcPkg.packageName        = display (packageName pkg),
        GhcPkg.packageVersion     = packageVersion pkg,
        GhcPkg.unitKey            = display (packageKey pkg),
+       GhcPkg.unitName           = Nothing, -- TODO
        GhcPkg.depends            = map display (depends pkg),
        GhcPkg.abiHash            = let AbiHash abi = abiHash pkg
                                    in abi,

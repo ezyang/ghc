@@ -66,13 +66,14 @@ import System.Directory
 -- | This is a subset of Cabal's 'InstalledPackageInfo', with just the bits
 -- that GHC is interested in.
 --
-data InstalledPackageInfo instpkgid srcpkgid srcpkgname key modulename
+data InstalledPackageInfo instpkgid srcpkgid srcpkgname key unitname modulename
    = InstalledPackageInfo {
        installedPackageId :: instpkgid,
        sourcePackageId    :: srcpkgid,
        packageName        :: srcpkgname,
        packageVersion     :: Version,
        unitKey            :: key,
+       unitName           :: Maybe unitname,
        abiHash            :: String,
        depends            :: [key],
        importDirs         :: [FilePath],
@@ -142,16 +143,18 @@ class BinaryStringRep a where
   toStringRep   :: a -> BS.ByteString
 
 emptyInstalledPackageInfo :: (BinaryStringRep a, BinaryStringRep b,
-                              BinaryStringRep c, BinaryStringRep d)
-                          => InstalledPackageInfo a b c d e
+                              BinaryStringRep c, BinaryStringRep d,
+                              BinaryStringRep e)
+                          => InstalledPackageInfo a b c d e f
 emptyInstalledPackageInfo =
   InstalledPackageInfo {
        installedPackageId = fromStringRep BS.empty,
        sourcePackageId    = fromStringRep BS.empty,
        packageName        = fromStringRep BS.empty,
        packageVersion     = Version [] [],
-       unitKey            = fromStringRep BS.empty,
        abiHash            = "",
+       unitKey            = fromStringRep BS.empty,
+       unitName           = Nothing,
        depends            = [],
        importDirs         = [],
        hsLibraries        = [],
@@ -176,8 +179,8 @@ emptyInstalledPackageInfo =
 -- | Read the part of the package DB that GHC is interested in.
 --
 readPackageDbForGhc :: (BinaryStringRep a, BinaryStringRep b, BinaryStringRep c,
-                        BinaryStringRep d, BinaryStringRep e) =>
-                       FilePath -> IO [InstalledPackageInfo a b c d e]
+                        BinaryStringRep d, BinaryStringRep e, BinaryStringRep f) =>
+                       FilePath -> IO [InstalledPackageInfo a b c d e f]
 readPackageDbForGhc file =
     decodeFromFile file getDbForGhc
   where
@@ -210,8 +213,9 @@ readPackageDbForGhcPkg file =
 -- | Write the whole of the package DB, both parts.
 --
 writePackageDb :: (Binary pkgs, BinaryStringRep a, BinaryStringRep b,
-                   BinaryStringRep c, BinaryStringRep d, BinaryStringRep e) =>
-                  FilePath -> [InstalledPackageInfo a b c d e] -> pkgs -> IO ()
+                   BinaryStringRep c, BinaryStringRep d, BinaryStringRep e,
+                   BinaryStringRep f) =>
+                  FilePath -> [InstalledPackageInfo a b c d e f] -> pkgs -> IO ()
 writePackageDb file ghcPkgs ghcPkgPart =
     writeFileAtomic file (runPut putDbForGhcPkg)
   where
@@ -298,11 +302,11 @@ writeFileAtomic targetPath content = do
         renameFile tmpPath targetPath)
 
 instance (BinaryStringRep a, BinaryStringRep b, BinaryStringRep c,
-          BinaryStringRep d, BinaryStringRep e) =>
-         Binary (InstalledPackageInfo a b c d e) where
+          BinaryStringRep d, BinaryStringRep e, BinaryStringRep f) =>
+         Binary (InstalledPackageInfo a b c d e f) where
   put (InstalledPackageInfo
          installedPackageId sourcePackageId
-         packageName packageVersion unitKey
+         packageName packageVersion unitKey unitName
          abiHash depends importDirs
          hsLibraries extraLibraries extraGHCiLibraries libraryDirs
          frameworks frameworkDirs
@@ -316,6 +320,7 @@ instance (BinaryStringRep a, BinaryStringRep b, BinaryStringRep c,
     put (toStringRep packageName)
     put packageVersion
     put (toStringRep unitKey)
+    put (fmap toStringRep unitName)
     put abiHash
     put (map toStringRep depends)
     put importDirs
@@ -343,6 +348,7 @@ instance (BinaryStringRep a, BinaryStringRep b, BinaryStringRep c,
     packageName        <- get
     packageVersion     <- get
     unitKey            <- get
+    unitName           <- get
     abiHash            <- get
     depends            <- get
     importDirs         <- get
@@ -368,6 +374,7 @@ instance (BinaryStringRep a, BinaryStringRep b, BinaryStringRep c,
               (fromStringRep sourcePackageId)
               (fromStringRep packageName) packageVersion
               (fromStringRep unitKey)
+              (fmap fromStringRep unitName)
               abiHash
               (map fromStringRep depends)
               importDirs
