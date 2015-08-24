@@ -316,7 +316,7 @@ generate directory distdir dll0Modules config_args
       -- XXX We shouldn't just configure with the default flags
       -- XXX And this, and thus the "getPersistBuildConfig distdir" below,
       -- aren't going to work when the deps aren't built yet
-      withArgs (["configure", "--distdir", distdir] ++ config_args)
+      withArgs (["configure", "--distdir", distdir, "--ipid", "$pkg-$version-ghc-inplace"] ++ config_args)
                runDefaultMain
 
       lbi <- getPersistBuildConfig distdir
