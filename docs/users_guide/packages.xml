@@ -267,29 +267,31 @@ exposed-modules: Network.BSD,
       </varlistentry>
 
       <varlistentry>
-        <term><option>-this-package-key</option> <replaceable>foo</replaceable>
-        <indexterm><primary><option>-this-package-key</option></primary>
+        <term><option>-this-unit-key</option> <replaceable>foo</replaceable>
+        <indexterm><primary><option>-this-unit-key</option></primary>
           </indexterm></term>
         <listitem>
           <para>Tells GHC the the module being compiled forms part of
-            package key <replaceable>foo</replaceable>; internally, these
+            unit key <replaceable>foo</replaceable>; internally, these
             keys are used to determine type equality and linker symbols.
             </para>
         </listitem>
       </varlistentry>
 
       <varlistentry>
-        <term><option>-library-name</option> <replaceable>hash</replaceable>
-        <indexterm><primary><option>-library-name</option></primary>
+        <term><option>-this-ipid</option> <replaceable>hash</replaceable>
+        <indexterm><primary><option>-this-ipid</option></primary>
           </indexterm></term>
         <listitem>
           <para>Tells GHC that the source of a Backpack file and
           its textual dependencies is uniquely identified by
-          <replaceable>hash</replaceable>.  Library names are determined
-          by Cabal; a usual recipe for a library name is that it is
+          <replaceable>hash</replaceable>.  Installed package IDs are determined
+          by Cabal; a usual recipe for an IPID is that it is
           the hash source package identifier of a package, as well as the
           version hashes of all its textual dependencies.  GHC will
-          then use this library name to generate more package keys.</para>
+          then use this library name to generate more unit keys, or
+          in the absence of Backpack, use this IPID directly as the
+          unit key.</para>
         </listitem>
       </varlistentry>
 
@@ -347,7 +349,7 @@ exposed-modules: Network.BSD,
 
   <para>Every complete Haskell program must define <literal>main</literal> in
    module <literal>Main</literal>
-   in package <literal>main</literal>.   (Omitting the <option>-this-package-key</option> flag compiles
+   in package <literal>main</literal>.   (Omitting the <option>-this-unit-key</option> flag compiles
    code for package <literal>main</literal>.) Failure to do so leads to a somewhat obscure
    link-time error of the form:
 <programlisting>
@@ -1135,15 +1137,15 @@ ghc-pkg dot | tred | dot -Tpdf >pkgs.pdf
 
       <varlistentry>
         <term>
-          <option>--package-key</option>
+          <option>--unit-key</option>
           <indexterm><primary>
-              <option>--package-key</option>
+              <option>--unit-key</option>
             </primary></indexterm>
         </term>
         <listitem>
           <para>Causes <literal>ghc-pkg</literal> to interpret arguments
-          as package keys (e.g., an identifier like
-          <literal>I5BErHzyOm07EBNpKBEeUv</literal>).  Package keys are
+          as unit keys (e.g., an identifier like
+          <literal>I5BErHzyOm07EBNpKBEeUv</literal>).  Unit keys are
           used to prefix symbol names GHC produces (e.g., <literal>6VWy06pWzzJq9evDvK2d4w6_DataziByteStringziInternal_unsafePackLenChars_info</literal>), so if you need to figure out what package a symbol belongs to, use <literal>ghc-pkg</literal> with this flag.</para>
         </listitem>
       </varlistentry>

@@ -42,7 +42,7 @@ import Platform
 -- Our intermediate code:
 import BasicTypes
 import BlockId
-import Module           ( primPackageKey )
+import Module           ( primUnitKey )
 import PprCmm           ()
 import CmmUtils
 import CmmSwitch
@@ -1817,7 +1817,7 @@ genCCall dflags is32Bit (PrimTarget (MO_PopCnt width)) dest_regs@[dst]
             genCCall dflags is32Bit target dest_regs args
   where
     format = intFormat width
-    lbl = mkCmmCodeLabel primPackageKey (fsLit (popCntLabel width))
+    lbl = mkCmmCodeLabel primUnitKey (fsLit (popCntLabel width))
 
 genCCall dflags is32Bit (PrimTarget (MO_Clz width)) dest_regs@[dst] args@[src]
   | is32Bit && width == W64 = do
@@ -1849,7 +1849,7 @@ genCCall dflags is32Bit (PrimTarget (MO_Clz width)) dest_regs@[dst] args@[src]
     bw = widthInBits width
     platform = targetPlatform dflags
     format = if width == W8 then II16 else intFormat width
-    lbl = mkCmmCodeLabel primPackageKey (fsLit (clzLabel width))
+    lbl = mkCmmCodeLabel primUnitKey (fsLit (clzLabel width))
 
 genCCall dflags is32Bit (PrimTarget (MO_Ctz width)) [dst] [src]
   | is32Bit, width == W64 = do
@@ -1913,7 +1913,7 @@ genCCall dflags is32Bit (PrimTarget (MO_UF_Conv width)) dest_regs args = do
                                            CmmMayReturn)
     genCCall dflags is32Bit target dest_regs args
   where
-    lbl = mkCmmCodeLabel primPackageKey (fsLit (word2FloatLabel width))
+    lbl = mkCmmCodeLabel primUnitKey (fsLit (word2FloatLabel width))
 
 genCCall dflags is32Bit (PrimTarget (MO_AtomicRMW width amop)) [dst] [addr, n] = do
     Amode amode addr_code <-

@@ -263,16 +263,16 @@ nameIsHomePackageImport this_mod
   = \nm -> case nameModule_maybe nm of
               Nothing -> False
               Just nm_mod -> nm_mod /= this_mod
-                          && modulePackageKey nm_mod == this_pkg
+                          && moduleUnitKey nm_mod == this_pkg
   where
-    this_pkg = modulePackageKey this_mod
+    this_pkg = moduleUnitKey this_mod
 
 -- | Returns True if the Name comes from some other package: neither this
 -- pacakge nor the interactive package.
-nameIsFromExternalPackage :: PackageKey -> Name -> Bool
+nameIsFromExternalPackage :: UnitKey -> Name -> Bool
 nameIsFromExternalPackage this_pkg name
   | Just mod <- nameModule_maybe name
-  , modulePackageKey mod /= this_pkg    -- Not this package
+  , moduleUnitKey mod /= this_pkg    -- Not this package
   , not (isInteractiveModule mod)       -- Not the 'interactive' package
   = True
   | otherwise
@@ -555,7 +555,7 @@ pprModulePrefix sty mod occ = sdocWithDynFlags $ \dflags ->
     case qualName sty mod occ of              -- See Outputable.QualifyName:
       NameQual modname -> ppr modname <> dot       -- Name is in scope
       NameNotInScope1  -> ppr mod <> dot           -- Not in scope
-      NameNotInScope2  -> ppr (modulePackageKey mod) <> colon     -- Module not in
+      NameNotInScope2  -> ppr (moduleUnitKey mod) <> colon     -- Module not in
                           <> ppr (moduleName mod) <> dot          -- scope either
       NameUnqual       -> empty                   -- In scope unqualified
 

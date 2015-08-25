@@ -949,7 +949,7 @@ checkSafeImports dflags tcg_env
     impInfo  = tcg_imports tcg_env     -- ImportAvails
     imports  = imp_mods impInfo        -- ImportedMods
     imports' = moduleEnvToList imports -- (Module, [ImportedModsVal])
-    pkgReqs  = imp_trust_pkgs impInfo  -- [PackageKey]
+    pkgReqs  = imp_trust_pkgs impInfo  -- [UnitKey]
 
     condense :: (Module, [ImportedModsVal]) -> Hsc (Module, SrcSpan, IsSafeImport)
     condense (_, [])   = panic "HscMain.condense: Pattern match failure!"
@@ -992,7 +992,7 @@ hscCheckSafe hsc_env m l = runHsc hsc_env $ do
     return $ isEmptyBag errs
 
 -- | Return if a module is trusted and the pkgs it depends on to be trusted.
-hscGetSafe :: HscEnv -> Module -> SrcSpan -> IO (Bool, [PackageKey])
+hscGetSafe :: HscEnv -> Module -> SrcSpan -> IO (Bool, [UnitKey])
 hscGetSafe hsc_env m l = runHsc hsc_env $ do
     dflags       <- getDynFlags
     (self, pkgs) <- hscCheckSafe' dflags m l
@@ -1006,15 +1006,15 @@ hscGetSafe hsc_env m l = runHsc hsc_env $ do
 -- Return (regardless of trusted or not) if the trust type requires the modules
 -- own package be trusted and a list of other packages required to be trusted
 -- (these later ones haven't been checked) but the own package trust has been.
-hscCheckSafe' :: DynFlags -> Module -> SrcSpan -> Hsc (Maybe PackageKey, [PackageKey])
+hscCheckSafe' :: DynFlags -> Module -> SrcSpan -> Hsc (Maybe UnitKey, [UnitKey])
 hscCheckSafe' dflags m l = do
     (tw, pkgs) <- isModSafe m l
     case tw of
         False              -> return (Nothing, pkgs)
         True | isHomePkg m -> return (Nothing, pkgs)
-             | otherwise   -> return (Just $ modulePackageKey m, pkgs)
+             | otherwise   -> return (Just $ moduleUnitKey m, pkgs)
   where
-    isModSafe :: Module -> SrcSpan -> Hsc (Bool, [PackageKey])
+    isModSafe :: Module -> SrcSpan -> Hsc (Bool, [UnitKey])
     isModSafe m l = do
         iface <- lookup' m
         case iface of
@@ -1046,7 +1046,7 @@ hscCheckSafe' dflags m l = do
                     pkgTrustErr = unitBag $ mkErrMsg dflags l (pkgQual dflags) $
                         sep [ ppr (moduleName m)
                                 <> text ": Can't be safely imported!"
-                            , text "The package (" <> ppr (modulePackageKey m)
+                            , text "The package (" <> ppr (moduleUnitKey m)
                                 <> text ") the module resides in isn't trusted."
                             ]
                     modTrustErr = unitBag $ mkErrMsg dflags l (pkgQual dflags) $
@@ -1066,7 +1066,7 @@ hscCheckSafe' dflags m l = do
     packageTrusted Sf_Safe         False _ = True
     packageTrusted _ _ m
         | isHomePkg m = True
-        | otherwise   = trusted $ getPackageDetails dflags (modulePackageKey m)
+        | otherwise   = trusted $ getPackageDetails dflags (moduleUnitKey m)
 
     lookup' :: Module -> Hsc (Maybe ModIface)
     lookup' m = do
@@ -1090,11 +1090,11 @@ hscCheckSafe' dflags m l = do
 
     isHomePkg :: Module -> Bool
     isHomePkg m
-        | thisPackage dflags == modulePackageKey m = True
+        | thisPackage dflags == moduleUnitKey m = True
         | otherwise                               = False
 
 -- | Check the list of packages are trusted.
-checkPkgTrust :: DynFlags -> [PackageKey] -> Hsc ()
+checkPkgTrust :: DynFlags -> [UnitKey] -> Hsc ()
 checkPkgTrust dflags pkgs =
     case errors of
         [] -> return ()
@@ -1508,7 +1508,7 @@ hscParsedStmt hsc_env stmt = runInteractiveHsc hsc_env $ do
   handleWarnings
 
   -- Then code-gen, and link it
-  -- It's important NOT to have package 'interactive' as thisPackageKey
+  -- It's important NOT to have package 'interactive' as thisUnitKey
   -- for linking, else we try to link 'main' and can't find it.
   -- Whereas the linker already knows to ignore 'interactive'
   let src_span = srcLocSpan interactiveSrcLoc

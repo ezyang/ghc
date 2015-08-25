@@ -249,13 +249,13 @@ linkFail who what
 nameToCLabel :: Name -> String -> String
 nameToCLabel n suffix = label where
     encodeZ = zString . zEncodeFS
-    (Module pkgKey modName) = ASSERT( isExternalName n ) nameModule n
-    packagePart = encodeZ (packageKeyFS pkgKey)
+    (Module key modName) = ASSERT( isExternalName n ) nameModule n
+    packagePart = encodeZ (unitKeyFS key)
     modulePart  = encodeZ (moduleNameFS modName)
     occPart     = encodeZ (occNameFS (nameOccName n))
 
     label = concat
-        [ if pkgKey == mainPackageKey then "" else packagePart ++ "_"
+        [ if key == mainUnitKey then "" else packagePart ++ "_"
         , modulePart
         , '_':occPart
         , '_':suffix

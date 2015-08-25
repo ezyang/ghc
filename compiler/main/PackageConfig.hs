@@ -9,11 +9,8 @@
 module PackageConfig (
         -- $package_naming
 
-        -- * PackageKey
+        -- * UnitKey
         packageConfigId,
-
-        -- * LibraryName
-        LibraryName(..),
 
         -- * The PackageConfig type: information about a package
         PackageConfig,
@@ -49,7 +46,7 @@ type PackageConfig = InstalledPackageInfo
                        InstalledPackageId
                        SourcePackageId
                        PackageName
-                       Module.PackageKey
+                       Module.UnitKey
                        Module.ModuleName
 
 -- TODO: there's no need for these to be FastString, as we don't need the uniq
@@ -60,7 +57,6 @@ newtype InstalledPackageId = InstalledPackageId FastString deriving (Eq, Ord)
 newtype SourcePackageId    = SourcePackageId    FastString deriving (Eq, Ord)
 newtype PackageName        = PackageName        FastString deriving (Eq, Ord)
 newtype UnitName           = UnitName           FastString deriving (Eq, Ord)
-newtype LibraryName        = LibraryName        FastString deriving (Eq, Ord)
 
 instance BinaryStringRep InstalledPackageId where
   fromStringRep = InstalledPackageId . mkFastStringByteString
@@ -73,10 +69,6 @@ instance BinaryStringRep SourcePackageId where
 instance BinaryStringRep PackageName where
   fromStringRep = PackageName . mkFastStringByteString
   toStringRep (PackageName s) = fastStringToByteString s
-
-instance BinaryStringRep LibraryName where
-  fromStringRep = LibraryName . mkFastStringByteString
-  toStringRep (LibraryName s) = fastStringToByteString s
 
 instance Uniquable InstalledPackageId where
   getUnique (InstalledPackageId n) = getUnique n
@@ -92,9 +84,6 @@ instance Outputable InstalledPackageId where
 
 instance Outputable UnitName where
   ppr (UnitName str) = ftext str
-
-instance Outputable LibraryName where
-  ppr (LibraryName str) = ftext str
 
 instance Outputable SourcePackageId where
   ppr (SourcePackageId str) = ftext str
@@ -144,8 +133,8 @@ pprPackageConfig InstalledPackageInfo {..} =
     vcat [
       field "name"                 (ppr packageName),
       field "version"              (text (showVersion packageVersion)),
-      field "id"                   (ppr installedPackageId),
-      field "key"                  (ppr packageKey),
+      field "id"                   (ppr unitKey),
+      field "package-id"           (ppr installedPackageId),
       field "exposed"              (ppr exposed),
       field "exposed-modules"
         (if all isExposedModule exposedModules
@@ -175,19 +164,19 @@ pprPackageConfig InstalledPackageInfo {..} =
 
 
 -- -----------------------------------------------------------------------------
--- PackageKey (package names, versions and dep hash)
+-- UnitKey (package names, versions and dep hash)
 
 -- $package_naming
 -- #package_naming#
--- Mostly the compiler deals in terms of 'PackageKey's, which are md5 hashes
+-- Mostly the compiler deals in terms of 'UnitKey's, which are md5 hashes
 -- of a package ID, keys of its dependencies, and Cabal flags. You're expected
--- to pass in the package key in the @-this-package-key@ flag. However, for
+-- to pass in the unit key in the @-this-unit-key@ flag. However, for
 -- wired-in packages like @base@ & @rts@, we don't necessarily know what the
 -- version is, so these are handled specially; see #wired_in_packages#.
 
--- | Get the GHC 'PackageKey' right out of a Cabalish 'PackageConfig'
-packageConfigId :: PackageConfig -> PackageKey
-packageConfigId = packageKey
+-- | Get the GHC 'UnitKey' right out of a Cabalish 'PackageConfig'
+packageConfigId :: PackageConfig -> UnitKey
+packageConfigId = unitKey
 
 packageUnitName :: PackageConfig -> UnitName
 packageUnitName pkg = let PackageName fs = packageName pkg

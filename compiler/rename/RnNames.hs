@@ -217,7 +217,7 @@ rnImportDecl this_mod
                            -- c.f. GHC.findModule, and Trac #9997
              Nothing         -> True
              Just (StringLiteral _ pkg_fs) -> pkg_fs == fsLit "this" ||
-                            fsToPackageKey pkg_fs == modulePackageKey this_mod))
+                            fsToUnitKey pkg_fs == moduleUnitKey this_mod))
          (addErr (ptext (sLit "A module cannot import itself:") <+> ppr imp_mod_name))
 
     -- Check for a missing import list (Opt_WarnMissingImportList also
@@ -332,7 +332,7 @@ calculateAvails dflags iface mod_safe' want_boot =
                             imp_mod : dep_finsts deps
              | otherwise  = dep_finsts deps
 
-      pkg = modulePackageKey (mi_module iface)
+      pkg = moduleUnitKey (mi_module iface)
 
       -- Does this import mean we now require our own pkg
       -- to be trusted? See Note [Trust Own Package]
@@ -1572,7 +1572,8 @@ printMinimalImports imports_w_usage
       = do { let ImportDecl { ideclName    = L _ mod_name
                             , ideclSource  = is_boot
                             , ideclPkgQual = mb_pkg } = decl
-           ; iface <- loadSrcInterface doc mod_name is_boot (fmap sl_fs mb_pkg)
+           ; iface <- loadSrcInterface doc mod_name is_boot
+                                        (fmap sl_fs mb_pkg)
            ; let lies = map (L l) (concatMap (to_ie iface) used)
            ; return (L l (decl { ideclHiding = Just (False, L l lies) })) }
       where
@@ -1639,7 +1640,11 @@ badImportItemErrStd iface decl_spec ie
     source_import | mi_boot iface = ptext (sLit "(hi-boot interface)")
                   | otherwise     = Outputable.empty
 
-badImportItemErrDataCon :: OccName -> ModIface -> ImpDeclSpec -> IE RdrName -> SDoc
+badImportItemErrDataCon :: OccName
+                        -> ModIface
+                        -> ImpDeclSpec
+                        -> IE RdrName
+                        -> SDoc
 badImportItemErrDataCon dataType_occ iface decl_spec ie
   = vcat [ ptext (sLit "In module")
              <+> quotes (ppr (is_mod decl_spec))

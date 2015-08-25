@@ -949,7 +949,7 @@ ghc -c A.hs
       The <literal>-sig-of</literal> parameter is required to specify
       the backing implementations of all home modules, even in one-shot
       compilation mode.
-      At the moment, you must specify the full module name (package key,
+      At the moment, you must specify the full module name (unit key,
       colon, and then module name), although in the future we may support
       more user-friendly syntax.</para>
 

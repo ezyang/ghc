@@ -969,10 +969,10 @@ dsEvTypeable ev =
     where
     tycon_name                = tyConName tc
     modl                      = nameModule tycon_name
-    pkg                       = modulePackageKey modl
+    pkg                       = moduleUnitKey modl
 
     modl_fs                   = moduleNameFS (moduleName modl)
-    pkg_fs                    = packageKeyFS pkg
+    pkg_fs                    = unitKeyFS pkg
     name_fs                   = occNameFS (nameOccName tycon_name)
     hash_name_fs
       | isPromotedTyCon tc    = appendFS (mkFastString "$k") name_fs
@@ -1014,7 +1014,7 @@ dsEvCallStack cs = do
   let srcLocTy     = mkTyConTy srcLocTyCon
   let mkSrcLoc l =
         liftM (mkCoreConApps srcLocDataCon)
-              (sequence [ mkStringExprFS (packageKeyFS $ modulePackageKey m)
+              (sequence [ mkStringExprFS (unitKeyFS $ moduleUnitKey m)
                         , mkStringExprFS (moduleNameFS $ moduleName m)
                         , mkStringExprFS (srcSpanFile l)
                         , return $ mkIntExprInt df (srcSpanStartLine l)

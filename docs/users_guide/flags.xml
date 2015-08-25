@@ -608,8 +608,8 @@
         </thead>
         <tbody>
           <row>
-            <entry><option>-this-package-key</option> <replaceable>P</replaceable></entry>
-            <entry>Compile to be part of package <replaceable>P</replaceable></entry>
+            <entry><option>-this-unit-key</option> <replaceable>P</replaceable></entry>
+            <entry>Compile to be part of unit <replaceable>P</replaceable></entry>
             <entry>dynamic</entry>
             <entry>-</entry>
           </row>

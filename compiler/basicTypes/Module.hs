@@ -23,32 +23,32 @@ module Module
         mkModuleNameFS,
         stableModuleNameCmp,
 
-        -- * The PackageKey type
-        PackageKey,
-        fsToPackageKey,
-        packageKeyFS,
-        stringToPackageKey,
-        packageKeyString,
-        stablePackageKeyCmp,
+        -- * The UnitKey type
+        UnitKey,
+        fsToUnitKey,
+        unitKeyFS,
+        stringToUnitKey,
+        unitKeyString,
+        stableUnitKeyCmp,
 
-        -- * Wired-in PackageKeys
+        -- * Wired-in UnitKeys
         -- $wired_in_packages
-        primPackageKey,
-        integerPackageKey,
-        basePackageKey,
-        rtsPackageKey,
-        thPackageKey,
-        dphSeqPackageKey,
-        dphParPackageKey,
-        mainPackageKey,
-        thisGhcPackageKey,
-        holePackageKey, isHoleModule,
-        interactivePackageKey, isInteractiveModule,
-        wiredInPackageKeys,
+        primUnitKey,
+        integerUnitKey,
+        baseUnitKey,
+        rtsUnitKey,
+        thUnitKey,
+        dphSeqUnitKey,
+        dphParUnitKey,
+        mainUnitKey,
+        thisGhcUnitKey,
+        holeUnitKey, isHoleModule,
+        interactiveUnitKey, isInteractiveModule,
+        wiredInUnitKeys,
 
         -- * The Module type
         Module(Module),
-        modulePackageKey, moduleName,
+        moduleUnitKey, moduleName,
         pprModule,
         mkModule,
         stableModuleCmp,
@@ -235,15 +235,15 @@ moduleNameColons = dots_to_colons . moduleNameString
 ************************************************************************
 -}
 
--- | A Module is a pair of a 'PackageKey' and a 'ModuleName'.
+-- | A Module is a pair of a 'UnitKey' and a 'ModuleName'.
 data Module = Module {
-   modulePackageKey :: !PackageKey,  -- pkg-1.0
+   moduleUnitKey :: !UnitKey,  -- pkg-1.0
    moduleName      :: !ModuleName  -- A.B.C
   }
   deriving (Eq, Ord, Typeable)
 
 instance Uniquable Module where
-  getUnique (Module p n) = getUnique (packageKeyFS p `appendFS` moduleNameFS n)
+  getUnique (Module p n) = getUnique (unitKeyFS p `appendFS` moduleNameFS n)
 
 instance Outputable Module where
   ppr = pprModule
@@ -263,25 +263,25 @@ instance Data Module where
 -- not be stable from run to run of the compiler.
 stableModuleCmp :: Module -> Module -> Ordering
 stableModuleCmp (Module p1 n1) (Module p2 n2)
-   = (p1 `stablePackageKeyCmp`  p2) `thenCmp`
+   = (p1 `stableUnitKeyCmp`  p2) `thenCmp`
      (n1 `stableModuleNameCmp` n2)
 
-mkModule :: PackageKey -> ModuleName -> Module
+mkModule :: UnitKey -> ModuleName -> Module
 mkModule = Module
 
 pprModule :: Module -> SDoc
 pprModule mod@(Module p n)  =
   pprPackagePrefix p mod <> pprModuleName n
 
-pprPackagePrefix :: PackageKey -> Module -> SDoc
+pprPackagePrefix :: UnitKey -> Module -> SDoc
 pprPackagePrefix p mod = getPprStyle doc
  where
    doc sty
        | codeStyle sty =
-          if p == mainPackageKey
+          if p == mainUnitKey
                 then empty -- never qualify the main package in code
-                else ztext (zEncodeFS (packageKeyFS p)) <> char '_'
-       | qualModule sty mod = ppr (modulePackageKey mod) <> char ':'
+                else ztext (zEncodeFS (unitKeyFS p)) <> char '_'
+       | qualModule sty mod = ppr (moduleUnitKey mod) <> char ':'
                 -- the PrintUnqualified tells us which modules have to
                 -- be qualified with package names
        | otherwise = empty
@@ -295,7 +295,7 @@ class HasModule m where
 {-
 ************************************************************************
 *                                                                      *
-\subsection{PackageKey}
+\subsection{UnitKey}
 *                                                                      *
 ************************************************************************
 -}
@@ -304,56 +304,56 @@ class HasModule m where
 -- it is just the package name, but for user compiled packages, it is a hash.
 -- ToDo: when the key is a hash, we can do more clever things than store
 -- the hex representation and hash-cons those strings.
-newtype PackageKey = PId FastString deriving( Eq, Typeable )
+newtype UnitKey = PId FastString deriving( Eq, Typeable )
     -- here to avoid module loops with PackageConfig
 
-instance Uniquable PackageKey where
- getUnique pid = getUnique (packageKeyFS pid)
+instance Uniquable UnitKey where
+ getUnique pid = getUnique (unitKeyFS pid)
 
 -- Note: *not* a stable lexicographic ordering, a faster unique-based
 -- ordering.
-instance Ord PackageKey where
+instance Ord UnitKey where
   nm1 `compare` nm2 = getUnique nm1 `compare` getUnique nm2
 
-instance Data PackageKey where
+instance Data UnitKey where
   -- don't traverse?
-  toConstr _   = abstractConstr "PackageKey"
+  toConstr _   = abstractConstr "UnitKey"
   gunfold _ _  = error "gunfold"
-  dataTypeOf _ = mkNoRepType "PackageKey"
+  dataTypeOf _ = mkNoRepType "UnitKey"
 
-stablePackageKeyCmp :: PackageKey -> PackageKey -> Ordering
+stableUnitKeyCmp :: UnitKey -> UnitKey -> Ordering
 -- ^ Compares package ids lexically, rather than by their 'Unique's
-stablePackageKeyCmp p1 p2 = packageKeyFS p1 `compare` packageKeyFS p2
+stableUnitKeyCmp p1 p2 = unitKeyFS p1 `compare` unitKeyFS p2
 
-instance Outputable PackageKey where
+instance Outputable UnitKey where
    ppr pk = getPprStyle $ \sty -> sdocWithDynFlags $ \dflags ->
-    case packageKeyPackageIdString dflags pk of
-      Nothing -> ftext (packageKeyFS pk)
+    case unitKeyPackageIdString dflags pk of
+      Nothing -> ftext (unitKeyFS pk)
       Just pkg -> text pkg
            -- Don't bother qualifying if it's wired in!
-           <> (if qualPackage sty pk && not (pk `elem` wiredInPackageKeys)
-                then char '@' <> ftext (packageKeyFS pk)
+           <> (if qualPackage sty pk && not (pk `elem` wiredInUnitKeys)
+                then char '@' <> ftext (unitKeyFS pk)
                 else empty)
 
-instance Binary PackageKey where
-  put_ bh pid = put_ bh (packageKeyFS pid)
-  get bh = do { fs <- get bh; return (fsToPackageKey fs) }
+instance Binary UnitKey where
+  put_ bh pid = put_ bh (unitKeyFS pid)
+  get bh = do { fs <- get bh; return (fsToUnitKey fs) }
 
-instance BinaryStringRep PackageKey where
-  fromStringRep = fsToPackageKey . mkFastStringByteString
-  toStringRep   = fastStringToByteString . packageKeyFS
+instance BinaryStringRep UnitKey where
+  fromStringRep = fsToUnitKey . mkFastStringByteString
+  toStringRep   = fastStringToByteString . unitKeyFS
 
-fsToPackageKey :: FastString -> PackageKey
-fsToPackageKey = PId
+fsToUnitKey :: FastString -> UnitKey
+fsToUnitKey = PId
 
-packageKeyFS :: PackageKey -> FastString
-packageKeyFS (PId fs) = fs
+unitKeyFS :: UnitKey -> FastString
+unitKeyFS (PId fs) = fs
 
-stringToPackageKey :: String -> PackageKey
-stringToPackageKey = fsToPackageKey . mkFastString
+stringToUnitKey :: String -> UnitKey
+stringToUnitKey = fsToUnitKey . mkFastString
 
-packageKeyString :: PackageKey -> String
-packageKeyString = unpackFS . packageKeyFS
+unitKeyString :: UnitKey -> String
+unitKeyString = unpackFS . unitKeyFS
 
 
 -- -----------------------------------------------------------------------------
@@ -369,7 +369,7 @@ packageKeyString = unpackFS . packageKeyFS
 -- versions of them installed.  However, for each invocation of GHC,
 -- only a single instance of each wired-in package will be recognised
 -- (the desired one is selected via @-package@\/@-hide-package@), and GHC
--- will use the unversioned 'PackageKey' below when referring to it,
+-- will use the unversioned 'UnitKey' below when referring to it,
 -- including in .hi files and object file symbols.  Unselected
 -- versions of wired-in packages will be ignored, as will any other
 -- package that depends directly or indirectly on it (much as if you
@@ -377,49 +377,49 @@ packageKeyString = unpackFS . packageKeyFS
 
 -- Make sure you change 'Packages.findWiredInPackages' if you add an entry here
 
-integerPackageKey, primPackageKey,
-  basePackageKey, rtsPackageKey,
-  thPackageKey, dphSeqPackageKey, dphParPackageKey,
-  mainPackageKey, thisGhcPackageKey, interactivePackageKey  :: PackageKey
-primPackageKey        = fsToPackageKey (fsLit "ghc-prim")
-integerPackageKey     = fsToPackageKey (fsLit n)
+integerUnitKey, primUnitKey,
+  baseUnitKey, rtsUnitKey,
+  thUnitKey, dphSeqUnitKey, dphParUnitKey,
+  mainUnitKey, thisGhcUnitKey, interactiveUnitKey  :: UnitKey
+primUnitKey        = fsToUnitKey (fsLit "ghc-prim")
+integerUnitKey     = fsToUnitKey (fsLit n)
   where
     n = case cIntegerLibraryType of
         IntegerGMP    -> "integer-gmp"
         IntegerSimple -> "integer-simple"
-basePackageKey        = fsToPackageKey (fsLit "base")
-rtsPackageKey         = fsToPackageKey (fsLit "rts")
-thPackageKey          = fsToPackageKey (fsLit "template-haskell")
-dphSeqPackageKey      = fsToPackageKey (fsLit "dph-seq")
-dphParPackageKey      = fsToPackageKey (fsLit "dph-par")
-thisGhcPackageKey     = fsToPackageKey (fsLit "ghc")
-interactivePackageKey = fsToPackageKey (fsLit "interactive")
+baseUnitKey        = fsToUnitKey (fsLit "base")
+rtsUnitKey         = fsToUnitKey (fsLit "rts")
+thUnitKey          = fsToUnitKey (fsLit "template-haskell")
+dphSeqUnitKey      = fsToUnitKey (fsLit "dph-seq")
+dphParUnitKey      = fsToUnitKey (fsLit "dph-par")
+thisGhcUnitKey     = fsToUnitKey (fsLit "ghc")
+interactiveUnitKey = fsToUnitKey (fsLit "interactive")
 
 -- | This is the package Id for the current program.  It is the default
 -- package Id if you don't specify a package name.  We don't add this prefix
 -- to symbol names, since there can be only one main package per program.
-mainPackageKey      = fsToPackageKey (fsLit "main")
+mainUnitKey      = fsToUnitKey (fsLit "main")
 
 -- | This is a fake package id used to provide identities to any un-implemented
 -- signatures.  The set of hole identities is global over an entire compilation.
-holePackageKey :: PackageKey
-holePackageKey      = fsToPackageKey (fsLit "hole")
+holeUnitKey :: UnitKey
+holeUnitKey      = fsToUnitKey (fsLit "hole")
 
 isInteractiveModule :: Module -> Bool
-isInteractiveModule mod = modulePackageKey mod == interactivePackageKey
+isInteractiveModule mod = moduleUnitKey mod == interactiveUnitKey
 
 isHoleModule :: Module -> Bool
-isHoleModule mod = modulePackageKey mod == holePackageKey
+isHoleModule mod = moduleUnitKey mod == holeUnitKey
 
-wiredInPackageKeys :: [PackageKey]
-wiredInPackageKeys = [ primPackageKey,
-                       integerPackageKey,
-                       basePackageKey,
-                       rtsPackageKey,
-                       thPackageKey,
-                       thisGhcPackageKey,
-                       dphSeqPackageKey,
-                       dphParPackageKey ]
+wiredInUnitKeys :: [UnitKey]
+wiredInUnitKeys = [ primUnitKey,
+                       integerUnitKey,
+                       baseUnitKey,
+                       rtsUnitKey,
+                       thUnitKey,
+                       thisGhcUnitKey,
+                       dphSeqUnitKey,
+                       dphParUnitKey ]
 
 {-
 ************************************************************************

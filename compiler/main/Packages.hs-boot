@@ -1,7 +1,7 @@
 module Packages where
 -- Well, this is kind of stupid...
-import {-# SOURCE #-} Module (PackageKey)
+import {-# SOURCE #-} Module (UnitKey)
 import {-# SOURCE #-} DynFlags (DynFlags)
 data PackageState
-packageKeyPackageIdString :: DynFlags -> PackageKey -> Maybe String
+unitKeyPackageIdString :: DynFlags -> UnitKey -> Maybe String
 emptyPackageState :: PackageState

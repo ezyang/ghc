@@ -1559,7 +1559,7 @@ globalVar name
   where
       mod = ASSERT( isExternalName name) nameModule name
       name_mod = moduleNameString (moduleName mod)
-      name_pkg = packageKeyString (modulePackageKey mod)
+      name_pkg = unitKeyString (moduleUnitKey mod)
       name_occ = nameOccName name
       mk_varg | OccName.isDataOcc name_occ = mkNameG_dName
               | OccName.isVarOcc  name_occ = mkNameG_vName

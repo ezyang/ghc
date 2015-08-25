@@ -473,7 +473,7 @@ rOOT_MAIN       = mkMainModule (fsLit ":Main") -- Root module for initialisation
 
 mkInteractiveModule :: Int -> Module
 -- (mkInteractiveMoudule 9) makes module 'interactive:M9'
-mkInteractiveModule n = mkModule interactivePackageKey (mkModuleName ("Ghci" ++ show n))
+mkInteractiveModule n = mkModule interactiveUnitKey (mkModuleName ("Ghci" ++ show n))
 
 pRELUDE_NAME, mAIN_NAME :: ModuleName
 pRELUDE_NAME   = mkModuleNameFS (fsLit "Prelude")
@@ -484,28 +484,28 @@ dATA_ARRAY_PARALLEL_NAME      = mkModuleNameFS (fsLit "Data.Array.Parallel")
 dATA_ARRAY_PARALLEL_PRIM_NAME = mkModuleNameFS (fsLit "Data.Array.Parallel.Prim")
 
 mkPrimModule :: FastString -> Module
-mkPrimModule m = mkModule primPackageKey (mkModuleNameFS m)
+mkPrimModule m = mkModule primUnitKey (mkModuleNameFS m)
 
 mkIntegerModule :: FastString -> Module
-mkIntegerModule m = mkModule integerPackageKey (mkModuleNameFS m)
+mkIntegerModule m = mkModule integerUnitKey (mkModuleNameFS m)
 
 mkBaseModule :: FastString -> Module
-mkBaseModule m = mkModule basePackageKey (mkModuleNameFS m)
+mkBaseModule m = mkModule baseUnitKey (mkModuleNameFS m)
 
 mkBaseModule_ :: ModuleName -> Module
-mkBaseModule_ m = mkModule basePackageKey m
+mkBaseModule_ m = mkModule baseUnitKey m
 
 mkThisGhcModule :: FastString -> Module
-mkThisGhcModule m = mkModule thisGhcPackageKey (mkModuleNameFS m)
+mkThisGhcModule m = mkModule thisGhcUnitKey (mkModuleNameFS m)
 
 mkThisGhcModule_ :: ModuleName -> Module
-mkThisGhcModule_ m = mkModule thisGhcPackageKey m
+mkThisGhcModule_ m = mkModule thisGhcUnitKey m
 
 mkMainModule :: FastString -> Module
-mkMainModule m = mkModule mainPackageKey (mkModuleNameFS m)
+mkMainModule m = mkModule mainUnitKey (mkModuleNameFS m)
 
 mkMainModule_ :: ModuleName -> Module
-mkMainModule_ m = mkModule mainPackageKey m
+mkMainModule_ m = mkModule mainUnitKey m
 
 {-
 ************************************************************************

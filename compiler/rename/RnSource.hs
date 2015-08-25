@@ -402,8 +402,8 @@ rnHsForeignDecl (ForeignImport name ty _ spec)
        ; (ty', fvs) <- rnLHsType (ForeignDeclCtx name) ty
 
         -- Mark any PackageTarget style imports as coming from the current package
-       ; let packageKey = thisPackage $ hsc_dflags topEnv
-             spec'      = patchForeignImport packageKey spec
+       ; let unitKey = thisPackage $ hsc_dflags topEnv
+             spec'      = patchForeignImport unitKey spec
 
        ; return (ForeignImport name' ty' noForeignImportCoercionYet spec', fvs) }
 
@@ -420,21 +420,21 @@ rnHsForeignDecl (ForeignExport name ty _ spec)
 --      package, so if they get inlined across a package boundry we'll still
 --      know where they're from.
 --
-patchForeignImport :: PackageKey -> ForeignImport -> ForeignImport
-patchForeignImport packageKey (CImport cconv safety fs spec src)
-        = CImport cconv safety fs (patchCImportSpec packageKey spec) src
+patchForeignImport :: UnitKey -> ForeignImport -> ForeignImport
+patchForeignImport unitKey (CImport cconv safety fs spec src)
+        = CImport cconv safety fs (patchCImportSpec unitKey spec) src
 
-patchCImportSpec :: PackageKey -> CImportSpec -> CImportSpec
-patchCImportSpec packageKey spec
+patchCImportSpec :: UnitKey -> CImportSpec -> CImportSpec
+patchCImportSpec unitKey spec
  = case spec of
-        CFunction callTarget    -> CFunction $ patchCCallTarget packageKey callTarget
+        CFunction callTarget    -> CFunction $ patchCCallTarget unitKey callTarget
         _                       -> spec
 
-patchCCallTarget :: PackageKey -> CCallTarget -> CCallTarget
-patchCCallTarget packageKey callTarget =
+patchCCallTarget :: UnitKey -> CCallTarget -> CCallTarget
+patchCCallTarget unitKey callTarget =
   case callTarget of
   StaticTarget src label Nothing isFun
-                              -> StaticTarget src label (Just packageKey) isFun
+                              -> StaticTarget src label (Just unitKey) isFun
   _                           -> callTarget
 
 {-

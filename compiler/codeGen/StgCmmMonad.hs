@@ -498,7 +498,7 @@ withSelfLoop self_loop code = do
 instance HasDynFlags FCode where
     getDynFlags = liftM cgd_dflags getInfoDown
 
-getThisPackage :: FCode PackageKey
+getThisPackage :: FCode UnitKey
 getThisPackage = liftM thisPackage getDynFlags
 
 withInfoDown :: FCode a -> CgInfoDownwards -> FCode a

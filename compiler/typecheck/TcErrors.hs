@@ -1375,7 +1375,7 @@ sameOccExtra ty1 ty2
   , let n1 = tyConName tc1
         n2 = tyConName tc2
         same_occ = nameOccName n1                   == nameOccName n2
-        same_pkg = modulePackageKey (nameModule n1) == modulePackageKey (nameModule n2)
+        same_pkg = moduleUnitKey (nameModule n1) == moduleUnitKey (nameModule n2)
   , n1 /= n2   -- Different Names
   , same_occ   -- but same OccName
   = ptext (sLit "NB:") <+> (ppr_from same_pkg n1 $$ ppr_from same_pkg n2)
@@ -1389,10 +1389,10 @@ sameOccExtra ty1 ty2
       | otherwise  -- Imported things have an UnhelpfulSrcSpan
       = hang (quotes (ppr nm))
            2 (sep [ ptext (sLit "is defined in") <+> quotes (ppr (moduleName mod))
-                  , ppUnless (same_pkg || pkg == mainPackageKey) $
+                  , ppUnless (same_pkg || pkg == mainUnitKey) $
                     nest 4 $ ptext (sLit "in package") <+> quotes (ppr pkg) ])
        where
-         pkg = modulePackageKey mod
+         pkg = moduleUnitKey mod
          mod = nameModule nm
          loc = nameSrcSpan nm
 

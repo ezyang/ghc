@@ -1,16 +1,16 @@
 {-# LANGUAGE CPP #-}
-module ShPackageKey(
+module ShUnitKey(
     ShFreeHoles,
     calcModuleFreeHoles,
 
-    newPackageKey,
-    newPackageKeyWithScope,
-    lookupPackageKey,
+    newUnitKey,
+    newUnitKeyWithScope,
+    lookupUnitKey,
 
     generalizeHoleModule,
     canonicalizeModule,
 
-    pprPackageKey
+    pprUnitKey
 ) where
 
 #include "HsVersions.h"
@@ -40,37 +40,37 @@ import Data.Function
 {-
 ************************************************************************
 *                                                                      *
-                        Package Keys
+                        Unit Key
 *                                                                      *
 ************************************************************************
 -}
 
--- Note: [PackageKey cache]
+-- Note: [UnitKey cache]
 -- ~~~~~~~~~~~~~~~~~~~~~~~~
--- The built-in PackageKey type (used by Module, Name, etc)
+-- The built-in UnitKey type (used by Module, Name, etc)
 -- records the instantiation of the package as an MD5 hash
 -- which is not reversible without some extra information.
 -- However, the shape merging process requires us to be able
--- to substitute Module occurrences /inside/ the package key.
+-- to substitute Module occurrences /inside/ the unit key.
 --
--- Thus, we maintain the invariant: for every PackageKey
+-- Thus, we maintain the invariant: for every UnitKey
 -- in our system, either:
 --
 --      1. It is in the installed package database (lookupPackage)
 --         so we can lookup the recorded instantiatedWith
 --      2. We've recorded the associated mapping in the
---         PackageKeyCache.
+--         UnitKeyCache.
 --
--- A PackageKey can be expanded into a ShPackageKey which has
+-- A UnitKey can be expanded into a ShUnitKey which has
 -- the instance mapping.  In the mapping, we don't bother
--- expanding a 'Module'; depending on 'shPackageKeyFreeHoles',
+-- expanding a 'Module'; depending on 'shUnitKeyFreeHoles',
 -- it may not be necessary to do a substitution (you only
 -- need to drill down when substituing HOLE:H if H is in scope.
 
 -- Note: [Module name in scope set]
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 -- Similar to InScopeSet, ShFreeHoles is an optimization that
--- allows us to avoid expanding a PackageKey into an ShPackageKey
+-- allows us to avoid expanding a UnitKey into an ShUnitKey
 -- if there isn't actually anything in the module expression that
 -- we can substitute.
 
@@ -82,53 +82,53 @@ type ShFreeHoles = UniqSet ModuleName
 -- | Calculate the free holes of a 'Module'.
 calcModuleFreeHoles :: DynFlags -> Module -> IO ShFreeHoles
 calcModuleFreeHoles dflags m
-    | modulePackageKey m == holePackageKey = return (unitUniqSet (moduleName m))
+    | moduleUnitKey m == holeUnitKey = return (unitUniqSet (moduleName m))
     | otherwise = do
-        shpk <- lookupPackageKey dflags (modulePackageKey m)
+        shpk <- lookupUnitKey dflags (moduleUnitKey m)
         return $ case shpk of
-            ShDefinitePackageKey{} -> emptyUniqSet
-            ShPackageKey{ shPackageKeyFreeHoles = in_scope } -> in_scope
+            ShDefiniteUnitKey{} -> emptyUniqSet
+            ShUnitKey{ shUnitKeyFreeHoles = in_scope } -> in_scope
 
 -- | Calculate the free holes of the hole map @[('ModuleName', 'Module')]@.
 calcInstsFreeHoles :: DynFlags -> [(ModuleName, Module)] -> IO ShFreeHoles
 calcInstsFreeHoles dflags insts =
     fmap unionManyUniqSets (mapM (calcModuleFreeHoles dflags . snd) insts)
 
--- | Given a 'UnitName', a 'LibraryName', and sorted mapping of holes to
--- their implementations, compute the 'PackageKey' associated with it, as well
+-- | Given a 'UnitName', an 'InstalledPackageId', and sorted mapping of holes to
+-- their implementations, compute the 'UnitKey' associated with it, as well
 -- as the recursively computed 'ShFreeHoles' of holes that may be substituted.
-newPackageKeyWithScope :: DynFlags
+newUnitKeyWithScope :: DynFlags
                        -> UnitName
-                       -> LibraryName
+                       -> InstalledPackageId
                        -> [(ModuleName, Module)]
-                       -> IO (PackageKey, ShFreeHoles)
-newPackageKeyWithScope dflags pn vh insts = do
+                       -> IO (UnitKey, ShFreeHoles)
+newUnitKeyWithScope dflags pn ipid insts = do
     fhs <- calcInstsFreeHoles dflags insts
-    pk <- newPackageKey' dflags (ShPackageKey pn vh insts fhs)
+    pk <- newUnitKey' dflags (ShUnitKey pn ipid insts fhs)
     return (pk, fhs)
 
 -- | Given a 'UnitName' and sorted mapping of holes to
--- their implementations, compute the 'PackageKey' associated with it.
+-- their implementations, compute the 'UnitKey' associated with it.
 -- (Analogous to 'newGlobalBinder').
-newPackageKey :: DynFlags
+newUnitKey :: DynFlags
               -> UnitName
-              -> LibraryName
+              -> InstalledPackageId
               -> [(ModuleName, Module)]
-              -> IO PackageKey
-newPackageKey dflags pn vh insts = do
-    (pk, _) <- newPackageKeyWithScope dflags pn vh insts
+              -> IO UnitKey
+newUnitKey dflags pn ipid insts = do
+    (pk, _) <- newUnitKeyWithScope dflags pn ipid insts
     return pk
 
--- | Given a 'ShPackageKey', compute the 'PackageKey' associated with it.
+-- | Given a 'ShUnitKey', compute the 'UnitKey' associated with it.
 -- This function doesn't calculate the 'ShFreeHoles', because it is
--- provided with 'ShPackageKey'.
-newPackageKey' :: DynFlags -> ShPackageKey -> IO PackageKey
-newPackageKey' _ (ShDefinitePackageKey pk) = return pk
-newPackageKey' dflags
-               shpk@(ShPackageKey pn vh insts fhs) = do
+-- provided with 'ShUnitKey'.
+newUnitKey' :: DynFlags -> ShUnitKey -> IO UnitKey
+newUnitKey' _ (ShDefiniteUnitKey pk) = return pk
+newUnitKey' dflags
+               shpk@(ShUnitKey pn ipid insts fhs) = do
     ASSERTM( fmap (==fhs) (calcInstsFreeHoles dflags insts) )
-    let pk = mkPackageKey pn vh insts
-        pkt_var = pkgKeyCache dflags
+    let pk = mkUnitKey pn ipid insts
+        pkt_var = unitKeyCache dflags
     pk_cache <- readIORef pkt_var
     let consistent pk_cache = maybe True (==shpk) (lookupUFM pk_cache pk)
     MASSERT( consistent pk_cache )
@@ -138,68 +138,68 @@ newPackageKey' dflags
             ASSERT( consistent pk_cache ) (addToUFM pk_cache pk shpk, ()))
     return pk
 
--- | Given a 'PackageKey', reverse lookup the 'ShPackageKey' associated
+-- | Given a 'UnitKey', reverse lookup the 'ShUnitKey' associated
 -- with it.  This only gives useful information for keys which are
--- created using 'newPackageKey' or the associated functions, or that are
+-- created using 'newUnitKey' or the associated functions, or that are
 -- already in the installed package database, since we generally cannot reverse
 -- MD5 hashes.
-lookupPackageKey :: DynFlags
-                 -> PackageKey
-                 -> IO ShPackageKey
-lookupPackageKey dflags pk
-  | pk `elem` wiredInPackageKeys
-     || pk == mainPackageKey
-     || pk == holePackageKey
-  = return (ShDefinitePackageKey pk)
+lookupUnitKey :: DynFlags
+                 -> UnitKey
+                 -> IO ShUnitKey
+lookupUnitKey dflags pk
+  | pk `elem` wiredInUnitKeys
+     || pk == mainUnitKey
+     || pk == holeUnitKey
+  = return (ShDefiniteUnitKey pk)
   | otherwise = do
-    let pkt_var = pkgKeyCache dflags
+    let pkt_var = unitKeyCache dflags
     pk_cache <- readIORef pkt_var
     case lookupUFM pk_cache pk of
         Just r -> return r
-        _ -> return (ShDefinitePackageKey pk)
+        _ -> return (ShDefiniteUnitKey pk)
 
-pprPackageKey :: PackageKey -> SDoc
-pprPackageKey pk = sdocWithDynFlags $ \dflags ->
+pprUnitKey :: UnitKey -> SDoc
+pprUnitKey pk = sdocWithDynFlags $ \dflags ->
     -- name cache is a memotable
-    let shpk = unsafePerformIO (lookupPackageKey dflags pk)
+    let shpk = unsafePerformIO (lookupUnitKey dflags pk)
     in case shpk of
-        shpk@ShPackageKey{} ->
-            ppr (shPackageKeyUnitName shpk) <>
+        shpk@ShUnitKey{} ->
+            ppr (shUnitKeyUnitName shpk) <>
                 parens (hsep
                     (punctuate comma [ ppUnless (moduleName m == modname)
                                                 (ppr modname <+> text "->")
                                        <+> ppr m
-                                     | (modname, m) <- shPackageKeyInsts shpk]))
-            <> ifPprDebug (braces (ftext (packageKeyFS pk)))
-        ShDefinitePackageKey pk -> ftext (packageKeyFS pk)
+                                     | (modname, m) <- shUnitKeyInsts shpk]))
+            <> ifPprDebug (braces (ftext (unitKeyFS pk)))
+        ShDefiniteUnitKey pk -> ftext (unitKeyFS pk)
 
--- NB: newPackageKey and lookupPackageKey are mutually recursive; this
+-- NB: newUnitKey and lookupUnitKey are mutually recursive; this
 -- recursion is guaranteed to bottom out because you can't set up cycles
--- of PackageKeys.
+-- of UnitKeys.
 
 
 {-
 ************************************************************************
 *                                                                      *
-                        Package key hashing
+                        Unit key hashing
 *                                                                      *
 ************************************************************************
 -}
 
--- | Generates a 'PackageKey'.  Don't call this directly; you probably
+-- | Generates a 'UnitKey'.  Don't call this directly; you probably
 -- want to cache the result.
-mkPackageKey :: UnitName
-             -> LibraryName
+mkUnitKey :: UnitName
+             -> InstalledPackageId
              -> [(ModuleName, Module)] -- hole instantiations
-             -> PackageKey
-mkPackageKey (UnitName fsUnitName)
-             (LibraryName fsLibraryName) unsorted_holes =
+             -> UnitKey
+mkUnitKey (UnitName fsUnitName)
+             (InstalledPackageId fsIPID) unsorted_holes =
     -- NB: don't use concatFS here, it's not much of an improvement
-    fingerprintPackageKey . fingerprintString $
+    fingerprintUnitKey . fingerprintString $
         unpackFS fsUnitName ++ "\n" ++
-        unpackFS fsLibraryName ++ "\n" ++
+        unpackFS fsIPID ++ "\n" ++
         concat [ moduleNameString m
-                ++ " " ++ packageKeyString (modulePackageKey b)
+                ++ " " ++ unitKeyString (moduleUnitKey b)
                 ++ ":" ++ moduleNameString (moduleName b) ++ "\n"
                | (m, b) <- sortBy (stableModuleNameCmp `on` fst) unsorted_holes]
 
@@ -209,31 +209,31 @@ mkPackageKey (UnitName fsUnitName)
 -- version of this module, so you don't have to do the whole rigamarole.
 generalizeHoleModule :: DynFlags -> Module -> IO Module
 generalizeHoleModule dflags m = do
-    pk <- generalizeHolePackageKey dflags (modulePackageKey m)
+    pk <- generalizeHoleUnitKey dflags (moduleUnitKey m)
     return (mkModule pk (moduleName m))
 
--- | Generalize a 'PackageKey' into one where all the holes are indefinite.
+-- | Generalize a 'UnitKey' into one where all the holes are indefinite.
 -- @p(A -> q():A) generalizes to p(A -> HOLE:A)@.
-generalizeHolePackageKey :: DynFlags -> PackageKey -> IO PackageKey
-generalizeHolePackageKey dflags pk = do
-    shpk <- lookupPackageKey dflags pk
+generalizeHoleUnitKey :: DynFlags -> UnitKey -> IO UnitKey
+generalizeHoleUnitKey dflags pk = do
+    shpk <- lookupUnitKey dflags pk
     case shpk of
-        ShDefinitePackageKey _ -> return pk
-        ShPackageKey { shPackageKeyUnitName = pn,
-                       shPackageKeyLibraryName = vh,
-                       shPackageKeyInsts = insts0 }
-          -> let insts = map (\(x, _) -> (x, mkModule holePackageKey x)) insts0
-             in newPackageKey dflags pn vh insts
+        ShDefiniteUnitKey _ -> return pk
+        ShUnitKey { shUnitKeyUnitName = pn,
+                       shUnitKeyIPID = ipid,
+                       shUnitKeyInsts = insts0 }
+          -> let insts = map (\(x, _) -> (x, mkModule holeUnitKey x)) insts0
+             in newUnitKey dflags pn ipid insts
 
 -- | Canonicalize a 'Module' so that it uniquely identifies a module.
 -- For example, @p(A -> M):A@ canonicalizes to @M@.  Useful for making
 -- sure the interface you've loaded as the right @mi_module@.
 canonicalizeModule :: DynFlags -> Module -> IO Module
 canonicalizeModule dflags m = do
-    let pk = modulePackageKey m
-    shpk <- lookupPackageKey dflags pk
+    let pk = moduleUnitKey m
+    shpk <- lookupUnitKey dflags pk
     return $ case shpk of
-        ShPackageKey { shPackageKeyInsts = insts }
+        ShUnitKey { shUnitKeyInsts = insts }
             | Just m' <- lookup (moduleName m) insts -> m'
         _ -> m
 
@@ -275,6 +275,6 @@ toBase62 w = pad ++ str
         | x < 62 = Char.chr (97 + x - 36)
         | otherwise = error ("represent (base 62): impossible!")
 
-fingerprintPackageKey :: Fingerprint -> PackageKey
-fingerprintPackageKey (Fingerprint a b)
-    = stringToPackageKey (toBase62 a ++ toBase62 b)
+fingerprintUnitKey :: Fingerprint -> UnitKey
+fingerprintUnitKey (Fingerprint a b)
+    = stringToUnitKey (toBase62 a ++ toBase62 b)

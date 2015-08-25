@@ -229,12 +229,7 @@ doRegister directory distDir ghc ghcpkg topdir
             let installedPkgs' = PackageIndex.fromList instInfos
             let updateComponentConfig (cn, clbi, deps)
                     = (cn, updateComponentLocalBuildInfo clbi, deps)
-                updateComponentLocalBuildInfo clbi
-                    = clbi {
-                          componentPackageDeps =
-                              [ (fixupPackageId instInfos ipid, pid)
-                              | (ipid,pid) <- componentPackageDeps clbi ]
-                      }
+                updateComponentLocalBuildInfo clbi = clbi -- TODO: remove
                 ccs' = map updateComponentConfig (componentsConfigs lbi)
                 lbi' = lbi {
                                componentsConfigs = ccs',
@@ -265,30 +260,6 @@ updateInstallDirTemplates relocatableBuild myPrefix myLibdir myDocdir idts
           htmldir   = toPathTemplate "$docdir"
       }
 
--- The packages are built with the package ID ending in "-inplace", but
--- when they're installed they get the package hash appended. We need to
--- fix up the package deps so that they use the hash package IDs, not
--- the inplace package IDs.
-fixupPackageId :: [Installed.InstalledPackageInfo]
-               -> InstalledPackageId
-               -> InstalledPackageId
-fixupPackageId _ x@(InstalledPackageId ipi)
- | "builtin_" `isPrefixOf` ipi = x
-fixupPackageId ipinfos (InstalledPackageId ipi)
- = case stripPrefix (reverse "-inplace") $ reverse ipi of
-   Nothing ->
-       error ("Installed package ID doesn't end in -inplace: " ++ show ipi)
-   Just x ->
-       let ipi' = reverse ('-' : x)
-           f (ipinfo : ipinfos') = case Installed.installedPackageId ipinfo of
-                                   y@(InstalledPackageId ipinfoid)
-                                    | ipi' `isPrefixOf` ipinfoid ->
-                                       y
-                                   _ ->
-                                       f ipinfos'
-           f [] = error ("Installed package ID not registered: " ++ show ipi)
-       in f ipinfos
-
 -- On Windows we need to split the ghc package into 2 pieces, or the
 -- DLL that it makes contains too many symbols (#5987). There are
 -- therefore 2 libraries, not just the 1 that Cabal assumes.
@@ -316,7 +287,7 @@ generate directory distdir dll0Modules config_args
       -- XXX We shouldn't just configure with the default flags
       -- XXX And this, and thus the "getPersistBuildConfig distdir" below,
       -- aren't going to work when the deps aren't built yet
-      withArgs (["configure", "--distdir", distdir] ++ config_args)
+      withArgs (["configure", "--distdir", distdir, "--ipid", "$pkg-$version"] ++ config_args)
                runDefaultMain
 
       lbi <- getPersistBuildConfig distdir
@@ -342,11 +313,14 @@ generate directory distdir dll0Modules config_args
       -- generate inplace-pkg-config
       withLibLBI pd lbi $ \lib clbi ->
           do cwd <- getCurrentDirectory
-             let ipid = InstalledPackageId (display (packageId pd) ++ "-inplace")
+             let ipid = InstalledPackageId (display (packageId pd))
+                 pk = PackageKey (display (packageId pd))
              let installedPkgInfo = inplaceInstalledPackageInfo cwd distdir
-                                        pd ipid lib lbi clbi
+                                        pd (Installed.AbiHash "") lib lbi clbi
                  final_ipi = mangleIPI directory distdir lbi $ installedPkgInfo {
                                  Installed.installedPackageId = ipid,
+                                 Installed.packageKey = pk,
+                                 Installed.compatPackageKey = pk,
                                  Installed.haddockHTMLs = []
                              }
                  content = Installed.showInstalledPackageInfo final_ipi ++ "\n"
@@ -397,24 +371,24 @@ generate directory distdir dll0Modules config_args
           dep_ids  = map snd (externalPackageDeps lbi)
           deps     = map display dep_ids
           dep_direct = map (fromMaybe (error "ghc-cabal: dep_keys failed")
-                           . PackageIndex.lookupInstalledPackageId
+                           . PackageIndex.lookupPackageKey
                                             (installedPkgs lbi)
                            . fst)
                        . externalPackageDeps
                        $ lbi
-          dep_ipids = map (display . Installed.installedPackageId) dep_direct
+          dep_ipids = map (display . Installed.packageKey) dep_direct
           depLibNames
-            | packageKeySupported comp
-                = map (display . Installed.libraryName) dep_direct
+            | packageKeySupported comp = dep_ipids
             | otherwise = deps
           depNames = map (display . packageName) dep_ids
 
           transitive_dep_ids = map Installed.sourcePackageId dep_pkgs
           transitiveDeps = map display transitive_dep_ids
           transitiveDepLibNames
-            | packageKeySupported comp
-                = map (display . Installed.libraryName) dep_pkgs
+            | packageKeySupported comp = map fixupRtsLibName transitiveDeps
             | otherwise = transitiveDeps
+          fixupRtsLibName "rts-1.0" = "rts"
+          fixupRtsLibName x = x
           transitiveDepNames = map (display . packageName) transitive_dep_ids
 
           libraryDirs = forDeps Installed.libraryDirs
@@ -436,7 +410,7 @@ generate directory distdir dll0Modules config_args
                 -- TODO: move inside withLibLBI
                 variablePrefix ++ "_PACKAGE_KEY = " ++ display (localPackageKey lbi),
                 -- copied from mkComponentsLocalBuildInfo
-                variablePrefix ++ "_LIB_NAME = " ++ display (localLibraryName lbi),
+                variablePrefix ++ "_LIB_NAME = " ++ display (localPackageKey lbi),
                 variablePrefix ++ "_MODULES = " ++ unwords mods,
                 variablePrefix ++ "_HIDDEN_MODULES = " ++ unwords otherMods,
                 variablePrefix ++ "_SYNOPSIS =" ++ synopsis pd,

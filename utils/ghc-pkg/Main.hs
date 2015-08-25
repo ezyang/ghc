@@ -19,7 +19,7 @@ import Distribution.ModuleName (ModuleName)
 import Distribution.InstalledPackageInfo as Cabal
 import Distribution.Compat.ReadP hiding (get)
 import Distribution.ParseUtils
-import Distribution.Package hiding (installedPackageId)
+import Distribution.Package hiding (packageKey)
 import Distribution.Text
 import Distribution.Version
 import Distribution.Simple.Utils (fromUTF8, toUTF8, writeUTF8File, readUTF8File)
@@ -182,8 +182,8 @@ flags = [
         "ignore case for substring matching",
   Option [] ["ipid"] (NoArg FlagIPId)
         "interpret package arguments as installed package IDs",
-  Option [] ["package-key"] (NoArg FlagPackageKey)
-        "interpret package arguments as installed package keys",
+  Option [] ["unit-key", "package-key"] (NoArg FlagPackageKey)
+        "interpret package arguments as unit keys",
   Option ['v'] ["verbose"] (OptArg FlagVerbosity "Verbosity")
         "verbosity level (0-2, default 1)"
   ]
@@ -333,9 +333,9 @@ data PackageArg
     -- | An installed package ID foo-0.1-HASH.  This is guaranteed to uniquely
     -- match a single entry in the package database.
     | IPId InstalledPackageId
-    -- | A package key foo_HASH.  This is also guaranteed to uniquely match
+    -- | A unit key foo-0.1-HASH.  This is also guaranteed to uniquely match
     -- a single entry in the package database
-    | PkgKey PackageKey
+    | Key PackageKey
     -- | A glob against the package name.  The first string is the literal
     -- glob, the second is a function which returns @True@ if the argument
     -- matches.
@@ -507,7 +507,7 @@ readPackageArg :: AsPackageArg -> String -> IO PackageArg
 readPackageArg AsIpid str =
     parseCheck (IPId `fmap` parse) str "installed package id"
 readPackageArg AsPackageKey str =
-    parseCheck (PkgKey `fmap` parse) str "package key"
+    parseCheck (Key `fmap` parse) str "unit key"
 readPackageArg AsDefault str = Id `fmap` readGlobPkgId str
 
 -- globVersion means "all versions"
@@ -1013,12 +1013,7 @@ parsePackageInfo str =
                            (Just l, s) -> die (show l ++ ": " ++ s)
 
 mungePackageInfo :: InstalledPackageInfo -> InstalledPackageInfo
-mungePackageInfo ipi = ipi { packageKey = packageKey' }
-  where
-    packageKey'
-      | OldPackageKey (PackageIdentifier (PackageName "") _) <- packageKey ipi
-          = OldPackageKey (sourcePackageId ipi)
-      | otherwise = packageKey ipi
+mungePackageInfo ipi = ipi
 
 -- -----------------------------------------------------------------------------
 -- Making changes to a package database
@@ -1038,7 +1033,7 @@ updateInternalDB :: PackageDB -> [DBOp] -> PackageDB
 updateInternalDB db cmds = db{ packages = foldl do_cmd (packages db) cmds }
  where
   do_cmd pkgs (RemovePackage p) = 
-    filter ((/= installedPackageId p) . installedPackageId) pkgs
+    filter ((/= packageKey p) . packageKey) pkgs
   do_cmd pkgs (AddPackage p) = p : pkgs
   do_cmd pkgs (ModifyPackage p) = 
     do_cmd (do_cmd pkgs (RemovePackage p)) (AddPackage p)
@@ -1050,11 +1045,11 @@ changeDBDir verbosity cmds db = do
   updateDBCache verbosity db
  where
   do_cmd (RemovePackage p) = do
-    let file = location db </> display (installedPackageId p) <.> "conf"
+    let file = location db </> display (packageKey p) <.> "conf"
     when (verbosity > Normal) $ infoLn ("removing " ++ file)
     removeFileSafe file
   do_cmd (AddPackage p) = do
-    let file = location db </> display (installedPackageId p) <.> "conf"
+    let file = location db </> display (packageKey p) <.> "conf"
     when (verbosity > Normal) $ infoLn ("writing " ++ file)
     writeUTF8File file (showInstalledPackageInfo p)
   do_cmd (ModifyPackage p) = 
@@ -1091,7 +1086,7 @@ type PackageCacheFormat = GhcPkg.InstalledPackageInfo
                             String     -- installed package id
                             String     -- src package id
                             String     -- package name
-                            String     -- package key
+                            String     -- unit key
                             ModuleName -- module name
 
 convertPackageInfoToCacheFormat :: InstalledPackageInfo -> PackageCacheFormat
@@ -1101,8 +1096,10 @@ convertPackageInfoToCacheFormat pkg =
        GhcPkg.sourcePackageId    = display (sourcePackageId pkg),
        GhcPkg.packageName        = display (packageName pkg),
        GhcPkg.packageVersion     = packageVersion pkg,
-       GhcPkg.packageKey         = display (packageKey pkg),
+       GhcPkg.unitKey            = display (packageKey pkg),
        GhcPkg.depends            = map display (depends pkg),
+       GhcPkg.abiHash            = let AbiHash abi = abiHash pkg
+                                   in abi,
        GhcPkg.importDirs         = importDirs pkg,
        GhcPkg.hsLibraries        = hsLibraries pkg,
        GhcPkg.extraLibraries     = extraLibraries pkg,
@@ -1259,15 +1256,15 @@ listPackages verbosity my_flags mPackageName mModuleName = do
                  else hPutStrLn stdout $ unlines (map ("    " ++) pp_pkgs)
            where
                  -- Sort using instance Ord PackageId
-                 pp_pkgs = map pp_pkg . sortBy (comparing installedPackageId) $ pkg_confs
+                 pp_pkgs = map pp_pkg . sortBy (comparing packageKey) $ pkg_confs
                  pp_pkg p
                    | packageKey p `elem` broken = printf "{%s}" doc
                    | exposed p = doc
                    | otherwise = printf "(%s)" doc
-                   where doc | verbosity >= Verbose = printf "%s (%s)" pkg ipid
+                   where doc | verbosity >= Verbose = printf "%s (%s)" pkg pk
                              | otherwise            = pkg
                           where
-                          InstalledPackageId ipid = installedPackageId p
+                          PackageKey pk = packageKey p
                           pkg = display (sourcePackageId p)
 
       show_simple = simplePackageList my_flags . allPackagesInStack
@@ -1292,11 +1289,11 @@ listPackages verbosity my_flags mPackageName mModuleName = do
                      | exposed p                       = doc
                      | otherwise                       = withF Blue doc
                      where doc | verbosity >= Verbose
-                               = termText (printf "%s (%s)" pkg ipid)
+                               = termText (printf "%s (%s)" pkg pk)
                                | otherwise
                                = termText pkg
                             where
-                            InstalledPackageId ipid = installedPackageId p
+                            PackageKey pk = packageKey p
                             pkg = display (sourcePackageId p)
 
     is_tty <- hIsTerminalDevice stdout
@@ -1332,8 +1329,8 @@ showPackageDot verbosity myflags = do
   mapM_ putStrLn [ quote from ++ " -> " ++ quote to
                  | p <- all_pkgs,
                    let from = display (sourcePackageId p),
-                   depid <- depends p,
-                   Just dep <- [PackageIndex.lookupInstalledPackageId ipix depid],
+                   key <- depends p,
+                   Just dep <- [PackageIndex.lookupPackageKey ipix key],
                    let to = display (sourcePackageId dep)
                  ]
   putStrLn "}"
@@ -1341,7 +1338,7 @@ showPackageDot verbosity myflags = do
 -- -----------------------------------------------------------------------------
 -- Prints the highest (hidden or exposed) version of a package
 
--- ToDo: This is no longer well-defined with package keys, because the
+-- ToDo: This is no longer well-defined with unit keys, because the
 -- dependencies may be varying versions
 latestPackage ::  Verbosity -> [Flag] -> PackageIdentifier -> IO ()
 latestPackage verbosity my_flags pkgid = do
@@ -1405,7 +1402,7 @@ findPackagesByDB db_stack pkgarg
         ps -> return ps
   where
         pkg_msg (Id pkgid)           = display pkgid
-        pkg_msg (PkgKey pk)          = display pk
+        pkg_msg (Key pk)          = display pk
         pkg_msg (IPId ipid)          = display ipid
         pkg_msg (Substring pkgpat _) = "matching " ++ pkgpat
 
@@ -1420,7 +1417,7 @@ realVersion pkgid = versionBranch (pkgVersion pkgid) /= []
 
 matchesPkg :: PackageArg -> InstalledPackageInfo -> Bool
 (Id pid)        `matchesPkg` pkg = pid `matches` sourcePackageId pkg
-(PkgKey pk)     `matchesPkg` pkg = pk == packageKey pkg
+(Key pk)     `matchesPkg` pkg = pk == packageKey pkg
 (IPId ipid)     `matchesPkg` pkg = ipid == installedPackageId pkg
 (Substring _ m) `matchesPkg` pkg = m (display (sourcePackageId pkg))
 
@@ -1509,7 +1506,7 @@ closure pkgs db_stack = go pkgs db_stack
                  -> Bool
    depsAvailable pkgs_ok pkg = null dangling
         where dangling = filter (`notElem` pids) (depends pkg)
-              pids = map installedPackageId pkgs_ok
+              pids = map packageKey pkgs_ok
 
         -- we want mutually recursive groups of package to show up
         -- as broken. (#1750)
@@ -1597,9 +1594,8 @@ checkPackageConfig :: InstalledPackageInfo
                       -> Validate ()
 checkPackageConfig pkg verbosity db_stack
                    multi_instance update = do
-  checkInstalledPackageId pkg db_stack update
   checkPackageId pkg
-  checkPackageKey pkg
+  checkPackageKey pkg db_stack update
   checkDuplicates db_stack pkg multi_instance update
   mapM_ (checkDep db_stack) (depends pkg)
   checkDuplicateDepends (depends pkg)
@@ -1617,18 +1613,6 @@ checkPackageConfig pkg verbosity db_stack
   --    extra_libraries :: [String],
   --    c_includes      :: [String],
 
-checkInstalledPackageId :: InstalledPackageInfo -> PackageDBStack -> Bool 
-                        -> Validate ()
-checkInstalledPackageId ipi db_stack update = do
-  let ipid@(InstalledPackageId str) = installedPackageId ipi
-  when (null str) $ verror CannotForce "missing id field"
-  let dups = [ p | p <- allPackagesInStack db_stack, 
-                   installedPackageId p == ipid ]
-  when (not update && not (null dups)) $
-    verror CannotForce $
-        "package(s) with this id already exist: " ++ 
-         unwords (map (display.packageId) dups)
-
 -- When the package name and version are put together, sometimes we can
 -- end up with a package id that cannot be parsed.  This will lead to
 -- difficulties when the user wants to refer to the package later, so
@@ -1641,13 +1625,17 @@ checkPackageId ipi =
     []  -> verror CannotForce ("invalid package identifier: " ++ str)
     _   -> verror CannotForce ("ambiguous package identifier: " ++ str)
 
-checkPackageKey :: InstalledPackageInfo -> Validate ()
-checkPackageKey ipi =
-  let str = display (packageKey ipi) in
-  case [ x :: PackageKey | (x,ys) <- readP_to_S parse str, all isSpace ys ] of
-    [_] -> return ()
-    []  -> verror CannotForce ("invalid package key: " ++ str)
-    _   -> verror CannotForce ("ambiguous package key: " ++ str)
+checkPackageKey :: InstalledPackageInfo -> PackageDBStack -> Bool
+                -> Validate ()
+checkPackageKey ipi db_stack update = do
+  let pk@(PackageKey str) = packageKey ipi
+  when (null str) $ verror CannotForce "missing id field"
+  let dups = [ p | p <- allPackagesInStack db_stack,
+                   packageKey p == pk ]
+  when (not update && not (null dups)) $
+    verror CannotForce $
+        "package(s) with this id already exist: " ++
+         unwords (map (display.packageKey) dups)
 
 checkDuplicates :: PackageDBStack -> InstalledPackageInfo
                 -> Bool -> Bool-> Validate ()
@@ -1706,16 +1694,16 @@ checkPath url_ok is_dir warn_only thisfield d
           then vwarn msg
           else verror ForceFiles msg
 
-checkDep :: PackageDBStack -> InstalledPackageId -> Validate ()
+checkDep :: PackageDBStack -> PackageKey -> Validate ()
 checkDep db_stack pkgid
   | pkgid `elem` pkgids = return ()
   | otherwise = verror ForceAll ("dependency \"" ++ display pkgid
                                  ++ "\" doesn't exist")
   where
         all_pkgs = allPackagesInStack db_stack
-        pkgids = map installedPackageId all_pkgs
+        pkgids = map packageKey all_pkgs
 
-checkDuplicateDepends :: [InstalledPackageId] -> Validate ()
+checkDuplicateDepends :: [PackageKey] -> Validate ()
 checkDuplicateDepends deps
   | null dups = return ()
   | otherwise = verror ForceAll ("package has duplicate dependencies: " ++
@@ -1799,9 +1787,9 @@ checkOriginalModule :: String
                     -> Validate ()
 checkOriginalModule field_name db_stack pkg
     (OriginalModule definingPkgId definingModule) =
-  let mpkg = if definingPkgId == installedPackageId pkg
+  let mpkg = if definingPkgId == packageKey pkg
               then Just pkg
-              else PackageIndex.lookupInstalledPackageId ipix definingPkgId
+              else PackageIndex.lookupPackageKey ipix definingPkgId
   in case mpkg of
       Nothing
            -> verror ForceAll (field_name ++ " refers to a non-existent " ++
@@ -1810,7 +1798,7 @@ checkOriginalModule field_name db_stack pkg
 
       Just definingPkg
         | not (isIndirectDependency definingPkgId)
-           -> verror ForceAll (field_name ++ " refers to a defining  " ++
+           -> verror ForceAll (field_name ++ " refers to a defining " ++
                                "package that is not a direct (or indirect) " ++
                                "dependency of this package: " ++
                                        display definingPkgId)
@@ -1835,7 +1823,7 @@ checkOriginalModule field_name db_stack pkg
     ipix     = PackageIndex.fromList all_pkgs
 
     isIndirectDependency pkgid = fromMaybe False $ do
-      thispkg  <- graphVertex (installedPackageId pkg)
+      thispkg  <- graphVertex (packageKey pkg)
       otherpkg <- graphVertex pkgid
       return (Graph.path depgraph thispkg otherpkg)
     (depgraph, _, graphVertex) =

@@ -92,7 +92,7 @@ module DynFlags (
         getVerbFlags,
         updOptLevel,
         setTmpDir,
-        setPackageKey,
+        setUnitKey,
         interpretPackageEnv,
 
         -- ** Parsing DynFlags
@@ -101,8 +101,8 @@ module DynFlags (
         parseDynamicFlagsFull,
 
         -- ** Package key cache
-        PackageKeyCache,
-        ShPackageKey(..),
+        UnitKeyCache,
+        ShUnitKey(..),
 
         -- ** Available DynFlags
         allFlags,
@@ -665,27 +665,27 @@ getSigOf :: DynFlags -> ModuleName -> Maybe Module
 getSigOf dflags n = Map.lookup n (sigOf dflags)
 
 -- NameCache updNameCache
-type PackageKeyEnv = UniqFM
-type PackageKeyCache = PackageKeyEnv ShPackageKey
+type UnitKeyEnv = UniqFM
+type UnitKeyCache = UnitKeyEnv ShUnitKey
 
--- | An elaborated representation of a 'PackageKey', which records
--- all of the components that go into the hashed 'PackageKey'.
-data ShPackageKey
-    = ShPackageKey {
-          shPackageKeyUnitName          :: !UnitName,
-          shPackageKeyLibraryName       :: !LibraryName,
-          shPackageKeyInsts             :: ![(ModuleName, Module)],
-          shPackageKeyFreeHoles         :: UniqSet ModuleName
+-- | An elaborated representation of a 'UnitKey', which records
+-- all of the components that go into the hashed 'UnitKey'.
+data ShUnitKey
+    = ShUnitKey {
+          shUnitKeyUnitName          :: !UnitName,
+          shUnitKeyIPID              :: !InstalledPackageId,
+          shUnitKeyInsts             :: ![(ModuleName, Module)],
+          shUnitKeyFreeHoles         :: UniqSet ModuleName
       }
-    | ShDefinitePackageKey {
-          shPackageKey :: !PackageKey
+    | ShDefiniteUnitKey {
+          shUnitKey :: !UnitKey
       }
     deriving Eq
 
-instance Outputable ShPackageKey where
-    ppr (ShPackageKey pn vh insts fh)
+instance Outputable ShUnitKey where
+    ppr (ShUnitKey pn vh insts fh)
         = ppr pn <+> ppr vh <+> ppr insts <+> parens (ppr fh)
-    ppr (ShDefinitePackageKey pk) = ppr pk
+    ppr (ShDefiniteUnitKey pk) = ppr pk
 
 -- | Contains not only a collection of 'GeneralFlag's but also a plethora of
 -- information relating to the compilation of a single file or GHC session
@@ -731,9 +731,9 @@ data DynFlags = DynFlags {
   solverIterations      :: IntWithInf,   -- ^ Number of iterations in the constraints solver
                                          --   Typically only 1 is needed
 
-  thisPackage           :: PackageKey,   -- ^ key of package currently being compiled
-  thisLibraryName       :: LibraryName,
-                            -- ^ the version hash which identifies the textual
+  thisPackage           :: UnitKey,   -- ^ key of package currently being compiled
+  thisIPID              :: InstalledPackageId,
+                            -- ^ the IPID which identifies the textual
                             --   package being compiled.
 
   -- ways
@@ -821,7 +821,7 @@ data DynFlags = DynFlags {
   -- Packages.initPackages
   pkgDatabase           :: Maybe [PackageConfig],
   pkgState              :: PackageState,
-  pkgKeyCache           :: {-# UNPACK #-} !(IORef PackageKeyCache),
+  unitKeyCache           :: {-# UNPACK #-} !(IORef UnitKeyCache),
 
   -- Temporary files
   -- These have to be IORefs, because the defaultCleanupHandler needs to
@@ -1153,7 +1153,7 @@ isNoLink _      = False
 data PackageArg =
       PackageArg String    -- ^ @-package@, by 'PackageName'
     | PackageIdArg String  -- ^ @-package-id@, by 'SourcePackageId'
-    | PackageKeyArg String -- ^ @-package-key@, by 'InstalledPackageId'
+    | UnitKeyArg String    -- ^ @-unit-key@, by 'InstalledPackageId'
   deriving (Eq, Show)
 
 -- | Represents the renaming that may be associated with an exposed
@@ -1176,7 +1176,7 @@ data ModRenaming = ModRenaming {
 -- | Flags for manipulating packages.
 data PackageFlag
   = ExposePackage   PackageArg ModRenaming -- ^ @-package@, @-package-id@
-                                           -- and @-package-key@
+                                           -- and @-unit-key@
   | HidePackage     String -- ^ @-hide-package@
   | IgnorePackage   String -- ^ @-ignore-package@
   | TrustPackage    String -- ^ @-trust-package@
@@ -1473,8 +1473,8 @@ defaultDynFlags mySettings =
         reductionDepth          = treatZeroAsInf mAX_REDUCTION_DEPTH,
         solverIterations        = treatZeroAsInf mAX_SOLVER_ITERATIONS,
 
-        thisPackage             = mainPackageKey,
-        thisLibraryName         = LibraryName nilFS,
+        thisPackage             = mainUnitKey,
+        thisIPID                = InstalledPackageId nilFS,
 
         objectDir               = Nothing,
         dylibInstallName        = Nothing,
@@ -1520,7 +1520,7 @@ defaultDynFlags mySettings =
         pkgDatabase             = Nothing,
         -- This gets filled in with GHC.setSessionDynFlags
         pkgState                = emptyPackageState,
-        pkgKeyCache             = v_unsafePkgKeyCache,
+        unitKeyCache             = v_unsafePkgKeyCache,
         ways                    = defaultWays mySettings,
         buildTag                = mkBuildTag (defaultWays mySettings),
         rtsBuildTag             = mkBuildTag (defaultWays mySettings),
@@ -1954,10 +1954,10 @@ parseSigOf str = case filter ((=="").snd) (readP_to_S parse str) of
             m <- tok $ parseModule
             return (n, m)
         parseModule = do
-            pk <- munch1 (\c -> isAlphaNum c || c `elem` "-_")
+            pk <- munch1 (\c -> isAlphaNum c || c `elem` "-_.")
             _ <- R.char ':'
             m <- parseModuleName
-            return (mkModule (stringToPackageKey pk) m)
+            return (mkModule (stringToUnitKey pk) m)
         tok m = skipSpaces >> m
 
 setSigOf :: String -> DynFlags -> DynFlags
@@ -2766,13 +2766,17 @@ package_flags = [
                   deprecate "Use -no-user-package-db instead")
 
   , defGhcFlag "package-name"      (HasArg $ \name -> do
-                                      upd (setPackageKey name)
+                                      upd (setUnitKey name)
                                       deprecate "Use -this-package-key instead")
-  , defGhcFlag "this-package-key"   (hasArg setPackageKey)
-  , defGhcFlag "library-name"       (hasArg setLibraryName)
+    -- backwards compat with GHC 7.10; not deprecated for now
+  , defGhcFlag "this-package-key"   (hasArg setUnitKey)
+  , defGhcFlag "this-unit-key"      (hasArg setUnitKey)
+  , defGhcFlag "this-ipid"          (hasArg setIPID)
   , defFlag "package-id"            (HasArg exposePackageId)
   , defFlag "package"               (HasArg exposePackage)
-  , defFlag "package-key"           (HasArg exposePackageKey)
+    -- backwards compat with GHC 7.10; not deprecated for now
+  , defFlag "package-key"           (HasArg exposeUnitKey)
+  , defFlag "unit-key"              (HasArg exposeUnitKey)
   , defFlag "hide-package"          (HasArg hidePackage)
   , defFlag "hide-all-packages"     (NoArg (setGeneralFlag Opt_HideAllPackages))
   , defFlag "package-env"           (HasArg setPackageEnv)
@@ -3745,15 +3749,15 @@ parsePackageFlag constr str = case filter ((=="").snd) (readP_to_S parse str) of
              return (orig, orig))
         tok m = m >>= \x -> skipSpaces >> return x
 
-exposePackage, exposePackageId, exposePackageKey, hidePackage, ignorePackage,
+exposePackage, exposePackageId, exposeUnitKey, hidePackage, ignorePackage,
         trustPackage, distrustPackage :: String -> DynP ()
 exposePackage p = upd (exposePackage' p)
 exposePackageId p =
   upd (\s -> s{ packageFlags =
     parsePackageFlag PackageIdArg p : packageFlags s })
-exposePackageKey p =
+exposeUnitKey p =
   upd (\s -> s{ packageFlags =
-    parsePackageFlag PackageKeyArg p : packageFlags s })
+    parsePackageFlag UnitKeyArg p : packageFlags s })
 hidePackage p =
   upd (\s -> s{ packageFlags = HidePackage p : packageFlags s })
 ignorePackage p =
@@ -3768,11 +3772,11 @@ exposePackage' p dflags
     = dflags { packageFlags =
             parsePackageFlag PackageArg p : packageFlags dflags }
 
-setPackageKey :: String -> DynFlags -> DynFlags
-setPackageKey p s =  s{ thisPackage = stringToPackageKey p }
+setUnitKey :: String -> DynFlags -> DynFlags
+setUnitKey p s =  s{ thisPackage = stringToUnitKey p }
 
-setLibraryName :: String -> DynFlags -> DynFlags
-setLibraryName v s = s{ thisLibraryName = LibraryName (mkFastString v) }
+setIPID :: String -> DynFlags -> DynFlags
+setIPID v s = s{ thisIPID = InstalledPackageId (mkFastString v) }
 
 -- -----------------------------------------------------------------------------
 -- | Find the package environment (if one exists)
@@ -3921,10 +3925,10 @@ setMainIs arg
   | not (null main_fn) && isLower (head main_fn)
      -- The arg looked like "Foo.Bar.baz"
   = upd $ \d -> d{ mainFunIs = Just main_fn,
-                   mainModIs = mkModule mainPackageKey (mkModuleName main_mod) }
+                   mainModIs = mkModule mainUnitKey (mkModuleName main_mod) }
 
   | isUpper (head arg)  -- The arg looked like "Foo" or "Foo.Bar"
-  = upd $ \d -> d{ mainModIs = mkModule mainPackageKey (mkModuleName arg) }
+  = upd $ \d -> d{ mainModIs = mkModule mainUnitKey (mkModuleName arg) }
 
   | otherwise                   -- The arg looked like "baz"
   = upd $ \d -> d{ mainFunIs = Just arg }
@@ -4114,6 +4118,7 @@ compilerInfo dflags
        ("Support parallel --make",     "YES"),
        ("Support reexported-modules",  "YES"),
        ("Support thinning and renaming package flags", "YES"),
+       ("Requires unified installed package IDs", "YES"),
        ("Uses package keys",           "YES"),
        ("Dynamic by default",          if dYNAMIC_BY_DEFAULT dflags
                                        then "YES" else "NO"),
@@ -4264,7 +4269,7 @@ unsafeGlobalDynFlags = unsafePerformIO $ readIORef v_unsafeGlobalDynFlags
 setUnsafeGlobalDynFlags :: DynFlags -> IO ()
 setUnsafeGlobalDynFlags = writeIORef v_unsafeGlobalDynFlags
 
-GLOBAL_VAR(v_unsafePkgKeyCache, emptyUFM, PackageKeyCache)
+GLOBAL_VAR(v_unsafePkgKeyCache, emptyUFM, UnitKeyCache)
 
 -- -----------------------------------------------------------------------------
 -- SSE and AVX
