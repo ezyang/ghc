@@ -323,7 +323,6 @@ data Force = NoForce | ForceFiles | ForceAll | CannotForce
 -- | Enum flag representing argument type
 data AsPackageArg
     = AsIpid
-    | AsPackageKey
     | AsDefault
 
 -- | Represents how a package may be specified by a user on the command line.
@@ -333,9 +332,6 @@ data PackageArg
     -- | An installed package ID foo-0.1-HASH.  This is guaranteed to uniquely
     -- match a single entry in the package database.
     | IPId InstalledPackageId
-    -- | A package key foo_HASH.  This is also guaranteed to uniquely match
-    -- a single entry in the package database
-    | PkgKey PackageKey
     -- | A glob against the package name.  The first string is the literal
     -- glob, the second is a function which returns @True@ if the argument
     -- matches.
@@ -351,7 +347,6 @@ runit verbosity cli nonopts = do
           | FlagForceFiles `elem` cli   = ForceFiles
           | otherwise                   = NoForce
         as_arg | FlagIPId        `elem` cli = AsIpid
-               | FlagPackageKey  `elem` cli = AsPackageKey
                | otherwise                  = AsDefault
         multi_instance = FlagMultiInstance `elem` cli
         expand_env_vars= FlagExpandEnvVars `elem` cli
@@ -506,8 +501,6 @@ parseGlobPackageId =
 readPackageArg :: AsPackageArg -> String -> IO PackageArg
 readPackageArg AsIpid str =
     parseCheck (IPId `fmap` parse) str "installed package id"
-readPackageArg AsPackageKey str =
-    parseCheck (PkgKey `fmap` parse) str "package key"
 readPackageArg AsDefault str = Id `fmap` readGlobPkgId str
 
 -- globVersion means "all versions"
@@ -1013,12 +1006,7 @@ parsePackageInfo str =
                            (Just l, s) -> die (show l ++ ": " ++ s)
 
 mungePackageInfo :: InstalledPackageInfo -> InstalledPackageInfo
-mungePackageInfo ipi = ipi { packageKey = packageKey' }
-  where
-    packageKey'
-      | OldPackageKey (PackageIdentifier (PackageName "") _) <- packageKey ipi
-          = OldPackageKey (sourcePackageId ipi)
-      | otherwise = packageKey ipi
+mungePackageInfo ipi = ipi -- TODO: remove me
 
 -- -----------------------------------------------------------------------------
 -- Making changes to a package database
@@ -1405,7 +1393,6 @@ findPackagesByDB db_stack pkgarg
         ps -> return ps
   where
         pkg_msg (Id pkgid)           = display pkgid
-        pkg_msg (PkgKey pk)          = display pk
         pkg_msg (IPId ipid)          = display ipid
         pkg_msg (Substring pkgpat _) = "matching " ++ pkgpat
 
@@ -1420,7 +1407,6 @@ realVersion pkgid = versionBranch (pkgVersion pkgid) /= []
 
 matchesPkg :: PackageArg -> InstalledPackageInfo -> Bool
 (Id pid)        `matchesPkg` pkg = pid `matches` sourcePackageId pkg
-(PkgKey pk)     `matchesPkg` pkg = pk == packageKey pkg
 (IPId ipid)     `matchesPkg` pkg = ipid == installedPackageId pkg
 (Substring _ m) `matchesPkg` pkg = m (display (sourcePackageId pkg))
 
@@ -1597,7 +1583,6 @@ checkPackageConfig pkg verbosity db_stack
                    multi_instance update = do
   checkInstalledPackageId pkg db_stack update
   checkPackageId pkg
-  checkPackageKey pkg
   checkDuplicates db_stack pkg multi_instance update
   mapM_ (checkDep db_stack) (depends pkg)
   checkDuplicateDepends (depends pkg)
@@ -1638,14 +1623,6 @@ checkPackageId ipi =
     [_] -> return ()
     []  -> verror CannotForce ("invalid package identifier: " ++ str)
     _   -> verror CannotForce ("ambiguous package identifier: " ++ str)
-
-checkPackageKey :: InstalledPackageInfo -> Validate ()
-checkPackageKey ipi =
-  let str = display (packageKey ipi) in
-  case [ x :: PackageKey | (x,ys) <- readP_to_S parse str, all isSpace ys ] of
-    [_] -> return ()
-    []  -> verror CannotForce ("invalid package key: " ++ str)
-    _   -> verror CannotForce ("ambiguous package key: " ++ str)
 
 checkDuplicates :: PackageDBStack -> InstalledPackageInfo
                 -> Bool -> Bool-> Validate ()
