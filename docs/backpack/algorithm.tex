@@ -71,7 +71,7 @@ Here are the steps a unit goes through:
     and converts it into a directed acyclic graph representing the
     dependency structure of the declarations in a unit.
     It also computes the \I{Module} of each module/signature
-    declaration, the \I{UnitKey} of each include, and the overall
+    declaration, the \I{UnitId} of each include, and the overall
     requirements of the unit.
 
     \item The \textbf{shaping pass} takes the DAG
@@ -127,11 +127,11 @@ $$
 \multicolumn{3}{l}{\mbox{\bf Identifiers}} \\
   \I{InstalledPackageId} &  & \mbox{Opaque unique identifier} \\
   \I{IndefUnitId} & ::= & \I{InstalledPackageId}\, \verb|/|\, p  \\
-  \I{UnitKey} & ::= & \I{IndefUnitId} \verb|(|\, \I{HoleMap}\, \verb|)|  \\
+  \I{UnitId} & ::= & \I{IndefUnitId} \verb|(|\, \I{HoleMap}\, \verb|)|  \\
               & | & \verb|HOLE| \\
   \I{HoleMap} & ::= & \I{ModuleName}\; \verb|->|\; \I{Module}\; \verb|,|\, \ldots \\
-  \I{Module} & ::= & \I{UnitKey} \verb|:| \I{ModuleName}  \\
-  \I{InstalledUnitId} & ::= & \I{UnitKey} \quad \mbox{(with no occurrence of \texttt{HOLE})} \\[1em]
+  \I{Module} & ::= & \I{UnitId} \verb|:| \I{ModuleName}  \\
+  \I{InstalledUnitId} & ::= & \I{UnitId} \quad \mbox{(with no occurrence of \texttt{HOLE})} \\[1em]
 \multicolumn{3}{l}{\mbox{\bf Unit databases}} \\
   \I{IndefUnitDb} & ::= & \I{IndefUnitId} \; \verb|->| \; \I{IndefUnitRecord} \verb|,|\, \ldots \\
   \I{InstalledUnitDb} & ::= & \I{InstalledUnitId} \; \verb|->| \; \I{InstalledUnitRecord} \verb|,|\, \ldots \\
@@ -236,7 +236,7 @@ $$
   \tilde{d} & ::= & \verb|module|\;    Module \; [exports]\; \verb|where|\; \I{body} \\
     & |   & \verb|signature|\; \I{Module} \; [exports]\; \verb|where|\; \I{body} \\
     & |   & \verb|merge|\; \I{Module} \\
-    & |   & \verb|include|\; \I{UnitKey} \\
+    & |   & \verb|include|\; \I{UnitId} \\
   \I{IndefUnitRecord}^{\mathsf{dep}} & ::= & \verb|provides:|\; m\; \verb|->|\; \I{Module}\verb|,|\, \ldots\\
     & & \verb|requires:|\; m\verb|,|\, \ldots
 \end{array}
@@ -286,10 +286,10 @@ $\verb|include|\; q$ if, for some module name $m$, $p$ requires $m$ and
 $q$ provides $m$.  If there is a cyclic, then there is cross-unit
 mutual recursion: for now, this is an error.
 
-Assuming an acyclic graph, we can compute the \I{UnitKey} of each
+Assuming an acyclic graph, we can compute the \I{UnitId} of each
 key as follows.  Initialize $\Gamma$, a substitution from holes to \I{Module},
 to the identity substitution. For each $\verb|include|\; p$ in topological
-order, define its \I{UnitKey} to be $p$ with the mapping $\Gamma$ with its
+order, define its \I{UnitId} to be $p$ with the mapping $\Gamma$ with its
 domain restricted to the requirements of $p$.  Then, for each provision
 $m\; \verb|->|\; \I{Module}$, update $\Gamma$ so that
 $\Gamma(m) = \operatorname{subst} (\Gamma, \I{Module})$
@@ -651,7 +651,7 @@ we have to type-check the \I{ModIface} with the following adjustments:
 
 \paragraph{Signatures}  For signatures, we have a \I{Module} of the form
 $\verb|HOLE:|m$.  Unlike modules, there are multiple \I{ModIface}s associated with a hole.
-We distinguish each separate \I{ModIface} by considering the full \I{UnitKey}
+We distinguish each separate \I{ModIface} by considering the full \I{UnitId}
 it was defined in, e.g. \verb|p(A -> HOLE:C, B -> q():B)|; call this
 the hole's \emph{defining unit key}; the set of \I{ModIface}s for a hole
 and their defining unit keys can easily be calculated during shaping.
@@ -776,15 +776,15 @@ Here are new entries for indefinite units:
 The string representation of \I{Module} is worth remarking upon.  In
 this specification, \I{Module} is a recursive data structure.  For
 installed packages, it is acceptable to flatten \I{Module} into a
-hash representing the \I{UnitKey} and the \I{ModuleName}, as the \I{UnitKey}
+hash representing the \I{UnitId} and the \I{ModuleName}, as the \I{UnitId}
 is an \I{InstalledUnitId} which has an entry in the database.  However,
 this is unacceptable for indefinite units, because we don't have an
-entry per \I{UnitKey}.  So, for \I{UnitKey}s in the indefinite unit database,
+entry per \I{UnitId}.  So, for \I{UnitId}s in the indefinite unit database,
 the full tree is written out, subject to this syntax:
 
 \begin{verbatim}
-Module ::= UnitKey ":" ModuleName
-UnitKey ::= InstalledPackageId
+Module ::= UnitId ":" ModuleName
+UnitId ::= InstalledPackageId
           [ "/" UnitName "(" HoleMap ")" ]
           | "HOLE"
 HoleMap ::= ModuleName "->" Module "," ...
@@ -814,8 +814,8 @@ Presently, however, such an \I{OccName} annotation would be redundant: it can be
 
 \subsection{Holes of a unit are a mapping, not a set.}
 
-Why can't the \I{UnitKey} just record a
-set of \I{Module}s, e.g. $\I{UnitKey}\;::= \; p \; \verb|{| \; \I{Module} \; \verb|}|$?  Consider:
+Why can't the \I{UnitId} just record a
+set of \I{Module}s, e.g. $\I{UnitId}\;::= \; p \; \verb|{| \; \I{Module} \; \verb|}|$?  Consider:
 
 \begin{verbatim}
     unit p (A) requires (H1, H2) where
@@ -1328,7 +1328,7 @@ in the declarations of the unit.
 \section{Cabal}
 
 
-%  \I{InstalledUnitId} & ::= & \I{IndefUnitId} \verb|(| \, m \; \verb|->| \; \I{Module} \verb|,|\, \ldots\, \verb|)| & \mbox{Also known as \I{UnitKey}} \\
+%  \I{InstalledUnitId} & ::= & \I{IndefUnitId} \verb|(| \, m \; \verb|->| \; \I{Module} \verb|,|\, \ldots\, \verb|)| & \mbox{Also known as \I{UnitId}} \\
 %  \I{Module} & ::= & \I{InstalledUnitId} \verb|:| m \\
 
 \paragraph{Indefinite versus installed units}
@@ -1337,7 +1337,7 @@ an indefinite unit; whereas an \I{InstalledUnitId} uniquely identifies
 the results of \textbf{compiling} a unit with all its holes
 filled.  Thus, an \I{InstalledUnitId} also records a \emph{hole mapping}
 which specifies how each hole was filled.  If an \I{InstalledUnitId}
-is only partially filled, we may refer to it as a \I{UnitKey} (as these
+is only partially filled, we may refer to it as a \I{UnitId} (as these
 are never installed.)
 
 \paragraph{Units versus packages}

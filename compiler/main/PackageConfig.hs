@@ -9,7 +9,7 @@
 module PackageConfig (
         -- $package_naming
 
-        -- * PackageKey
+        -- * UnitId
         packageConfigId,
 
         -- * The PackageConfig type: information about a package
@@ -44,7 +44,7 @@ type PackageConfig = InstalledPackageInfo
                        InstalledPackageId
                        SourcePackageId
                        PackageName
-                       Module.PackageKey
+                       Module.UnitId
                        Module.ModuleName
 
 -- TODO: there's no need for these to be FastString, as we don't need the uniq
@@ -127,8 +127,8 @@ pprPackageConfig InstalledPackageInfo {..} =
     vcat [
       field "name"                 (ppr packageName),
       field "version"              (text (showVersion packageVersion)),
-      field "id"                   (ppr installedPackageId),
-      field "key"                  (ppr packageKey),
+      field "id"                   (ppr unitId),
+      field "package-id"           (ppr installedPackageId),
       field "exposed"              (ppr exposed),
       field "exposed-modules"
         (if all isExposedModule exposedModules
@@ -158,16 +158,16 @@ pprPackageConfig InstalledPackageInfo {..} =
 
 
 -- -----------------------------------------------------------------------------
--- PackageKey (package names, versions and dep hash)
+-- UnitId (package names, versions and dep hash)
 
 -- $package_naming
 -- #package_naming#
--- Mostly the compiler deals in terms of 'PackageKey's, which are md5 hashes
+-- Mostly the compiler deals in terms of 'UnitId's, which are md5 hashes
 -- of a package ID, keys of its dependencies, and Cabal flags. You're expected
--- to pass in the package key in the @-this-package-key@ flag. However, for
+-- to pass in the unit key in the @-this-unit-key@ flag. However, for
 -- wired-in packages like @base@ & @rts@, we don't necessarily know what the
 -- version is, so these are handled specially; see #wired_in_packages#.
 
--- | Get the GHC 'PackageKey' right out of a Cabalish 'PackageConfig'
-packageConfigId :: PackageConfig -> PackageKey
-packageConfigId = packageKey
+-- | Get the GHC 'UnitId' right out of a Cabalish 'PackageConfig'
+packageConfigId :: PackageConfig -> UnitId
+packageConfigId = unitId

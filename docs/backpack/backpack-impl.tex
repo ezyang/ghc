@@ -574,7 +574,7 @@ on a single module, it has a correspondingly restricted set of dependencies.
     \text{Package Names (\texttt{PkgName})} & P &\in& \mathit{PkgNames} \\
     \text{Module Path Names (\texttt{ModName})} & p &\in& \mathit{ModPaths} \\
     \text{Module Identity Vars} & \alpha,\beta &\in& \mathit{IdentVars} \\
-    \text{Package Key (\texttt{PackageKey})} & \K &::=& P(\vec{p\mapsto\nu}) \\
+    \text{Package Key (\texttt{UnitId})} & \K &::=& P(\vec{p\mapsto\nu}) \\
     \text{Module Identities (\texttt{Module})} & \nu &::=&
       \alpha ~|~
       \K\colon\! p \\
@@ -1110,7 +1110,7 @@ against (renamed) interface files.
     In-place register the package $\mathcal{K}$ in $db$
     \For{$B$ \textbf{in} $\vec{B}$}
         \Case{$p = p\texttt{.hs}$}
-        \State\Call{Exec}{\texttt{ghc -c} $p$\texttt{.hs} \texttt{-package-db} $db$ \texttt{-this-package-key} $\mathcal{K}$ $flags$}
+        \State\Call{Exec}{\texttt{ghc -c} $p$\texttt{.hs} \texttt{-package-db} $db$ \texttt{-this-unit-key} $\mathcal{K}$ $flags$}
         \EndCase%
         \Case{$p$ $\cc$ $p$\texttt{.hsig}}
             \State\Call{Exec}{\texttt{ghc -c} $p$\texttt{.hsig} \texttt{-package-db} $db$ \texttt{-sig-of} $H(p)$ $flags$}

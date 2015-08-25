@@ -643,7 +643,7 @@ mkMaxTagOcc         = mk_simple_deriv varName  "$maxtag_"
 mkModPrefix :: Module -> String
 mkModPrefix mod = pk ++ "_" ++ mn
   where
-    pk = packageKeyString (modulePackageKey mod)
+    pk = unitIdString (moduleUnitId mod)
     mn = moduleNameString (moduleName mod)
 
 mkGenD :: Module -> OccName -> OccName
