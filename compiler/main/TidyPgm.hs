@@ -7,7 +7,7 @@
 {-# LANGUAGE CPP #-}
 
 module TidyPgm (
-       mkBootModDetailsTc, tidyProgram, globaliseAndTidyId
+       mkBootModDetailsTc, tidyProgram, tidyGuts, globaliseAndTidyId
    ) where
 
 #include "HsVersions.h"
@@ -26,7 +26,6 @@ import CoreLint
 import Literal
 import Rules
 import PatSyn
-import ConLike
 import CoreArity        ( exprArity, exprBotStrictness_maybe )
 import VarEnv
 import VarSet
@@ -456,10 +455,6 @@ trimThing (AnId id)
 
 trimThing other_thing
   = other_thing
-
-extendTypeEnvWithPatSyns :: [PatSyn] -> TypeEnv -> TypeEnv
-extendTypeEnvWithPatSyns tidy_patsyns type_env
-  = extendTypeEnvList type_env [AConLike (PatSynCon ps) | ps <- tidy_patsyns ]
 
 tidyVectInfo :: TidyEnv -> VectInfo -> VectInfo
 tidyVectInfo (_, var_env) info@(VectInfo { vectInfoVar          = vars
@@ -1457,3 +1452,307 @@ mustExposeTyCon no_trim_types exports tc
     exported_con con = any (`elemNameSet` exports)
                            (dataConName con : dataConFieldLabels con)
 -}
+
+{-
+************************************************************************
+*                                                                      *
+        Plan C: tidy guts, minimal amount of cleanup
+*                                                                      *
+************************************************************************
+
+Plan C: include everything, but make it serializable
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+-}
+
+tidyNames :: HscEnv
+                  -> Module
+                  -> Bool -> Bool
+                  -> [CoreBind]
+                  -> [CoreBind]
+                  -> [CoreRule]
+                  -> VarEnv (Var, Var)
+                  -> IO (UnfoldEnv, TidyOccEnv)
+                  -- Step 1 from the notes above
+
+tidyNames hsc_env mod omit_prags expose_all binds implicit_binds imp_id_rules vect_vars
+  = do { (unfold_env1,occ_env1) <- search init_work_list emptyVarEnv init_occ_env
+       ; let internal_ids = filter (not . (`elemVarEnv` unfold_env1)) binders
+       ; tidy_internal internal_ids unfold_env1 occ_env1 }
+ where
+  nc_var = hsc_NC hsc_env
+
+  -- init_ext_ids is the intial list of Ids that should be
+  -- externalised.  It serves as the starting point for finding a
+  -- deterministic, tidy, renaming for all external Ids in this
+  -- module.
+  --
+  -- It is sorted, so that it has adeterministic order (i.e. it's the
+  -- same list every time this module is compiled), in contrast to the
+  -- bindings, which are ordered non-deterministically.
+  init_work_list = zip init_ext_ids init_ext_ids
+  init_ext_ids   = sortBy (compare `on` getOccName) $
+                   filter is_external binders
+
+  -- An Id should be external if either (a) it is exported,
+  -- (b) it appears in the RHS of a local rule for an imported Id, or
+  -- (c) it is the vectorised version of an imported Id
+  -- See Note [Which rules to expose]
+  is_external id = isExportedId id || id `elemVarSet` rule_rhs_vars || id `elemVarSet` vect_var_vs
+  rule_rhs_vars  = mapUnionVarSet ruleRhsFreeVars imp_id_rules
+  vect_var_vs    = mkVarSet [var_v | (var, var_v) <- nameEnvElts vect_vars, isGlobalId var]
+
+  binders          = bindersOfBinds binds
+  implicit_binders = bindersOfBinds implicit_binds
+  binder_set       = mkVarSet binders
+
+  avoids   = [getOccName name | bndr <- binders ++ implicit_binders,
+                                let name = idName bndr,
+                                isExternalName name ]
+                -- In computing our "avoids" list, we must include
+                --      all implicit Ids
+                --      all things with global names (assigned once and for
+                --                                      all by the renamer)
+                -- since their names are "taken".
+                -- The type environment is a convenient source of such things.
+                -- In particular, the set of binders doesn't include
+                -- implicit Ids at this stage.
+
+        -- We also make sure to avoid any exported binders.  Consider
+        --      f{-u1-} = 1     -- Local decl
+        --      ...
+        --      f{-u2-} = 2     -- Exported decl
+        --
+        -- The second exported decl must 'get' the name 'f', so we
+        -- have to put 'f' in the avoids list before we get to the first
+        -- decl.  tidyTopId then does a no-op on exported binders.
+  init_occ_env = initTidyOccEnv avoids
+
+
+  search :: [(Id,Id)]    -- The work-list: (external id, referrring id)
+                         -- Make a tidy, external Name for the external id,
+                         --   add it to the UnfoldEnv, and do the same for the
+                         --   transitive closure of Ids it refers to
+                         -- The referring id is used to generate a tidy
+                         ---  name for the external id
+         -> UnfoldEnv    -- id -> (new Name, show_unfold)
+         -> TidyOccEnv   -- occ env for choosing new Names
+         -> IO (UnfoldEnv, TidyOccEnv)
+
+  search [] unfold_env occ_env = return (unfold_env, occ_env)
+
+  search ((idocc,referrer) : rest) unfold_env occ_env
+    | idocc `elemVarEnv` unfold_env = search rest unfold_env occ_env
+    | otherwise = do
+      (occ_env', name') <- tidyTopName mod nc_var (Just referrer) occ_env idocc
+      let
+          (new_ids, show_unfold)
+                | omit_prags = ([], False)
+                | otherwise  = addExternal expose_all refined_id
+
+                -- add vectorised version if any exists
+          new_ids' = new_ids ++ maybeToList (fmap snd $ lookupVarEnv vect_vars idocc)
+
+                -- 'idocc' is an *occurrence*, but we need to see the
+                -- unfolding in the *definition*; so look up in binder_set
+          refined_id = case lookupVarSet binder_set idocc of
+                         Just id -> id
+                         Nothing -> WARN( True, ppr idocc ) idocc
+
+          unfold_env' = extendVarEnv unfold_env idocc (name',show_unfold)
+          referrer' | isExportedId refined_id = refined_id
+                    | otherwise               = referrer
+      --
+      search (zip new_ids' (repeat referrer') ++ rest) unfold_env' occ_env'
+
+  tidy_internal :: [Id] -> UnfoldEnv -> TidyOccEnv
+                -> IO (UnfoldEnv, TidyOccEnv)
+  tidy_internal []       unfold_env occ_env = return (unfold_env,occ_env)
+  tidy_internal (id:ids) unfold_env occ_env = do
+      (occ_env', name') <- tidyTopName mod nc_var Nothing occ_env id
+      let unfold_env' = extendVarEnv unfold_env id (name',False)
+      tidy_internal ids unfold_env' occ_env'
+
+tidyGutsTopBinds :: HscEnv
+             -> Module
+             -> UnfoldEnv
+             -> TidyOccEnv
+             -> CoreProgram
+             -> IO (TidyEnv, CoreProgram)
+
+tidyGutsTopBinds hsc_env this_mod unfold_env init_occ_env binds
+  = do mkIntegerId <- lookupMkIntegerName dflags hsc_env
+       integerSDataCon <- lookupIntegerSDataConName dflags hsc_env
+       let cvt_integer = cvtLitInteger dflags mkIntegerId integerSDataCon
+       return $ tidyGuts cvt_integer init_env binds
+  where
+    dflags = hsc_dflags hsc_env
+
+    init_env = (init_occ_env, emptyVarEnv)
+
+    this_pkg = thisPackage dflags
+
+    tidyGuts _           env []     = (env, [])
+    tidyGuts cvt_integer env (b:bs)
+        = let (env1, b')  = tidyGutsTopBind dflags this_pkg this_mod
+                                        cvt_integer unfold_env env b
+              (env2, bs') = tidyGuts cvt_integer env1 bs
+          in  (env2, b':bs')
+
+------------------------
+tidyGutsTopBind  :: DynFlags
+             -> PackageKey
+             -> Module
+             -> (Integer -> CoreExpr)
+             -> UnfoldEnv
+             -> TidyEnv
+             -> CoreBind
+             -> (TidyEnv, CoreBind)
+
+tidyGutsTopBind dflags this_pkg this_mod cvt_integer unfold_env
+            (occ_env,subst1) (NonRec bndr rhs)
+  = (tidyGuts_env2,  NonRec bndr' rhs')
+  where
+    Just (name',show_unfold) = lookupVarEnv unfold_env bndr
+    caf_info      = hasCafRefs dflags this_pkg this_mod (subst1, cvt_integer) (idArity bndr) rhs
+    (bndr', rhs') = tidyGutsTopPair dflags show_unfold tidyGuts_env2 caf_info name' (bndr, rhs)
+    subst2        = extendVarEnv subst1 bndr bndr'
+    tidyGuts_env2     = (occ_env, subst2)
+
+tidyGutsTopBind dflags this_pkg this_mod cvt_integer unfold_env
+            (occ_env, subst1) (Rec prs)
+  = (tidyGuts_env2, Rec prs')
+  where
+    prs' = [ tidyGutsTopPair dflags show_unfold tidyGuts_env2 caf_info name' (id,rhs)
+           | (id,rhs) <- prs,
+             let (name',show_unfold) =
+                    expectJust "tidyGutsTopBind" $ lookupVarEnv unfold_env id
+           ]
+
+    subst2    = extendVarEnvList subst1 (bndrs `zip` map fst prs')
+    tidyGuts_env2 = (occ_env, subst2)
+
+    bndrs = map fst prs
+
+        -- the CafInfo for a recursive group says whether *any* rhs in
+        -- the group may refer indirectly to a CAF (because then, they all do).
+    caf_info
+        | or [ mayHaveCafRefs (hasCafRefs dflags this_pkg this_mod
+                                          (subst1, cvt_integer)
+                                          (idArity bndr) rhs)
+             | (bndr,rhs) <- prs ] = MayHaveCafRefs
+        | otherwise                = NoCafRefs
+
+-----------------------------------------------------------
+tidyGutsTopPair :: DynFlags
+            -> Bool  -- show unfolding
+            -> TidyEnv  -- The TidyEnv is used to tidyGuts the IdInfo
+                        -- It is knot-tied: don't look at it!
+            -> CafInfo
+            -> Name             -- New name
+            -> (Id, CoreExpr)   -- Binder and RHS before tidyGutsing
+            -> (Id, CoreExpr)
+        -- This function is the heart of Step 2
+        -- The rec_tidyGuts_env is the one to use for the IdInfo
+        -- It's necessary because when we are dealing with a recursive
+        -- group, a variable late in the group might be mentioned
+        -- in the IdInfo of one early in the group
+
+tidyGutsTopPair _dflags _show_unfold tidy_env _caf_info name' (bndr, rhs)
+  = (bndr1, rhs1)
+  where
+    -- idinfo: I think we'll just figure it all out again later
+    bndr1    = bndr `setIdName` name' `setIdType` ty' `setIdInfo` idinfo'
+    ty'      = tidyTopType (idType bndr)
+    rhs1     = tidyExpr tidy_env rhs
+    idinfo   = idInfo bndr
+    -- Still a bit DODGY
+    idinfo'  = vanillaIdInfo `setInlinePragInfo` inlinePragInfo idinfo
+                             `setSpecInfo` spec_info
+                             `setUnfoldingInfo` unfold_info
+    spec_info = mkSpecInfo (tidyRules tidy_env (specInfoRules (specInfo idinfo)))
+    unfold_info = case unfoldingInfo idinfo of
+                    df@DFunUnfolding { df_bndrs = bndrs, df_args = args } ->
+                        let (tidy_env', bndrs') = tidyBndrs tidy_env bndrs
+                        in df { df_bndrs = bndrs', df_args = map (tidyExpr tidy_env') args }
+                    unf@CoreUnfolding { uf_tmpl = unf_rhs } ->
+                        unf { uf_tmpl = tidyExpr tidy_env unf_rhs }
+                    unf -> unf
+
+tidyGuts :: HscEnv -> ModGuts -> IO ModGuts
+tidyGuts hsc_env guts@ModGuts { mg_module    = mod
+                              , mg_rdr_env   = rdr_env
+                              , mg_tcs       = tcs
+                              , mg_fam_insts = fam_insts
+                              , mg_binds     = binds
+                              , mg_rules     = imp_rules
+                              , mg_vect_info = vect_info
+                              }
+  = do  { let { dflags     = hsc_dflags hsc_env
+              ; omit_prags = gopt Opt_OmitInterfacePragmas dflags
+              ; expose_all = gopt Opt_ExposeAllUnfoldings  dflags
+              ; print_unqual = mkPrintUnqualified dflags rdr_env
+              }
+        ; showPassIO dflags CoreTidyGuts
+
+        ; let { type_env = typeEnvFromEntities [] tcs fam_insts
+
+              ; implicit_binds
+                  = concatMap getClassImplicitBinds (typeEnvClasses type_env) ++
+                    concatMap getTyConImplicitBinds (typeEnvTyCons type_env)
+              }
+
+        ; (unfold_env, tidy_occ_env) <- tidyNames hsc_env mod omit_prags expose_all
+                                   binds implicit_binds imp_rules (vectInfoVar vect_info)
+
+          -- unfold_env and tidy_occ_env???  Originally determined by
+          -- chooseExternalIds.
+          --
+          -- What is it used for?
+          --    unfold_env --> gives us a new name (same unique but good
+          --    for serialization) as well as whether or not when we
+          --    reconstruct the Id to put in the unfolding.
+          --        We don't really care about the unfoldings, but we
+          --        do want to rename the names
+          --    tidy_occ_env --> forms the basis for TidyEnv (what
+          --    local occurrences are 'used').  I think avoidance
+          --    is relevant, we have to give things the right names
+        ; (tidy_env, tidy_binds)
+                 <- {- pprTrace "tidy guts envs" (ppr unfold_env $$ ppr tidy_occ_env) $ -} tidyGutsTopBinds hsc_env mod unfold_env tidy_occ_env binds
+
+        ; let {
+              -- no need to Id'ify cls_insts or patsyns; BUT rules need
+              -- to be tidied because they have binders and expressions
+              --
+              -- TypeEnv tidying is just trimming, don't do that
+              --
+              -- Maybe some vectorization stuff needs to be tidied, let's
+              -- not support vectorization for now
+              -- ; tidy_vect_info = tidyVectInfo tidy_env vect_info
+
+              ; tidy_rules = tidyRules tidy_env imp_rules
+                -- You might worry that the tidy_env contains IdInfo-rich stuff
+                -- and indeed it does, but if omit_prags is on, ext_rules is
+                -- empty
+              }
+
+        ; endPassIO hsc_env print_unqual CoreTidyGuts tidy_binds tidy_rules
+        ; return guts {
+                mg_binds = tidy_binds,
+                mg_rules = tidy_rules
+            }
+
+        {-
+        ; return (ModDetails { md_types     = tidy_type_env,
+                                md_rules     = tidy_rules,
+                                md_insts     = tidy_cls_insts,
+                                md_vect_info = tidy_vect_info,
+                                md_fam_insts = fam_insts,
+                                md_exports   = exports,
+                                md_anns      = anns      -- are already tidy
+                              }, tidy_binds)
+                              -}
+        }
+
+

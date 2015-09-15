@@ -167,16 +167,16 @@ deSugar hsc_env
         ; used_th <- readIORef tc_splice_used
         ; dep_files <- readIORef dependent_files
         ; safe_mode <- finalSafeMode dflags tcg_env
+        ; usages <- mkUsageInfo hsc_env mod (imp_mods imports) used_names dep_files
 
         ; let mod_guts = ModGuts {
                 mg_module       = mod,
                 mg_hsc_src      = hsc_src,
                 mg_loc          = mkFileSrcSpan mod_loc,
                 mg_exports      = exports,
+                mg_usages       = usages,
                 mg_deps         = deps,
-                mg_used_names   = used_names,
                 mg_used_th      = used_th,
-                mg_dir_imps     = imp_mods imports,
                 mg_rdr_env      = rdr_env,
                 mg_fix_env      = fix_env,
                 mg_warns        = warns,
@@ -195,8 +195,7 @@ deSugar hsc_env
                 mg_vect_decls   = ds_vects,
                 mg_vect_info    = noVectInfo,
                 mg_safe_haskell = safe_mode,
-                mg_trust_pkg    = imp_trust_own_pkg imports,
-                mg_dependent_files = dep_files
+                mg_trust_pkg    = imp_trust_own_pkg imports
               }
         ; return (msgs, Just mod_guts)
         }}}

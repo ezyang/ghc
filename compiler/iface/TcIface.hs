@@ -7,10 +7,12 @@ Type checking of type signatures in interface files
 -}
 
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE NondecreasingIndentation #-}
 
 module TcIface (
         tcLookupImported_maybe,
         importDecl, checkWiredInTyCon, tcHiBootIface, typecheckIface,
+        typecheckGuts,
         tcIfaceDecl, tcIfaceInst, tcIfaceFamInst, tcIfaceRules,
         tcIfaceVectInfo, tcIfaceAnnotations,
         tcIfaceExpr,    -- Desired by HERMIT (Trac #7683)
@@ -69,6 +71,7 @@ import SrcLoc
 import DynFlags
 import Util
 import FastString
+import Rules (mkSpecInfo)
 
 import Control.Monad
 import qualified Data.Map as Map
@@ -95,8 +98,73 @@ Names before typechecking, because there should be no scope errors etc.
         -- Simple solution: discard any unfolding that mentions a variable
         -- bound in this module (and hence not yet processed).
         -- The discarding happens when forkM finds a type error.
+-}
+
+{-
+************************************************************************
+*                                                                      *
+                Type-checking a fat interface
+*                                                                      *
+************************************************************************
+
+A fat interface is like a normal interface elaborated with extra information
+so that a ModGuts can be reconstructed from it (and, e.g., passed to the
+simplifier).
+-}
+
+-- | Turn a ModIface and ModDetails into a ModGuts
+typecheckGuts :: InstEnv -> FamInstEnv -> ModIface -> ModDetails -> IfL ModGuts
+typecheckGuts _ _ ModIface { mi_impl = Nothing } _ = error "shouldn't happen"
+typecheckGuts inst_env fam_inst_env mod_iface@ModIface { mi_impl = Just mod_impl } mod_details = do
+    fixities <- forM (mi_fixities mod_iface) $ \(occ,fix) -> do
+        name <- lookupIfaceTop occ
+        return (name, FixItem occ fix)
+
+    -- Typecheck the rhs's of bindings
+    binds <- forM [ d | (_, d@IfaceBinding{}) <- mi_decls mod_iface ] $ \d -> do
+                name <-
+                    if ifRootMain d
+                        then return rootMainName
+                        else lookupIfaceTop (ifName d)
+                AnId id <- tcIfaceGlobal name -- pull out the already tc'd Id
+                rhs <- tcIfaceExpr (ifRhs d)
+                return (id, rhs)
+
+    return ModGuts {
+        mg_module  = mi_module mod_iface,
+        mg_hsc_src = mi_hsc_src mod_iface,
+        mg_loc     = noSrcSpan, -- TODO
+        mg_exports = md_exports mod_details,
+        mg_deps    = mi_deps mod_iface,
+        mg_usages  = mi_usages mod_iface,
+        mg_used_th = mi_used_th mod_iface,
+        mg_rdr_env = impl_rdr_env mod_impl, -- same as mi_globals but it is serialized
+
+        mg_fix_env = mkNameEnv fixities,
+        mg_tcs     = typeEnvTyCons (md_types mod_details),
+        mg_insts   = md_insts mod_details,
+        mg_fam_insts= md_fam_insts mod_details,
+        mg_patsyns = typeEnvPatSyns (md_types mod_details),
+
+        mg_rules   = md_rules mod_details,
+        mg_binds   = [Rec binds],
+        mg_foreign = impl_foreign mod_impl,
+        mg_warns   = mi_warns mod_iface,
+        mg_anns    = md_anns mod_details,
+        mg_hpc_info  = impl_hpc_info mod_impl, -- more detailed than mi_hpc
+        mg_modBreaks = emptyModBreaks,   -- TODO: implement me
+        mg_vect_decls= [] :: [CoreVect], -- TODO: implement me
+        mg_vect_info = md_vect_info mod_details,
+
+        mg_inst_env    = extendInstEnvList inst_env (md_insts mod_details),
+        mg_fam_inst_env= extendFamInstEnvList fam_inst_env (md_fam_insts mod_details),
+
+        mg_safe_haskell = getSafeMode (mi_trust mod_iface),
+        mg_trust_pkg = mi_trust_pkg mod_iface
+    }
 
 
+{-
 ************************************************************************
 *                                                                      *
                 Type-checking a complete interface
@@ -312,6 +380,22 @@ tc_iface_decl _ ignore_prags (IfaceId {ifName = occ_name, ifType = iface_type,
         ; details <- tcIdDetails ty details
         ; info <- tcIdInfo ignore_prags name ty info
         ; return (AnId (mkGlobalId details name ty info)) }
+
+tc_iface_decl _ ignore_prags (IfaceBinding {ifName = occ_name, ifRootMain = is_root_main, ifType = iface_type,
+                                 ifIdDetails = details, ifIdInfo = info,
+                                 ifIdScope = scope})
+  = do  { name <- if is_root_main
+                    then return rootMainName
+                    else lookupIfaceTop occ_name
+        ; ty <- tcIfaceType iface_type
+        ; details <- tcIdDetails ty details
+        ; info <- tcIdInfo ignore_prags name ty info
+        ; let mk_id = case scope of
+                    IfGlobalId        -> Var.mkGlobalVar
+                    IfLocalId         -> Var.mkLocalVar
+                    IfExportedLocalId -> Var.mkExportedLocalVar
+        -- NB: rhs not tc'd here; done in a separate pass
+        ; return (AnId (mk_id details name ty info)) }
 
 tc_iface_decl parent _ (IfaceData {ifName = occ_name,
                           ifCType = cType,
@@ -1197,6 +1281,10 @@ tcIdInfo ignore_prags name ty info
            ; let info1 | lb        = info `setOccInfo` strongLoopBreaker
                        | otherwise = info
            ; return (info1 `setUnfoldingInfoLazily` unf) }
+    tcPrag info (HsSpec if_rules)
+      = do { rules <- tcIfaceRules ignore_prags if_rules
+           ; return (info `setSpecInfoLazily` mkSpecInfo rules)
+           }
 
 tcUnfolding :: Name -> Type -> IdInfo -> IfaceUnfolding -> IfL Unfolding
 tcUnfolding name _ info (IfCoreUnfold stable if_expr)
@@ -1297,7 +1385,7 @@ tcIfaceGlobal name
   = do  { env <- getGblEnv
         ; case if_rec_types env of {    -- Note [Tying the knot]
             Just (mod, get_type_env)
-                | nameIsLocalOrFrom mod name
+                | nameIsLocalOrFrom mod name || name == rootMainName
                 -> do           -- It's defined in the module being compiled
                 { type_env <- setLclEnv () get_type_env         -- yuk
                 ; case lookupNameEnv type_env name of

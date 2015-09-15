@@ -11,10 +11,12 @@
 module MkIface (
         mkUsedNames,
         mkDependencies,
+        mkUsageInfo,
         mkIface,        -- Build a ModIface from a ModGuts,
                         -- including computing version information
 
         mkIfaceTc,
+        mkFatIface,
 
         writeIfaceFile, -- Write the interface file
 
@@ -112,6 +114,8 @@ import Fingerprint
 import Bag
 import Exception
 
+import PrelNames
+
 import Control.Monad
 import Data.Function
 import Data.List
@@ -143,22 +147,53 @@ mkIface :: HscEnv
 mkIface hsc_env maybe_old_fingerprint mod_details
          ModGuts{     mg_module       = this_mod,
                       mg_hsc_src      = hsc_src,
-                      mg_used_names   = used_names,
+                      mg_usages       = usages,
                       mg_used_th      = used_th,
                       mg_deps         = deps,
-                      mg_dir_imps     = dir_imp_mods,
                       mg_rdr_env      = rdr_env,
                       mg_fix_env      = fix_env,
                       mg_warns        = warns,
                       mg_hpc_info     = hpc_info,
                       mg_safe_haskell = safe_mode,
-                      mg_trust_pkg    = self_trust,
-                      mg_dependent_files = dependent_files
+                      mg_trust_pkg    = self_trust
                     }
-        = mkIface_ hsc_env maybe_old_fingerprint
-                   this_mod hsc_src used_names used_th deps rdr_env fix_env
-                   warns hpc_info dir_imp_mods self_trust dependent_files
-                   safe_mode mod_details
+        =
+       do mkIface_ hsc_env maybe_old_fingerprint
+                   this_mod hsc_src used_th deps rdr_env fix_env
+                   warns hpc_info self_trust
+                   safe_mode usages mod_details Nothing
+
+mkFatIface :: HscEnv -> ModGuts -> IO (Messages, Maybe (ModIface, Bool))
+mkFatIface hsc_env
+    guts@ModGuts{     mg_module       = this_mod,
+                      mg_hsc_src      = hsc_src,
+                      mg_used_th      = used_th,
+                      mg_usages       = usages,
+                      mg_deps         = deps,
+                      mg_rdr_env      = rdr_env,
+                      mg_fix_env      = fix_env,
+                      mg_warns        = warns,
+                      mg_hpc_info     = hpc_info,
+                      mg_safe_haskell = safe_mode,
+                      mg_trust_pkg    = self_trust
+                    }
+  -- Thread in parts of the ModGuts via a ModDetails:
+  = let details = ModDetails {
+            md_insts     = mg_insts guts,
+            md_fam_insts = mg_fam_insts guts,
+            md_rules     = mg_rules guts,
+            md_anns      = mg_anns guts,
+            md_vect_info = mg_vect_info guts,
+            md_types     =
+                -- Not the bindings: we'll add them later
+                extendTypeEnvWithPatSyns (mg_patsyns guts)
+                    (typeEnvFromEntities [] (mg_tcs guts) (mg_fam_insts guts)),
+            md_exports   = mg_exports guts
+        }
+    in mkIface_ hsc_env Nothing
+                   this_mod hsc_src used_th deps rdr_env fix_env
+                   warns hpc_info self_trust
+                   safe_mode usages details (Just guts)
 
 -- | make an interface from the results of typechecking only.  Useful
 -- for non-optimising compilation, or where we aren't generating any
@@ -186,11 +221,12 @@ mkIfaceTc hsc_env maybe_old_fingerprint safe_mode mod_details
           let hpc_info = emptyHpcInfo other_hpc_info
           used_th <- readIORef tc_splice_used
           dep_files <- (readIORef dependent_files)
+          usages <- mkUsageInfo hsc_env this_mod (imp_mods imports) used_names dep_files
           mkIface_ hsc_env maybe_old_fingerprint
-                   this_mod hsc_src used_names
+                   this_mod hsc_src
                    used_th deps rdr_env
-                   fix_env warns hpc_info (imp_mods imports)
-                   (imp_trust_own_pkg imports) dep_files safe_mode mod_details
+                   fix_env warns hpc_info
+                   (imp_trust_own_pkg imports) safe_mode usages mod_details Nothing
 
 
 mkUsedNames :: TcGblEnv -> NameSet
@@ -231,17 +267,26 @@ mkDependencies
                     -- sort to get into canonical order
                     -- NB. remember to use lexicographic ordering
 
+mkImpl :: ModGuts -> IO ModImpl
+mkImpl guts = do
+    return ModImpl {
+            impl_rdr_env = mg_rdr_env guts,
+            impl_hpc_info = mg_hpc_info guts,
+            impl_foreign = mg_foreign guts
+        }
+
 mkIface_ :: HscEnv -> Maybe Fingerprint -> Module -> HscSource
-         -> NameSet -> Bool -> Dependencies -> GlobalRdrEnv
+         -> Bool -> Dependencies -> GlobalRdrEnv
          -> NameEnv FixItem -> Warnings -> HpcInfo
-         -> ImportedMods -> Bool
-         -> [FilePath]
+         -> Bool
          -> SafeHaskellMode
+         -> [Usage]
          -> ModDetails
+         -> Maybe ModGuts
          -> IO (Messages, Maybe (ModIface, Bool))
 mkIface_ hsc_env maybe_old_fingerprint
-         this_mod hsc_src used_names used_th deps rdr_env fix_env src_warns
-         hpc_info dir_imp_mods pkg_trust_req dependent_files safe_mode
+         this_mod hsc_src used_th deps rdr_env fix_env src_warns
+         hpc_info pkg_trust_req safe_mode usages
          ModDetails{  md_insts     = insts,
                       md_fam_insts = fam_insts,
                       md_rules     = rules,
@@ -249,16 +294,19 @@ mkIface_ hsc_env maybe_old_fingerprint
                       md_vect_info = vect_info,
                       md_types     = type_env,
                       md_exports   = exports }
+         mb_guts -- for fat interface
 -- NB:  notice that mkIface does not look at the bindings
 --      only at the TypeEnv.  The previous Tidy phase has
 --      put exactly the info into the TypeEnv that we want
 --      to expose in the interface
 
   = do
-    usages  <- mkUsageInfo hsc_env this_mod dir_imp_mods used_names dependent_files
+    mb_impl <- case mb_guts of
+                Nothing -> return Nothing
+                Just guts -> fmap Just (mkImpl guts)
 
     let entities = typeEnvElts type_env
-        decls  = [ tyThingToIfaceDecl entity
+        decls0 = [ tyThingToIfaceDecl entity
                  | entity <- entities,
                    let name = getName entity,
                    not (isImplicitTyThing entity),
@@ -267,6 +315,15 @@ mkIface_ hsc_env maybe_old_fingerprint
                       -- Nor wired-in things; the compiler knows about them anyhow
                    nameIsLocalOrFrom this_mod name  ]
                       -- Sigh: see Note [Root-main Id] in TcRnDriver
+        decls_guts = [ bindingToIfaceDecl id rhs
+                     | Just guts <- [mb_guts]
+                     , b <- mg_binds guts
+                     , (id, rhs) <- bindPairs b ]
+        bindPairs :: CoreBind -> [(Id, CoreExpr)]
+        bindPairs (NonRec id rhs) = [(id, rhs)]
+        bindPairs (Rec pairs) = pairs
+
+        decls = decls0 ++ decls_guts
 
         fixities    = [(occ,fix) | FixItem occ fix <- nameEnvElts fix_env]
         warns       = src_warns
@@ -298,6 +355,7 @@ mkIface_ hsc_env maybe_old_fingerprint
               mi_warns       = warns,
               mi_anns        = annotations,
               mi_globals     = maybeGlobalRdrEnv rdr_env,
+              mi_impl        = mb_impl,
 
               -- Left out deliberately: filled in by addFingerprints
               mi_iface_hash  = fingerprint0,
@@ -321,8 +379,15 @@ mkIface_ hsc_env maybe_old_fingerprint
 
     (new_iface, no_change_at_all)
           <- {-# SCC "versioninfo" #-}
+                case mb_guts of
+                  Nothing ->
                    addFingerprints hsc_env maybe_old_fingerprint
                                    intermediate_iface decls
+                  Just _ ->
+                   return (intermediate_iface {
+                            mi_decls = map (\d -> (fingerprint0, d)) decls,
+                            mi_hash_fn = \_ -> Nothing
+                          }, False)
 
     -- Warn about orphans
     -- See Note [Orphans and auto-generated rules]
@@ -1097,6 +1162,7 @@ mk_mod_usage_info pit hsc_env this_mod direct_imports used_names
               one-shot mode), but that's even more bogus!
         -}
 
+
 mkIfaceAnnotation :: Annotation -> IfaceAnnotation
 mkIfaceAnnotation (Annotation { ann_target = target, ann_value = payload })
   = IfaceAnnotation {
@@ -1539,6 +1605,23 @@ idToIfaceDecl id
               ifIdInfo    = toIfaceIdInfo (idInfo id) }
 
 --------------------------
+bindingToIfaceDecl :: Id -> CoreExpr -> IfaceDecl
+bindingToIfaceDecl id rhs
+  = IfaceBinding { ifName = getOccName id,
+                   ifRootMain = getName id == rootMainName,
+                   ifType = toIfaceType (idType id),
+                   ifIdScope = toIfaceIdScope (idScope id),
+                   ifIdDetails = toIfaceIdDetails (idDetails id),
+                   ifIdInfo = toFatIfaceIdInfo (idInfo id),
+                   ifRhs = toIfaceExpr rhs
+                 }
+
+toIfaceIdScope :: IdScope -> IfaceIdScope
+toIfaceIdScope Var.GlobalId = IfGlobalId
+toIfaceIdScope (Var.LocalId Var.NotExported) = IfLocalId
+toIfaceIdScope (Var.LocalId Var.Exported) = IfExportedLocalId
+
+--------------------------
 dataConToIfaceDecl :: DataCon -> IfaceDecl
 dataConToIfaceDecl dataCon
   = IfaceId { ifName      = getOccName dataCon,
@@ -1885,14 +1968,32 @@ toIfaceIdDetails DefMethId    = IfVanillaId
 toIfaceIdDetails other = pprTrace "toIfaceIdDetails" (ppr other)
                          IfVanillaId   -- Unexpected; the other
 
-toIfaceIdInfo :: IdInfo -> IfaceIdInfo
-toIfaceIdInfo id_info
-  = case catMaybes [arity_hsinfo, caf_hsinfo, strict_hsinfo,
-                    inline_hsinfo,  unfold_hsinfo] of
+-- | Variant of 'toIfaceIdInfo' which stores extra 'IdInfo' (namely
+-- 'SpecInfo') for fat interfaces (this information is not normally
+-- serialized to normal interface files.
+toFatIfaceIdInfo :: IdInfo -> IfaceIdInfo
+toFatIfaceIdInfo id_info
+  = case toIfaceIdInfo' id_info ++ catMaybes [spec_hsinfo] of
        []    -> NoInfo
        infos -> HasInfo infos
+  where
+    spec_info = specInfo id_info
+    rules = map coreRuleToIfaceRule (specInfoRules spec_info)
+    spec_hsinfo | null (specInfoRules spec_info) = Nothing
+                | otherwise = Just (HsSpec rules)
+
+toIfaceIdInfo :: IdInfo -> IfaceIdInfo
+toIfaceIdInfo id_info
+  = case toIfaceIdInfo' id_info of
+       []    -> NoInfo
+       infos -> HasInfo infos
+
+toIfaceIdInfo' :: IdInfo -> [IfaceInfoItem]
+toIfaceIdInfo' id_info =
                -- NB: strictness and arity must appear in the list before unfolding
                -- See TcIface.tcUnfolding
+         catMaybes [arity_hsinfo, caf_hsinfo, strict_hsinfo,
+                    inline_hsinfo,  unfold_hsinfo]
   where
     ------------  Arity  --------------
     arity_info = arityInfo id_info

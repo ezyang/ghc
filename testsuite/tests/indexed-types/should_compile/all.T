@@ -209,6 +209,9 @@ test('T7489', normal, compile, [''])
 test('T7585', normal, compile, [''])
 test('T7282', normal, compile, [''])
 test('T7804', normal, compile, [''])
+# TODO: with the 'viafat' way, rule firing depends on whether or not
+# there is a pre-existing 'hi' file.  If we fix #8990 this problem
+# shoudl go away.
 test('T7837', normal, compile, ['-O -ddump-rule-firings'])
 test('T4185', normal, compile, [''])
 

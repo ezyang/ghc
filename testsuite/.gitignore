@@ -1560,6 +1560,12 @@ mk/ghcconfig*_bin_ghc*.exe.mk
 /tests/typecheck/should_run/tcrun050
 /tests/typecheck/should_run/tcrun051
 /tests/typecheck/should_run/testeq2
+/tests/typecheck/should_run/T10284
+/tests/typecheck/should_run/T9497a-run
+/tests/typecheck/should_run/T9497b-run
+/tests/typecheck/should_run/T9497c-run
+/tests/typecheck/should_run/T9858c
+/tests/typecheck/should_run/T9858d
 /tests/typecheck/testeq1/typecheck.testeq1
 /tests/concurrent/should_run/T9379
 /tests/simplCore/should_run/T9390

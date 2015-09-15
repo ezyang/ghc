@@ -63,7 +63,7 @@ import TcRnTypes
 import Hooks
 
 import Exception
-import Data.IORef       ( readIORef )
+import Data.IORef
 import System.Directory
 import System.FilePath
 import System.IO
@@ -202,7 +202,8 @@ compileOne' m_tc_result mHscMessage
                                                hm_iface    = iface,
                                                hm_linkable = maybe_old_linkable })
                    _ -> do guts0 <- hscDesugar hsc_env summary tc_result
-                           guts <- hscSimplify hsc_env guts0
+                           guts1 <- hscViaFatIface hsc_env guts0
+                           guts <- hscSimplify hsc_env guts1
                            (iface, _changed, details, cgguts) <- hscNormalIface hsc_env guts mb_old_hash
                            (hasStub, comp_bc, modBreaks) <- hscInteractive hsc_env cgguts summary
 
@@ -230,6 +231,12 @@ compileOne' m_tc_result mHscMessage
                    do (iface, changed, details) <- hscSimpleIface hsc_env tc_result mb_old_hash
                       when (gopt Opt_WriteInterface dflags) $
                          hscWriteIface dflags iface changed summary
+                      when (gopt Opt_WriteFatInterface dflags) $ do
+                         -- guts <- hscDesugar hsc_env hsc_env summary tc_result
+                         -- (iface, impl) <- hscFatIface hsc_env tc_result
+                         -- TODO
+                         return ()
+                         -- hscWriteFatIface dflags iface impl summary
                       let linkable = if isHsBootOrSig src_flavour
                                      then maybe_old_linkable
                                      else Just (LM (ms_hs_date summary) this_mod [])
@@ -275,7 +282,8 @@ compileOne' m_tc_result mHscMessage
 
                    HsSrcFile ->
                         do guts0 <- hscDesugar hsc_env summary tc_result
-                           guts <- hscSimplify hsc_env guts0
+                           guts1 <- hscViaFatIface hsc_env guts0
+                           guts <- hscSimplify hsc_env guts1
                            (iface, changed, details, cgguts) <- hscNormalIface hsc_env guts mb_old_hash
                            hscWriteIface dflags iface changed summary
 

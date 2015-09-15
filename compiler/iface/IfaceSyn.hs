@@ -19,6 +19,7 @@ module IfaceSyn (
         IfaceSrcBang(..), SrcUnpackedness(..), SrcStrictness(..),
         IfaceAxBranch(..),
         IfaceTyConParent(..),
+        IfaceIdScope(..), -- fat interface
 
         -- Misc
         ifaceDeclImplicitBndrs, visibleIfConDecls,
@@ -91,6 +92,22 @@ data IfaceDecl
               ifIdDetails :: IfaceIdDetails,
               ifIdInfo    :: IfaceIdInfo }
 
+  -- An IfaceBinding is like an IfaceId, but it ONLY occurs in
+  -- fat interface files, is guaranteed to have an unfolding,
+  -- and may be written out for local identifiers (it's not
+  -- necessarily global)
+  | IfaceBinding { ifName      :: IfaceTopBndr,
+                   -- TODO: Hack to recognize if a main 'ifName'
+                   -- is actually a root main, in which case we must
+                   -- give it a different name
+                   ifRootMain  :: Bool,
+                   ifType      :: IfaceType,
+                   ifIdScope   :: IfaceIdScope,
+                   ifIdDetails :: IfaceIdDetails,
+                   ifIdInfo    :: IfaceIdInfo,
+                   ifRhs       :: IfaceExpr
+                 }
+
   | IfaceData { ifName       :: IfaceTopBndr,        -- Type constructor
                 ifCType      :: Maybe CType,    -- C type for CAPI FFI
                 ifTyVars     :: [IfaceTvBndr],  -- Type variables
@@ -153,6 +170,12 @@ data IfaceDecl
                   ifPatArgs       :: [IfaceType],
                   ifPatTy         :: IfaceType }
 
+
+-- IdScope
+data IfaceIdScope
+  = IfGlobalId
+  | IfLocalId
+  | IfExportedLocalId
 
 data IfaceTyConParent
   = IfNoParent
@@ -289,6 +312,7 @@ data IfaceInfoItem
   | HsUnfold        Bool             -- True <=> isStrongLoopBreaker is true
                     IfaceUnfolding   -- See Note [Expose recursive functions]
   | HsNoCafRefs
+  | HsSpec      [IfaceRule] -- Fat interfaces only
 
 -- NB: Specialisations and rules come in separately and are
 -- only later attached to the Id.  Partial reason: some are orphans.
@@ -674,6 +698,17 @@ pprIfaceDecl ss (IfaceData { ifName = tycon, ifCType = ctype,
     pp_prom | is_prom   = ptext (sLit "Promotable")
             | otherwise = Outputable.empty
 
+pprIfaceDecl ss (IfaceBinding { ifName = var, ifRootMain = is_root_main, ifType = ty,
+                                ifIdDetails = details, ifIdInfo = info,
+                                ifIdScope = _scope, ifRhs = rhs })
+  = vcat [ hang (bndr_doc <+> dcolon)
+              2 (pprIfaceSigmaType ty)
+         -- , ppShowIface ss (ppr scope) TODO
+         , ppShowIface ss (ppr details)
+         , ppShowIface ss (ppr info)
+         , ppShowIface ss (ppr rhs) ]
+  where bndr_doc | is_root_main = text "main::Main.main"
+                 | otherwise    = pprPrefixIfDeclBndr ss var
 
 pprIfaceDecl ss (IfaceClass { ifATs = ats, ifSigs = sigs, ifRec = isrec
                             , ifCtxt   = context, ifName  = clas
@@ -1062,6 +1097,7 @@ instance Outputable IfaceInfoItem where
   ppr (HsInline prag)       = ptext (sLit "Inline:") <+> ppr prag
   ppr (HsArity arity)       = ptext (sLit "Arity:") <+> int arity
   ppr (HsStrictness str) = ptext (sLit "Strictness:") <+> pprIfaceStrictSig str
+  ppr (HsSpec rules)     = text "Spec:" <+> ppr rules
   ppr HsNoCafRefs           = ptext (sLit "HasNoCafRefs")
 
 instance Outputable IfaceUnfolding where
@@ -1096,6 +1132,11 @@ freeNamesIfDecl (IfaceId _s t d i) =
   freeNamesIfType t &&&
   freeNamesIfIdInfo i &&&
   freeNamesIfIdDetails d
+freeNamesIfDecl d@IfaceBinding{} =
+  freeNamesIfType (ifType d) &&&
+  freeNamesIfIdInfo (ifIdInfo d) &&&
+  freeNamesIfIdDetails (ifIdDetails d) &&&
+  freeNamesIfExpr (ifRhs d)
 freeNamesIfDecl d@IfaceData{} =
   freeNamesIfTvBndrs (ifTyVars d) &&&
   freeNamesIfaceTyConParent (ifParent d) &&&
@@ -1428,6 +1469,17 @@ instance Binary IfaceDecl where
         put_ bh a9
         put_ bh a10
 
+    put_ bh (IfaceBinding name rootMain ty scope details idinfo rhs) = do
+        if not rootMain
+            then putByte bh 8
+            else putByte bh 9
+        put_ bh (occNameFS name)
+        put_ bh ty
+        put_ bh scope
+        put_ bh details
+        put_ bh idinfo
+        put_ bh rhs
+
     get bh = do
         h <- getByte bh
         case h of
@@ -1494,7 +1546,35 @@ instance Binary IfaceDecl where
                     a10 <- get bh
                     occ <- return $! mkDataOccFS a1
                     return (IfacePatSyn occ a2 a3 a4 a5 a6 a7 a8 a9 a10)
+            8 -> do name    <- get bh
+                    ty      <- get bh
+                    scope   <- get bh
+                    details <- get bh
+                    idinfo  <- get bh
+                    rhs     <- get bh
+                    occ <- return $! mkVarOccFS name
+                    return (IfaceBinding occ False ty scope details idinfo rhs)
+            9 -> do name    <- get bh
+                    ty      <- get bh
+                    scope   <- get bh
+                    details <- get bh
+                    idinfo  <- get bh
+                    rhs     <- get bh
+                    occ <- return $! mkVarOccFS name
+                    return (IfaceBinding occ True ty scope details idinfo rhs)
+
             _ -> panic (unwords ["Unknown IfaceDecl tag:", show h])
+
+instance Binary IfaceIdScope where
+    put_ bh IfGlobalId = putByte bh 0
+    put_ bh IfLocalId = putByte bh 1
+    put_ bh IfExportedLocalId = putByte bh 2
+
+    get bh = do { h <- getByte bh
+                ; return $ case h of
+                    0 -> IfGlobalId
+                    1 -> IfLocalId
+                    _ -> IfExportedLocalId }
 
 instance Binary IfaceFamTyConFlav where
     put_ bh IfaceOpenSynFamilyTyCon           = putByte bh 0
@@ -1693,6 +1773,7 @@ instance Binary IfaceInfoItem where
     put_ bh (HsUnfold lb ad)      = putByte bh 2 >> put_ bh lb >> put_ bh ad
     put_ bh (HsInline ad)         = putByte bh 3 >> put_ bh ad
     put_ bh HsNoCafRefs           = putByte bh 4
+    put_ bh (HsSpec rs)           = putByte bh 5 >> put_ bh rs
     get bh = do
         h <- getByte bh
         case h of
@@ -1702,7 +1783,8 @@ instance Binary IfaceInfoItem where
                     ad <- get bh
                     return (HsUnfold lb ad)
             3 -> liftM HsInline $ get bh
-            _ -> return HsNoCafRefs
+            4 -> return HsNoCafRefs
+            _ -> liftM HsSpec $ get bh
 
 instance Binary IfaceUnfolding where
     put_ bh (IfCoreUnfold s e) = do

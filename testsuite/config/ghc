@@ -29,7 +29,12 @@ config.other_ways         = ['prof',
                              'threaded1_ls', 'threaded2_hT',
                              'llvm', 'debugllvm',
                              'profllvm', 'profoptllvm', 'profthreadedllvm',
-                             'debug']
+                             'debug', 'viafat']
+
+# the 'viafat' way compiles Haskell files with the -fvia-fat-interface, which
+# exercises the codepath responsible for implementing fat interface files.
+# If you are working on this code, run the test suite with WAY=viafat to
+# test with this flag; otherwise, only a small subset of these tests will be run.
 
 if (ghc_with_native_codegen == 1):
     config.compile_ways.append('optasm')
@@ -106,6 +111,7 @@ config.way_flags = lambda name : {
     'dyn'          : ['-O', '-dynamic'],
     'static'       : ['-O', '-static'],
     'debug'        : ['-O', '-g', '-dannot-lint'],
+    'viafat'       : ['-fvia-fat-interface'],
     # llvm variants...
     'profllvm'         : ['-prof', '-static', '-auto-all', '-fllvm'],
     'profoptllvm'      : ['-O', '-prof', '-static', '-auto-all', '-fllvm'],
@@ -136,6 +142,7 @@ config.way_rts_flags = {
     'dyn'          : [],
     'static'       : [],
     'debug'        : [],
+    'viafat'       : [],
     # llvm variants...
     'profllvm'         : ['-p'],
     'profoptllvm'      : ['-hc', '-p'],

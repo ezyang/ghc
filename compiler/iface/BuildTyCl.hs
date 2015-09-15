@@ -201,22 +201,21 @@ buildPatSyn :: Name -> Bool
             -> PatSyn
 buildPatSyn src_name declared_infix matcher@(matcher_id,_) builder
             (univ_tvs, req_theta) (ex_tvs, prov_theta) arg_tys pat_ty
-  = ASSERT((and [ univ_tvs == univ_tvs'
-                , ex_tvs == ex_tvs'
-                , pat_ty `eqType` pat_ty'
-                , prov_theta `eqTypes` prov_theta'
-                , req_theta `eqTypes` req_theta'
-                , arg_tys `eqTypes` arg_tys'
-                ]))
+  = ASSERT2(univ_tvs == univ_tvs2            , ppr univ_tvs <+> ppr univ_tvs2 )
+    ASSERT2(ex_tvs == ex_tvs2                , ppr ex_tvs <+> ppr ex_tvs2 )
+    ASSERT2(pat_ty `eqType` pat_ty2          , ppr pat_ty <+> ppr pat_ty2 )
+    ASSERT2(prov_theta `eqTypes` prov_theta2 , ppr prov_theta <+> ppr prov_theta2 )
+    ASSERT2(req_theta `eqTypes` req_theta2   , ppr req_theta <+> ppr req_theta2 )
+    ASSERT2(arg_tys `eqTypes` arg_tys2       , ppr arg_tys <+> ppr arg_tys2 )
     mkPatSyn src_name declared_infix
              (univ_tvs, req_theta) (ex_tvs, prov_theta)
              arg_tys pat_ty
              matcher builder
   where
-    ((_:univ_tvs'), req_theta', tau) = tcSplitSigmaTy $ idType matcher_id
-    ([pat_ty', cont_sigma, _], _) = tcSplitFunTys tau
-    (ex_tvs', prov_theta', cont_tau) = tcSplitSigmaTy cont_sigma
-    (arg_tys', _) = tcSplitFunTys cont_tau
+    ((_:univ_tvs2), req_theta2, tau) = tcSplitSigmaTy $ idType matcher_id
+    ([pat_ty2, cont_sigma, _], _) = tcSplitFunTys tau
+    (ex_tvs2, prov_theta2, cont_tau) = tcSplitSigmaTy cont_sigma
+    (arg_tys2, _) = tcSplitFunTys cont_tau
 
 -- ------------------------------------------------------
 

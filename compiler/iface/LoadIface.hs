@@ -597,7 +597,10 @@ loadDecl :: Bool                    -- Don't load pragmas into the decl pool
 loadDecl ignore_prags (_version, decl)
   = do  {       -- Populate the name cache with final versions of all
                 -- the names associated with the decl
-          main_name      <- lookupIfaceTop (ifName decl)
+          main_name      <-
+            case decl of
+              IfaceBinding { ifRootMain = True } -> return rootMainName
+              _ -> lookupIfaceTop (ifName decl)
 
         -- Typecheck the thing, lazily
         -- NB. Firstly, the laziness is there in case we never need the

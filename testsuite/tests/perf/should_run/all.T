@@ -323,7 +323,8 @@ test('T7797',
                        (wordsize(64), 480050944, 5)]),
                           # expected: 480050944 (amd64/Linux)
       extra_clean(['T7797a.hi', 'T7797a.o']),
-      only_ways(['normal'])
+      only_ways(['normal', 'viafat']),
+      extra_ways(['viafat'])
       ],
      compile_and_run,
      ['-O'])

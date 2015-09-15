@@ -325,6 +325,7 @@ data GeneralFlag
    = Opt_DumpToFile                     -- ^ Append dump output to files instead of stdout.
    | Opt_D_faststring_stats
    | Opt_D_dump_minimal_imports
+   | Opt_ViaFatInterface
    | Opt_DoCoreLinting
    | Opt_DoStgLinting
    | Opt_DoCmmLinting
@@ -386,6 +387,7 @@ data GeneralFlag
    | Opt_OmitInterfacePragmas
    | Opt_ExposeAllUnfoldings
    | Opt_WriteInterface -- forces .hi files to be written even with -fno-code
+   | Opt_WriteFatInterface -- makes a "fat" interface file be written
 
    -- profiling opts
    | Opt_AutoSccsOnIndividualCafs
@@ -3030,6 +3032,8 @@ fFlags = [
   flagSpec "strictness"                       Opt_Strictness,
   flagSpec "use-rpaths"                       Opt_RPath,
   flagSpec "write-interface"                  Opt_WriteInterface,
+  flagSpec "write-fat-interface"              Opt_WriteFatInterface,
+  flagSpec "via-fat-interface"                Opt_ViaFatInterface,
   flagSpec "unbox-small-strict-fields"        Opt_UnboxSmallStrictFields,
   flagSpec "unbox-strict-fields"              Opt_UnboxStrictFields,
   flagSpec "vectorisation-avoidance"          Opt_VectorisationAvoidance,

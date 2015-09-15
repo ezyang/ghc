@@ -46,6 +46,9 @@ module HscMain
     , hscSimpleIface
     , hscWriteIface
     , hscNormalIface
+    , hscFatIface
+    , hscViaFatIface
+    , hscReadFatIface -- rename me?
     , hscGenHardCode
     , hscInteractive
 
@@ -135,7 +138,6 @@ import CmmPipeline
 import CmmInfo
 import CodeOutput
 import NameEnv          ( emptyNameEnv )
-import NameSet          ( emptyNameSet )
 import InstEnv
 import FamInstEnv
 import Fingerprint      ( Fingerprint )
@@ -153,6 +155,11 @@ import Bag
 import Exception
 import qualified Stream
 import Stream (Stream)
+
+import CoreMonad (CoreToDo(..))
+import CoreLint (endPassIO, showPassIO)
+import TcIface (typecheckGuts)
+import IfaceEnv (extendIfaceIdEnv)
 
 import Util
 
@@ -626,6 +633,7 @@ hscCompileOneShot' hsc_env mod_summary src_changed
             liftIO $ msg reason
             tc_result <- genericHscFrontend mod_summary
             guts0 <- hscDesugar' (ms_location mod_summary) tc_result
+            guts1 <- liftIO $ hscViaFatIface hsc_env guts0
             dflags <- getDynFlags
             case hscTarget dflags of
                 HscNothing -> do
@@ -643,7 +651,7 @@ hscCompileOneShot' hsc_env mod_summary src_changed
                                     HsigFile -> HscUpdateSig
                                     HsSrcFile -> panic "hscCompileOneShot Src")
                     _ ->
-                        do guts <- hscSimplify' guts0
+                        do guts <- hscSimplify' guts1
                            (iface, changed, _details, cgguts) <- hscNormalIface' guts mb_old_hash
                            liftIO $ hscWriteIface dflags iface changed mod_summary
                            return $ HscRecomp cgguts mod_summary
@@ -1160,6 +1168,47 @@ hscNormalIface' simpl_result mb_old_iface = do
     -- Return the prepared code.
     return (new_iface, no_change, details, cg_guts)
 
+hscFatIface :: HscEnv -> ModGuts -> IO ModIface
+hscFatIface hsc_env guts0 = runHsc hsc_env $ do
+    guts <- liftIO $ tidyGuts hsc_env guts0
+    (iface, _) <- ioMsgMaybe $ mkFatIface hsc_env guts
+    return iface
+
+-- For testing only, this forces a ModGuts through fat interface
+-- format.  Useful for wringing out any bugs related to
+-- serializing a ModGuts into a ModIface and back.
+hscViaFatIface :: HscEnv -> ModGuts -> IO ModGuts
+hscViaFatIface hsc_env guts0
+  | gopt Opt_ViaFatInterface (hsc_dflags hsc_env) = do
+    iface <- hscFatIface hsc_env guts0
+    -- TODO: should test that we can rederive this
+    let inst_env = mg_inst_env guts0
+        fam_inst_env = mg_fam_inst_env guts0
+    hscReadFatIface (text "-fvia-fat-interface") hsc_env inst_env fam_inst_env iface
+  | otherwise = return guts0
+
+hscReadFatIface :: SDoc -> HscEnv -> InstEnv -> FamInstEnv -> ModIface -> IO ModGuts
+hscReadFatIface loc_doc hsc_env inst_env fam_inst_env iface = do
+    -- We use the recursive types interface to feed in types into
+    -- the lazily typechecked ModGuts; if we didn't do this, TcIface
+    -- would attempt to load the interface we're compiling which
+    -- is a no-no.
+    tyenv_ref <- newIORef emptyTypeEnv
+    let gbl_env = IfGblEnv { if_rec_types = Just (mi_module iface, readTcRef tyenv_ref) }
+        dflags = hsc_dflags hsc_env
+    showPassIO dflags CoreLoadGuts
+    initTcRnIf 'i' hsc_env gbl_env () . initIfaceLcl (mi_module iface) loc_doc $ do
+        details <- typecheckIface iface
+        -- Put in the types
+        writeTcRef tyenv_ref (md_types details)
+        -- Set up the IfaceEnv (TODO: don't need to do globals)
+        extendIfaceIdEnv (typeEnvIds (md_types details)) $ do
+        guts <- typecheckGuts inst_env fam_inst_env iface details
+        hsc_env <- getTopEnv
+        let print_unqual = mkPrintUnqualified dflags (mg_rdr_env guts)
+        liftIO $ endPassIO hsc_env print_unqual CoreLoadGuts (mg_binds guts) (mg_rules guts)
+        return guts
+
 --------------------------------------------------------------
 -- BackEnd combinators
 --------------------------------------------------------------
@@ -1646,9 +1695,8 @@ mkModGuts mod safe binds =
         mg_loc          = mkGeneralSrcSpan (moduleNameFS (moduleName mod)),
                                   -- A bit crude
         mg_exports      = [],
+        mg_usages       = [],
         mg_deps         = noDependencies,
-        mg_dir_imps     = emptyModuleEnv,
-        mg_used_names   = emptyNameSet,
         mg_used_th      = False,
         mg_rdr_env      = emptyGlobalRdrEnv,
         mg_fix_env      = emptyFixityEnv,
@@ -1668,8 +1716,7 @@ mkModGuts mod safe binds =
         mg_inst_env     = emptyInstEnv,
         mg_fam_inst_env = emptyFamInstEnv,
         mg_safe_haskell = safe,
-        mg_trust_pkg    = False,
-        mg_dependent_files = []
+        mg_trust_pkg    = False
     }
 
 
