@@ -66,6 +66,10 @@ import Platform
 import TcRnTypes
 import Hooks
 
+import TcRnMonad (initIfaceCheck)
+import qualified Maybes
+import LoadIface
+
 import Exception
 import System.Directory
 import System.FilePath
@@ -496,12 +500,13 @@ makeMergeRequirementSummary :: HscEnv -> Bool -> ModuleName -> IO ModSummary
 makeMergeRequirementSummary hsc_env obj_allowed mod_name = do
     let dflags = hsc_dflags hsc_env
     location <- liftIO $ mkHomeModLocation2 dflags mod_name
-                         (moduleNameSlashes mod_name) (hiSuf dflags)
+                         (moduleNameSlashes mod_name) "hs-boot-merge" -- fake
     obj_timestamp <-
          if isObjectTarget (hscTarget dflags) || obj_allowed -- bug #1205
              then liftIO $ modificationTimeIfExists (ml_obj_file location)
              else return Nothing
     r <- findHomeModule hsc_env mod_name
+    -- TODO: sanity check that this is indeed an hs-boot
     let has_local_boot = case r of
                             Found _ _ -> True
                             _ -> False
@@ -519,9 +524,12 @@ makeMergeRequirementSummary hsc_env obj_allowed mod_name = do
             ms_srcimps = [],
             ms_textual_imps = [],
             ms_merge_imps = (has_local_boot, []),
-            ms_hspp_file = "FAKE",
+            ms_hspp_file = case ml_hs_file location of
+                            Nothing -> panic "ml_hs_file merge"
+                            Just f -> f,
             ms_hspp_opts = dflags,
-            ms_hspp_buf = Nothing
+            ms_hspp_buf = Nothing,
+            ms_fat_iface = Nothing
             }
 
 -- | Top-level entry point for @ghc -merge-requirement ModName@.
@@ -940,8 +948,7 @@ runPhase (RealPhase (Hsc src_flavour)) input_fn dflags0
  = do   -- normal Hsc mode, not mkdependHS
 
         PipeEnv{ stop_phase=stop,
-                 src_basename=basename,
-                 src_suffix=suff } <- getPipeEnv
+                 src_basename=basename } <- getPipeEnv
 
   -- we add the current directory (i.e. the directory in which
   -- the .hs files resides) to the include path, since this is
@@ -952,19 +959,14 @@ runPhase (RealPhase (Hsc src_flavour)) input_fn dflags0
 
         setDynFlags dflags
 
-  -- gather the imports and module name
-        (hspp_buf,mod_name,imps,src_imps) <- liftIO $ do
-          do
-            buf <- hGetStringBuffer input_fn
-            (src_imps,imps,L _ mod_name) <- getImports dflags buf input_fn (basename <.> suff)
-            return (Just buf, mod_name, imps, src_imps)
+        PipeState{hsc_env=hsc_env'} <- getPipeState
 
-  -- Take -o into account if present
-  -- Very like -ohi, but we must *only* do this if we aren't linking
-  -- (If we're linking then the -o applies to the linked thing, not to
-  -- the object file for one module.)
-  -- Note the nasty duplication with the same computation in compileFile above
-        location <- getLocation src_flavour mod_name
+        let is_fat = isInterfaceFilename input_fn
+        mod_summary <- summariseFile input_fn is_fat src_flavour
+
+        let mod_name      = ms_mod_name mod_summary
+            src_timestamp = ms_hs_date  mod_summary
+            location      = ms_location mod_summary
 
         let o_file = ml_obj_file location -- The real object file
             hi_file = ml_hi_file location
@@ -972,15 +974,6 @@ runPhase (RealPhase (Hsc src_flavour)) input_fn dflags0
                             = hi_file
                       | otherwise
                             = o_file
-
-  -- Figure out if the source has changed, for recompilation avoidance.
-  --
-  -- Setting source_unchanged to True means that M.o seems
-  -- to be up to date wrt M.hs; so no need to recompile unless imports have
-  -- changed (which the compiler itself figures out).
-  -- Setting source_unchanged to False tells the compiler that M.o is out of
-  -- date wrt M.hs (or M.o doesn't exist) so we must recompile regardless.
-        src_timestamp <- liftIO $ getModificationUTCTime (basename <.> suff)
 
         source_unchanged <- liftIO $
           if not (isStopLn stop)
@@ -996,26 +989,6 @@ runPhase (RealPhase (Hsc src_flavour)) input_fn dflags0
                                 if t2 > src_timestamp
                                   then return SourceUnmodified
                                   else return SourceModified
-
-        PipeState{hsc_env=hsc_env'} <- getPipeState
-
-  -- Tell the finder cache about this module
-        mod <- liftIO $ addHomeModuleToFinder hsc_env' mod_name location
-
-  -- Make the ModSummary to hand to hscMain
-        let
-            mod_summary = ModSummary {  ms_mod       = mod,
-                                        ms_hsc_src   = src_flavour,
-                                        ms_hspp_file = input_fn,
-                                        ms_hspp_opts = dflags,
-                                        ms_hspp_buf  = hspp_buf,
-                                        ms_location  = location,
-                                        ms_hs_date   = src_timestamp,
-                                        ms_obj_date  = Nothing,
-                                        ms_iface_date   = Nothing,
-                                        ms_textual_imps = imps,
-                                        ms_srcimps      = src_imps,
-                                        ms_merge_imps = (False, []) }
 
   -- run the compiler!
         let msg hsc_env _ what _ = oneShotMsg hsc_env what
@@ -1559,6 +1532,84 @@ maybeMergeStub
  = do
      PipeState{maybe_stub_o} <- getPipeState
      if isJust maybe_stub_o then return MergeStub else return StopLn
+
+summariseFile :: FilePath -> Bool -> HscSource -> CompPipeline ModSummary
+summariseFile input_fn True src_flavour = do
+        dflags <- getDynFlags
+        PipeState{hsc_env=hsc_env'} <- getPipeState
+
+    -- Parse the input interface file
+        mb_iface <- liftIO . initIfaceCheck hsc_env' $ readAnyIface input_fn
+        fat_iface <- case mb_iface of
+                    Maybes.Succeeded r -> return r
+                    Maybes.Failed e -> liftIO $ throwGhcExceptionIO (CmdLineError (showSDoc dflags e))
+        let mod_name = moduleName (mi_module fat_iface)
+
+        location <- getLocation src_flavour mod_name
+        mod <- liftIO $ addHomeModuleToFinder hsc_env' mod_name location
+        src_timestamp <- liftIO $ getModificationUTCTime input_fn -- input filename, not hs!
+        return ModSummary {  ms_mod       = mod,
+                             ms_hsc_src   = src_flavour,
+                             ms_hspp_file = input_fn,
+                             ms_hspp_opts = dflags,
+                             ms_hspp_buf  = Nothing,
+                             ms_location  = location,
+                             ms_hs_date   = src_timestamp,
+                             ms_obj_date  = Nothing,
+                             ms_iface_date   = Nothing,
+                             ms_merge_imps = (False, []),
+                             ms_textual_imps = [], -- BOGUS
+                             ms_srcimps      = [],
+                             ms_fat_iface    = Just fat_iface }
+
+summariseFile input_fn False src_flavour = do
+
+        dflags <- getDynFlags
+        PipeState{hsc_env=hsc_env'} <- getPipeState
+
+        PipeEnv{ src_basename=basename,
+                 src_suffix=suff } <- getPipeEnv
+
+  -- gather the imports and module name
+        (hspp_buf,mod_name,imps,src_imps) <- liftIO $ do
+          do
+            buf <- hGetStringBuffer input_fn
+            (src_imps,imps,L _ mod_name) <- getImports dflags buf input_fn (basename <.> suff)
+            return (Just buf, mod_name, imps, src_imps)
+
+  -- Take -o into account if present
+  -- Very like -ohi, but we must *only* do this if we aren't linking
+  -- (If we're linking then the -o applies to the linked thing, not to
+  -- the object file for one module.)
+  -- Note the nasty duplication with the same computation in compileFile above
+        location <- getLocation src_flavour mod_name
+
+  -- Figure out if the source has changed, for recompilation avoidance.
+  --
+  -- Setting source_unchanged to True means that M.o seems
+  -- to be up to date wrt M.hs; so no need to recompile unless imports have
+  -- changed (which the compiler itself figures out).
+  -- Setting source_unchanged to False tells the compiler that M.o is out of
+  -- date wrt M.hs (or M.o doesn't exist) so we must recompile regardless.
+        src_timestamp <- liftIO $ getModificationUTCTime (basename <.> suff)
+
+  -- Tell the finder cache about this module
+        mod <- liftIO $ addHomeModuleToFinder hsc_env' mod_name location
+
+  -- Make the ModSummary to hand to hscMain
+        return ModSummary {  ms_mod       = mod,
+                             ms_hsc_src   = src_flavour,
+                             ms_hspp_file = input_fn,
+                             ms_hspp_opts = dflags,
+                             ms_hspp_buf  = hspp_buf,
+                             ms_location  = location,
+                             ms_hs_date   = src_timestamp,
+                             ms_obj_date  = Nothing,
+                             ms_iface_date   = Nothing,
+                             ms_textual_imps = imps,
+                             ms_srcimps      = src_imps,
+                             ms_merge_imps = (False, []),
+                             ms_fat_iface = Nothing }
 
 getLocation :: HscSource -> ModuleName -> CompPipeline ModLocation
 getLocation src_flavour mod_name = do

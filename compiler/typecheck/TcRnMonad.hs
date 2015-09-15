@@ -1371,6 +1371,7 @@ initIfaceTcRn :: IfG a -> TcRn a
 initIfaceTcRn thing_inside
   = do  { tcg_env <- getGblEnv
         ; let { if_env = IfGblEnv {
+                            if_load_fat_interface = Nothing,
                             if_rec_types = Just (tcg_mod tcg_env, get_type_env)
                          }
               ; get_type_env = readTcRef (tcg_type_env_var tcg_env) }
@@ -1383,7 +1384,8 @@ initIfaceCheck hsc_env do_this
  = do let rec_types = case hsc_type_env_var hsc_env of
                          Just (mod,var) -> Just (mod, readTcRef var)
                          Nothing        -> Nothing
-          gbl_env = IfGblEnv { if_rec_types = rec_types }
+          gbl_env = IfGblEnv { if_load_fat_interface = Nothing
+                             , if_rec_types = rec_types }
       initTcRnIf 'i' hsc_env gbl_env () do_this
 
 initIfaceTc :: ModIface
@@ -1393,6 +1395,7 @@ initIfaceTc :: ModIface
 initIfaceTc iface do_this
  = do   { tc_env_var <- newTcRef emptyTypeEnv
         ; let { gbl_env = IfGblEnv {
+                            if_load_fat_interface = Nothing,
                             if_rec_types = Just (mod, readTcRef tc_env_var)
                           } ;
               ; if_lenv = mkIfLclEnv mod doc

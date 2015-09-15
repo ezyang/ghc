@@ -14,6 +14,7 @@ module MkIface (
 
         mkIfaceTc,
         mkIfaceDirect,
+        mkFatIface,
 
         writeIfaceFile, -- Write the interface file
 
@@ -110,6 +111,8 @@ import Binary
 import Fingerprint
 import Exception
 
+import PrelNames
+
 import Control.Monad
 import Data.Function
 import Data.List
@@ -149,10 +152,43 @@ mkIface hsc_env maybe_old_fingerprint mod_details
                       mg_safe_haskell = safe_mode,
                       mg_trust_pkg    = self_trust
                     }
-        = mkIface_ hsc_env maybe_old_fingerprint
+        =
+       do mkIface_ hsc_env maybe_old_fingerprint
                    this_mod hsc_src used_th deps rdr_env fix_env
                    warns hpc_info self_trust
-                   safe_mode usages mod_details
+                   safe_mode usages mod_details Nothing
+
+mkFatIface :: HscEnv -> ModGuts -> IO (ModIface, Bool)
+mkFatIface hsc_env
+    guts@ModGuts{     mg_module       = this_mod,
+                      mg_hsc_src      = hsc_src,
+                      mg_used_th      = used_th,
+                      mg_usages       = usages,
+                      mg_deps         = deps,
+                      mg_rdr_env      = rdr_env,
+                      mg_fix_env      = fix_env,
+                      mg_warns        = warns,
+                      mg_hpc_info     = hpc_info,
+                      mg_safe_haskell = safe_mode,
+                      mg_trust_pkg    = self_trust
+                    }
+  -- Thread in parts of the ModGuts via a ModDetails:
+  = let details = ModDetails {
+            md_insts     = mg_insts guts,
+            md_fam_insts = mg_fam_insts guts,
+            md_rules     = mg_rules guts,
+            md_anns      = mg_anns guts,
+            md_vect_info = mg_vect_info guts,
+            md_types     =
+                -- Not the bindings: we'll add them later
+                extendTypeEnvWithPatSyns (mg_patsyns guts)
+                    (typeEnvFromEntities [] (mg_tcs guts) (mg_fam_insts guts)),
+            md_exports   = mg_exports guts
+        }
+    in mkIface_ hsc_env Nothing
+                   this_mod hsc_src used_th deps rdr_env fix_env
+                   warns hpc_info self_trust
+                   safe_mode usages details (Just guts)
 
 -- | Make an interface from a manually constructed 'ModIface'.  We use
 -- this when we are merging 'ModIface's.  We assume that the 'ModIface'
@@ -214,8 +250,14 @@ mkIfaceTc hsc_env maybe_old_fingerprint safe_mode mod_details
                    this_mod hsc_src
                    used_th deps rdr_env
                    fix_env warns hpc_info
-                   (imp_trust_own_pkg imports) safe_mode usages mod_details
+                   (imp_trust_own_pkg imports) safe_mode usages mod_details Nothing
 
+mkCgIface :: ModGuts -> IO CgIface
+mkCgIface guts = do
+    return CgIface {
+            ci_hpc_info = mg_hpc_info guts,
+            ci_foreign = mg_foreign guts
+        }
 
 mkIface_ :: HscEnv -> Maybe Fingerprint -> Module -> HscSource
          -> Bool -> Dependencies -> GlobalRdrEnv
@@ -224,6 +266,7 @@ mkIface_ :: HscEnv -> Maybe Fingerprint -> Module -> HscSource
          -> SafeHaskellMode
          -> [Usage]
          -> ModDetails
+         -> Maybe ModGuts -- If 'Just', make a fat interface.
          -> IO (ModIface, Bool)
 mkIface_ hsc_env maybe_old_fingerprint
          this_mod hsc_src used_th deps rdr_env fix_env src_warns
@@ -235,22 +278,42 @@ mkIface_ hsc_env maybe_old_fingerprint
                       md_vect_info = vect_info,
                       md_types     = type_env,
                       md_exports   = exports }
+         mb_guts -- for fat interface
 -- NB:  notice that mkIface does not look at the bindings
 --      only at the TypeEnv.  The previous Tidy phase has
 --      put exactly the info into the TypeEnv that we want
 --      to expose in the interface
 
   = do
+    mb_impl <- case mb_guts of
+                Nothing -> return Nothing
+                Just guts -> fmap Just (mkCgIface guts)
+
     let entities = typeEnvElts type_env
-        decls  = [ tyThingToIfaceDecl entity
+        decls0 = [ tyThingToIfaceDecl entity
                  | entity <- entities,
                    let name = getName entity,
                    not (isImplicitTyThing entity),
                       -- No implicit Ids and class tycons in the interface file
                    not (isWiredInName name),
                       -- Nor wired-in things; the compiler knows about them anyhow
+                   not (name `elemNameSet` decls_guts_names),
+                      -- Nor things we will write CoreBindings for
                    nameIsLocalOrFrom this_mod name  ]
                       -- Sigh: see Note [Root-main Id] in TcRnDriver
+        decls_guts_pairs =
+                     [ (id, rhs)
+                     | Just guts <- [mb_guts]
+                     , b <- mg_binds guts
+                     , (id, rhs) <- bindPairs b ]
+        decls_guts = [ bindingToIfaceDecl id rhs
+                     | (id, rhs) <- decls_guts_pairs ]
+        decls_guts_names = mkNameSet (map (idName . fst) decls_guts_pairs)
+        bindPairs :: CoreBind -> [(Id, CoreExpr)]
+        bindPairs (NonRec id rhs) = [(id, rhs)]
+        bindPairs (Rec pairs) = pairs
+
+        decls = decls0 ++ decls_guts
 
         fixities    = [(occ,fix) | FixItem occ fix <- nameEnvElts fix_env]
         warns       = src_warns
@@ -282,6 +345,7 @@ mkIface_ hsc_env maybe_old_fingerprint
               mi_warns       = warns,
               mi_anns        = annotations,
               mi_globals     = maybeGlobalRdrEnv rdr_env,
+              mi_impl        = mb_impl,
 
               -- Left out deliberately: filled in by addFingerprints
               mi_iface_hash  = fingerprint0,
@@ -305,8 +369,20 @@ mkIface_ hsc_env maybe_old_fingerprint
 
     (new_iface, no_change_at_all)
           <- {-# SCC "versioninfo" #-}
+                case mb_guts of
+                  Nothing ->
                    addFingerprints hsc_env maybe_old_fingerprint
                                    intermediate_iface decls
+                  Just _ ->
+                   -- For now, when we're creating a fat interface we just put
+                   -- fake fingerprint information.  This means recompilation
+                   -- avoidance does NOT work for hs -> hi-fat (there are quite
+                   -- a few bits and bobs that would need to be implemented
+                   -- to make this work.)
+                   return (intermediate_iface {
+                            mi_decls = map (\d -> (fingerprint0, d)) decls,
+                            mi_hash_fn = \_ -> Nothing
+                          }, False)
 
     -- Debug printing
     dumpIfSet_dyn dflags Opt_D_dump_hi "FINAL INTERFACE"
@@ -1318,6 +1394,23 @@ idToIfaceDecl id
               ifType      = toIfaceType (idType id),
               ifIdDetails = toIfaceIdDetails (idDetails id),
               ifIdInfo    = toIfaceIdInfo (idInfo id) }
+
+--------------------------
+bindingToIfaceDecl :: Id -> CoreExpr -> IfaceDecl
+bindingToIfaceDecl id rhs
+  = IfaceBinding { ifName = getOccName id,
+                   ifRootMain = getName id == rootMainName,
+                   ifType = toIfaceType (idType id),
+                   ifIdScope = toIfaceIdScope (idScope id),
+                   ifIdDetails = toIfaceIdDetails (idDetails id),
+                   ifIdInfo = toIfaceIdInfo (idInfo id),
+                   ifRhs = toIfaceExpr rhs
+                 }
+
+toIfaceIdScope :: IdScope -> IfaceIdScope
+toIfaceIdScope Var.GlobalId = panic "premature global id"
+toIfaceIdScope (Var.LocalId Var.NotExported) = IfLocalId
+toIfaceIdScope (Var.LocalId Var.Exported) = IfExportedLocalId
 
 --------------------------
 dataConToIfaceDecl :: DataCon -> IfaceDecl

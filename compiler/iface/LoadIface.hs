@@ -22,6 +22,7 @@ module LoadIface (
         loadInterface, loadWiredInHomeIface,
         loadSysInterface, loadUserInterface, loadPluginInterface,
         findAndReadIface, readIface,    -- Used when reading the module's old interface
+        readAnyIface,
         loadDecls,      -- Should move to TcIface and be renamed
         initExternalPackageState,
 
@@ -555,7 +556,10 @@ loadDecl :: Bool                    -- Don't load pragmas into the decl pool
 loadDecl ignore_prags (_version, decl)
   = do  {       -- Populate the name cache with final versions of all
                 -- the names associated with the decl
-          main_name      <- lookupIfaceTop (ifName decl)
+          main_name      <-
+            case decl of
+              IfaceBinding { ifRootMain = True } -> return rootMainName
+              _ -> lookupIfaceTop (ifName decl)
 
         -- Typecheck the thing, lazily
         -- NB. Firstly, the laziness is there in case we never need the
@@ -708,7 +712,7 @@ findAndReadIface doc_str mod hi_boot_file
 
                        -- Found file, so read it
                        let file_path = addBootSuffix_maybe hi_boot_file
-                                                           (ml_hi_file loc)
+                                     $ ml_hi_file loc
 
                        -- See Note [Home module load error]
                        if thisPackage dflags == moduleUnitId mod &&
@@ -760,18 +764,29 @@ readIface :: Module -> FilePath
         -- Succeeded iface <=> successfully found and parsed
 
 readIface wanted_mod file_path
-  = do  { res <- tryMostM $
-                 readBinIface CheckHiWay QuietBinIFaceReading file_path
+  = do  { res <- readAnyIface file_path
         ; case res of
-            Right iface
-                | wanted_mod == actual_mod -> return (Succeeded iface)
-                | otherwise                -> return (Failed err)
+            Succeeded iface
+                | wanted_mod /= actual_mod -> return (Failed err)
                 where
                   actual_mod = mi_module iface
                   err = hiModuleNameMismatchWarn wanted_mod actual_mod
+            _ -> return res
+        }
 
-            Left exn    -> return (Failed (text (showException exn)))
-    }
+-- @readIface@ requires us to state up-front what 'Module' the interface
+-- file we're reading is; if it doesn't match what is stored in the file,
+-- we error.  For fat interfaces, we will in general not know what 'Module'
+-- the interface is for (since it may have been user-provided); this function
+-- skips that check.
+readAnyIface :: FilePath -> TcRnIf gbl lcl (MaybeErr MsgDoc ModIface)
+readAnyIface file_path
+  = do res <- tryMostM $
+                 readBinIface CheckHiWay QuietBinIFaceReading file_path
+       case res of
+         Right iface -> return (Succeeded iface)
+         Left exn    -> return (Failed (text (showException exn)))
+
 
 {-
 *********************************************************

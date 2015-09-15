@@ -609,3 +609,39 @@ T10182:
 	"$(TEST_HC)" $(TEST_HC_OPTS) -c T10182.hs-boot
 	"$(TEST_HC)" $(TEST_HC_OPTS) -c T10182a.hs
 	"$(TEST_HC)" $(TEST_HC_OPTS) -c T10182.hs
+
+.PHONY: hifat01
+hifat01:
+	$(RM) -rf hifat01 hifat01_out
+	mkdir hifat01 hifat01_out
+	"$(TEST_HC)" $(TEST_HC_OPTS) -outputdir hifat01 -i -ihifat01 -c HiFat01.hs -fno-code -fwrite-fat-interface
+	"$(TEST_HC)" $(TEST_HC_OPTS) -outputdir hifat01_out -i -ihifat01_out -c hifat01/HiFat01.hi
+
+.PHONY: hifat02_oneshot
+hifat02_oneshot:
+	$(RM) -rf hifat02_oneshot hifat02_oneshot_out
+	mkdir hifat02_oneshot hifat02_oneshot_out
+	"$(TEST_HC)" $(TEST_HC_OPTS) -outputdir hifat02_oneshot -i -ihifat02_oneshot -c HiFat02b.hs -fno-code -fwrite-fat-interface
+	"$(TEST_HC)" $(TEST_HC_OPTS) -outputdir hifat02_oneshot -i -ihifat02_oneshot -c HiFat02.hs-boot -fno-code -fwrite-fat-interface
+	"$(TEST_HC)" $(TEST_HC_OPTS) -outputdir hifat02_oneshot -i -ihifat02_oneshot -c HiFat02a.hs -fno-code -fwrite-fat-interface
+	"$(TEST_HC)" $(TEST_HC_OPTS) -outputdir hifat02_oneshot -i -ihifat02_oneshot -c HiFat02.hs -fno-code -fwrite-fat-interface
+	"$(TEST_HC)" $(TEST_HC_OPTS) -outputdir hifat02_oneshot_out -i -ihifat02_oneshot_out -c hifat02_oneshot/HiFat02b.hi
+	"$(TEST_HC)" $(TEST_HC_OPTS) -outputdir hifat02_oneshot_out -i -ihifat02_oneshot_out -c hifat02_oneshot/HiFat02.hi-boot
+	"$(TEST_HC)" $(TEST_HC_OPTS) -outputdir hifat02_oneshot_out -i -ihifat02_oneshot_out -c hifat02_oneshot/HiFat02a.hi
+	"$(TEST_HC)" $(TEST_HC_OPTS) -outputdir hifat02_oneshot_out -i -ihifat02_oneshot_out -c hifat02_oneshot/HiFat02.hi
+
+.PHONY: hifat02_make
+hifat02_make:
+	$(RM) -rf hifat02_make hifat02_make_out
+	mkdir hifat02_make hifat02_make_out
+	"$(TEST_HC)" $(TEST_HC_OPTS_NO_RECOMP) -outputdir hifat02_make --make HiFat02.hs -fno-code -fwrite-fat-interface
+	"$(TEST_HC)" $(TEST_HC_OPTS_NO_RECOMP) -outputdir hifat02_make_out -i -ihifat02_make --make hifat02_make/HiFat02.hi -ffrom-fat-interface
+	"$(TEST_HC)" $(TEST_HC_OPTS_NO_RECOMP) -outputdir hifat02_make_out -i -ihifat02_make --make hifat02_make/HiFat02.hi -ffrom-fat-interface
+
+.PHONY: hifat03_make
+hifat03_make:
+	$(RM) -rf hifat03_make hifat03_make_out
+	mkdir hifat03_make hifat03_make_out
+	"$(TEST_HC)" $(TEST_HC_OPTS_NO_RECOMP) -outputdir hifat03_make --make HiFat03.hs -fno-code -fwrite-fat-interface -sig-of "HiFat03a is main:HiFat03b"
+	"$(TEST_HC)" $(TEST_HC_OPTS_NO_RECOMP) -outputdir hifat03_make_out -i -ihifat03_make --make hifat03_make/HiFat03.hi -ffrom-fat-interface -sig-of "HiFat03a is main:HiFat03b"
+	"$(TEST_HC)" $(TEST_HC_OPTS_NO_RECOMP) -outputdir hifat03_make_out -i -ihifat03_make --make hifat03_make/HiFat03.hi -ffrom-fat-interface -sig-of "HiFat03a is main:HiFat03b"

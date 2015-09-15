@@ -224,6 +224,7 @@
 /exceptionsrun001
 /exceptionsrun002
 /fixed
+/foldableArray
 /genericNegative001
 /hGetBuf002
 /hGetBuf003
@@ -233,6 +234,8 @@
 /hTell001
 /hTell002
 /hash001
+/inits
+/isSuffixOf
 /ioref001
 /ix001
 /length001
@@ -271,5 +274,7 @@
 /unicode001
 /unicode002
 /weak001
+/T8089
 /T9395
 /T9532
+/T9826

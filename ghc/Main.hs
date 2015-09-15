@@ -689,7 +689,8 @@ doMake srcs  = do
     let (hs_srcs, non_hs_srcs) = partition haskellish srcs
 
         haskellish (f,Nothing) =
-          looksLikeModuleName f || isHaskellSrcFilename f || '.' `notElem` f
+          looksLikeModuleName f || isHaskellSrcFilename f ||
+          isInterfaceFilename f || '.' `notElem` f
         haskellish (_,Just phase) =
           phase `notElem` [ As True, As False, Cc, Cobjc, Cobjcxx, CmmCpp, Cmm
                           , StopLn]

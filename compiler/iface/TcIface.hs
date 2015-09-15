@@ -7,10 +7,13 @@ Type checking of type signatures in interface files
 -}
 
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE NondecreasingIndentation #-}
 
 module TcIface (
         tcLookupImported_maybe,
         importDecl, checkWiredInTyCon, tcHiBootIface, typecheckIface,
+        typecheckIface',
+        typecheckGuts,
         tcIfaceDecl, tcIfaceInst, tcIfaceFamInst, tcIfaceRules,
         tcIfaceVectInfo, tcIfaceAnnotations,
         tcIfaceExpr,    -- Desired by HERMIT (Trac #7683)
@@ -69,6 +72,7 @@ import SrcLoc
 import DynFlags
 import Util
 import FastString
+import RdrName
 
 import Data.List
 import Control.Monad
@@ -96,8 +100,72 @@ Names before typechecking, because there should be no scope errors etc.
         -- Simple solution: discard any unfolding that mentions a variable
         -- bound in this module (and hence not yet processed).
         -- The discarding happens when forkM finds a type error.
+-}
+
+{-
+************************************************************************
+*                                                                      *
+                Type-checking a fat interface
+*                                                                      *
+************************************************************************
+
+See 'ModIface' in 'HscMain' for more explanation on fat interfaces.
+-}
+
+-- | Turn a ModIface and ModDetails into a ModGuts
+typecheckGuts :: InstEnv -> FamInstEnv -> ModIface -> ModDetails -> IfL ModGuts
+typecheckGuts inst_env fam_inst_env mod_iface mod_details = do
+    fixities <- forM (mi_fixities mod_iface) $ \(occ,fix) -> do
+        name <- lookupIfaceTop occ
+        return (name, FixItem occ fix)
+
+    -- Typecheck the rhs's of bindings
+    binds <- forM [ d | (_, d@IfaceBinding{}) <- mi_decls mod_iface ] $ \d -> do
+                name <-
+                    if ifRootMain d
+                        then return rootMainName
+                        else lookupIfaceTop (ifName d)
+                AnId id <- tcIfaceGlobal name -- pull out the already tc'd Id
+                rhs <- tcIfaceExpr (ifRhs d)
+                return (id, rhs)
+
+    return ModGuts {
+        mg_module  = mi_module mod_iface,
+        mg_hsc_src = mi_hsc_src mod_iface,
+        mg_loc     = noSrcSpan, -- TODO
+        mg_exports = md_exports mod_details,
+        mg_deps    = mi_deps mod_iface,
+        mg_usages  = mi_usages mod_iface,
+        mg_used_th = mi_used_th mod_iface,
+        mg_rdr_env = emptyGlobalRdrEnv, -- HACK
+
+        mg_fix_env = mkNameEnv fixities,
+        mg_tcs     = typeEnvTyCons (md_types mod_details),
+        mg_insts   = md_insts mod_details,
+        mg_fam_insts= md_fam_insts mod_details,
+        mg_patsyns = typeEnvPatSyns (md_types mod_details),
+
+        mg_rules   = md_rules mod_details,
+        mg_binds   = [Rec binds],
+        mg_warns   = mi_warns mod_iface,
+        mg_anns    = md_anns mod_details,
+        mg_modBreaks = emptyModBreaks,   -- TODO: implement me
+        mg_vect_decls= [] :: [CoreVect], -- TODO: implement me
+        mg_vect_info = md_vect_info mod_details,
+
+        -- TODO!
+        mg_foreign   = maybe NoStubs ci_foreign (mi_impl mod_iface),
+        mg_hpc_info  = maybe (NoHpcInfo (mi_hpc mod_iface)) ci_hpc_info (mi_impl mod_iface),
+
+        mg_inst_env    = extendInstEnvList inst_env (md_insts mod_details),
+        mg_fam_inst_env= extendFamInstEnvList fam_inst_env (md_fam_insts mod_details),
+
+        mg_safe_haskell = getSafeMode (mi_trust mod_iface),
+        mg_trust_pkg = mi_trust_pkg mod_iface
+    }
 
 
+{-
 ************************************************************************
 *                                                                      *
                 Type-checking a complete interface
@@ -115,8 +183,13 @@ and even if they were, the type decls might be mutually recursive.
 
 typecheckIface :: ModIface      -- Get the decls from here
                -> TcRnIf gbl lcl ModDetails
-typecheckIface iface
-  = initIfaceTc iface $ \ tc_env_var -> do
+typecheckIface iface = initIfaceTc iface $ \ tc_env_var -> typecheckIface' iface tc_env_var
+
+typecheckIface' :: ModIface      -- Get the decls from here
+                -> TcRef TypeEnv
+                -> IfL ModDetails
+typecheckIface' iface tc_env_var
+  = do
         -- The tc_env_var is freshly allocated, private to
         -- type-checking this particular interface
         {       -- Get the right set of decls and rules.  If we are compiling without -O
@@ -313,6 +386,29 @@ tc_iface_decl _ ignore_prags (IfaceId {ifName = occ_name, ifType = iface_type,
         ; details <- tcIdDetails ty details
         ; info <- tcIdInfo ignore_prags name ty info
         ; return (AnId (mkGlobalId details name ty info)) }
+
+tc_iface_decl _ ignore_prags (IfaceBinding {ifName = occ_name, ifRootMain = is_root_main, ifType = iface_type,
+                                 ifIdDetails = details, ifIdInfo = info,
+                                 ifIdScope = scope})
+  = do  { name <- if is_root_main
+                    then return rootMainName
+                    else lookupIfaceTop occ_name
+        ; ty <- tcIfaceType iface_type
+        ; details <- tcIdDetails ty details
+        ; info <- tcIdInfo ignore_prags name ty info
+        ; gbl_env <- getGblEnv
+        ; let mk_id =
+                case if_load_fat_interface gbl_env of
+                    Just export_set
+                        | name `elemNameSet` export_set ||
+                          scope == IfExportedLocalId
+                        -> Var.mkExportedLocalVar
+                        | otherwise
+                        -> Var.mkLocalVar
+                    -- We're just using it for typechecking!
+                    Nothing -> Var.mkGlobalVar
+        -- NB: rhs not tc'd here; done in a separate pass
+        ; return (AnId (mk_id details name ty info)) }
 
 tc_iface_decl _ _ (IfaceData {ifName = occ_name,
                           ifCType = cType,
@@ -1321,7 +1417,7 @@ tcIfaceGlobal name
   = do  { env <- getGblEnv
         ; case if_rec_types env of {    -- Note [Tying the knot]
             Just (mod, get_type_env)
-                | nameIsLocalOrFrom mod name
+                | nameIsLocalOrFrom mod name || name == rootMainName
                 -> do           -- It's defined in the module being compiled
                 { type_env <- setLclEnv () get_type_env         -- yuk
                 ; case lookupNameEnv type_env name of

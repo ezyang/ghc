@@ -318,7 +318,7 @@ import FamInstEnv ( FamInst )
 import SrcLoc
 import CoreSyn
 import TidyPgm
-import DriverPhases     ( Phase(..), isHaskellSrcFilename )
+import DriverPhases     ( Phase(..), isHaskellSrcFilename, isInterfaceFilename )
 import Finder
 import HscTypes
 import DynFlags
@@ -691,10 +691,20 @@ guessTarget :: GhcMonad m => String -> Maybe Phase -> m Target
 guessTarget str (Just phase)
    = return (Target (TargetFile str (Just phase)) True Nothing)
 guessTarget str Nothing
-   | isHaskellSrcFilename file
+   | isHaskellSrcFilename file || isInterfaceFilename file
    = return (target (TargetFile file Nothing))
    | otherwise
-   = do exists <- liftIO $ doesFileExist hs_file
+   = do dflags <- getDynFlags
+        -- This is a little hokey because it doesn't check the
+        -- include path for the fat interface file
+        exists <-
+            if gopt Opt_FromFatInterface dflags
+                then liftIO $ doesFileExist hi_fat_file
+                else return False
+        if exists
+           then return (target (TargetFile hi_fat_file Nothing))
+           else do
+        exists <- liftIO $ doesFileExist hs_file
         if exists
            then return (target (TargetFile hs_file Nothing))
            else do
@@ -705,7 +715,6 @@ guessTarget str Nothing
         if looksLikeModuleName file
            then return (target (TargetModule (mkModuleName file)))
            else do
-        dflags <- getDynFlags
         liftIO $ throwGhcExceptionIO
                  (ProgramError (showSDoc dflags $
                  text "target" <+> quotes (text file) <+> 
@@ -716,6 +725,7 @@ guessTarget str Nothing
                 | otherwise       = (str,  True)
 
          hs_file  = file <.> "hs"
+         hi_fat_file = file <.> "hi"
          lhs_file = file <.> "lhs"
 
          target tid = Target tid obj_allowed Nothing

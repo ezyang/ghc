@@ -7,7 +7,7 @@
 {-# LANGUAGE CPP #-}
 
 module TidyPgm (
-       mkBootModDetailsTc, tidyProgram, globaliseAndTidyId
+       mkBootModDetailsTc, tidyProgram, tidyGuts, globaliseAndTidyId
    ) where
 
 #include "HsVersions.h"
@@ -26,7 +26,6 @@ import CoreLint
 import Literal
 import Rules
 import PatSyn
-import ConLike
 import CoreArity        ( exprArity, exprBotStrictness_maybe )
 import VarEnv
 import VarSet
@@ -83,7 +82,30 @@ For data types, the final TypeEnv will have a TyThing for the TyCon,
 plus one for each DataCon; the interface file will contain just one
 data type declaration, but it is de-serialised back into a collection
 of TyThings.
+-}
 
+-- Note [TidyFor differences]
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- 'TidyFor' is a flag that indicates whether or not we are tidying for
+-- a regular interface or a fat interface.  Here are the differences:
+--
+--      * In a regular interface, we want to trim out bindings and rules
+--      that are not going to be exported / never can fire (see
+--      Note [Finding external rules]).  For a fat interface, these
+--      bindings/rules may still be relevant for internal optimization later, so
+--      we want to keep them.
+--
+--      * In a regular interface, all bindings which we put into the
+--      interface are going to be marked as global.  However, in a fat
+--      interface, we don't know yet what bindings are live versus dead;
+--      so instead, we retain the original Id scope, which says whether
+--      or not the identifier is definitely exported, or possibly
+--      exported.
+
+data TidyFor = TidyForInterface
+             | TidyForFatInterface
+
+{-
 ************************************************************************
 *                                                                      *
                 Plan A: simpleTidyPgm
@@ -334,10 +356,11 @@ tidyProgram hsc_env  (ModGuts { mg_module    = mod
               <- chooseExternalIds hsc_env mod omit_prags expose_all
                                    binds implicit_binds imp_rules (vectInfoVar vect_info)
         ; let { (trimmed_binds, trimmed_rules)
-                    = findExternalRules omit_prags binds imp_rules unfold_env }
+                    = findExternalRules TidyForInterface omit_prags binds imp_rules unfold_env }
 
         ; (tidy_env, tidy_binds)
-                 <- tidyTopBinds hsc_env mod unfold_env tidy_occ_env trimmed_binds
+                 <- tidyTopBinds hsc_env TidyForInterface
+                        mod unfold_env tidy_occ_env trimmed_binds
 
         ; let { final_ids  = [ id | id <- bindersOfBinds tidy_binds,
                                     isExternalName (idName id)]
@@ -456,10 +479,6 @@ trimThing (AnId id)
 
 trimThing other_thing
   = other_thing
-
-extendTypeEnvWithPatSyns :: [PatSyn] -> TypeEnv -> TypeEnv
-extendTypeEnvWithPatSyns tidy_patsyns type_env
-  = extendTypeEnvList type_env [AConLike (PatSynCon ps) | ps <- tidy_patsyns ]
 
 tidyVectInfo :: TidyEnv -> VectInfo -> VectInfo
 tidyVectInfo (_, var_env) info@(VectInfo { vectInfoVar          = vars
@@ -912,13 +931,14 @@ INLINE functions (again, Note [Inline specialisations] in Specialise).
 Adding trimAutoRules removed all this bloat.
 -}
 
-findExternalRules :: Bool       -- Omit pragmas
+findExternalRules :: TidyFor
+                  -> Bool       -- Omit pragmas
                   -> [CoreBind]
                   -> [CoreRule] -- Local rules for imported fns
                   -> UnfoldEnv  -- Ids that are exported, so we need their rules
                   -> ([CoreBind], [CoreRule])
 -- See Note [Finding external rules]
-findExternalRules omit_prags binds imp_id_rules unfold_env
+findExternalRules tidy_for omit_prags binds imp_id_rules unfold_env
   = (trimmed_binds, filter keep_rule all_rules)
   where
     imp_rules         = filter expose_rule imp_id_rules
@@ -929,7 +949,12 @@ findExternalRules omit_prags binds imp_id_rules unfold_env
 
     (trimmed_binds, local_bndrs, _, all_rules) = trim_binds binds
 
-    keep_rule rule = ruleFreeVars rule `subVarSet` local_bndrs
+    keep_rule rule =
+        case tidy_for of
+            TidyForFatInterface -> True
+        -- For fat interfaces, NEVER drop rules, they may be useful
+        -- for local optimizations.  See Note [TidyFor differences].
+            TidyForInterface    -> ruleFreeVars rule `subVarSet` local_bndrs
         -- Remove rules that make no sense, because they mention a
         -- local binder (on LHS or RHS) that we have now discarded.
         -- (NB: ruleFreeVars only includes LocalIds)
@@ -973,7 +998,12 @@ findExternalRules omit_prags binds imp_id_rules unfold_env
        where
          stuff@(binds', bndr_set, needed_fvs, rules)
                        = trim_binds binds
-         needed bndr   = isExportedId bndr || bndr `elemVarSet` needed_fvs
+         needed bndr   =
+            case tidy_for of
+                TidyForInterface -> isExportedId bndr || bndr `elemVarSet` needed_fvs
+                -- Never drop bindings for fat interfaces.
+                -- TODO: Maybe we can drop them if they truly are dead?
+                TidyForFatInterface -> True
 
          bndrs         = bindersOf  bind
          rhss          = rhssOfBind bind
@@ -1096,13 +1126,14 @@ tidyTopName mod nc_var maybe_ref occ_env id
 --   * subst_env: A Var->Var mapping that substitutes the new Var for the old
 
 tidyTopBinds :: HscEnv
+             -> TidyFor
              -> Module
              -> UnfoldEnv
              -> TidyOccEnv
              -> CoreProgram
              -> IO (TidyEnv, CoreProgram)
 
-tidyTopBinds hsc_env this_mod unfold_env init_occ_env binds
+tidyTopBinds hsc_env tidy_for this_mod unfold_env init_occ_env binds
   = do mkIntegerId <- lookupMkIntegerName dflags hsc_env
        integerSDataCon <- lookupIntegerSDataConName dflags hsc_env
        let cvt_integer = cvtLitInteger dflags mkIntegerId integerSDataCon
@@ -1116,13 +1147,14 @@ tidyTopBinds hsc_env this_mod unfold_env init_occ_env binds
 
     tidy _           env []     = (env, [])
     tidy cvt_integer env (b:bs)
-        = let (env1, b')  = tidyTopBind dflags this_pkg this_mod
+        = let (env1, b')  = tidyTopBind dflags tidy_for this_pkg this_mod
                                         cvt_integer unfold_env env b
               (env2, bs') = tidy cvt_integer env1 bs
           in  (env2, b':bs')
 
 ------------------------
 tidyTopBind  :: DynFlags
+             -> TidyFor
              -> UnitId
              -> Module
              -> (Integer -> CoreExpr)
@@ -1131,21 +1163,21 @@ tidyTopBind  :: DynFlags
              -> CoreBind
              -> (TidyEnv, CoreBind)
 
-tidyTopBind dflags this_pkg this_mod cvt_integer unfold_env
+tidyTopBind dflags tidy_for this_pkg this_mod cvt_integer unfold_env
             (occ_env,subst1) (NonRec bndr rhs)
   = (tidy_env2,  NonRec bndr' rhs')
   where
     Just (name',show_unfold) = lookupVarEnv unfold_env bndr
     caf_info      = hasCafRefs dflags this_pkg this_mod (subst1, cvt_integer) (idArity bndr) rhs
-    (bndr', rhs') = tidyTopPair dflags show_unfold tidy_env2 caf_info name' (bndr, rhs)
+    (bndr', rhs') = tidyTopPair dflags tidy_for show_unfold tidy_env2 caf_info name' (bndr, rhs)
     subst2        = extendVarEnv subst1 bndr bndr'
     tidy_env2     = (occ_env, subst2)
 
-tidyTopBind dflags this_pkg this_mod cvt_integer unfold_env
+tidyTopBind dflags tidy_for this_pkg this_mod cvt_integer unfold_env
             (occ_env, subst1) (Rec prs)
   = (tidy_env2, Rec prs')
   where
-    prs' = [ tidyTopPair dflags show_unfold tidy_env2 caf_info name' (id,rhs)
+    prs' = [ tidyTopPair dflags tidy_for show_unfold tidy_env2 caf_info name' (id,rhs)
            | (id,rhs) <- prs,
              let (name',show_unfold) =
                     expectJust "tidyTopBind" $ lookupVarEnv unfold_env id
@@ -1167,6 +1199,7 @@ tidyTopBind dflags this_pkg this_mod cvt_integer unfold_env
 
 -----------------------------------------------------------
 tidyTopPair :: DynFlags
+            -> TidyFor
             -> Bool  -- show unfolding
             -> TidyEnv  -- The TidyEnv is used to tidy the IdInfo
                         -- It is knot-tied: don't look at it!
@@ -1180,7 +1213,35 @@ tidyTopPair :: DynFlags
         -- group, a variable late in the group might be mentioned
         -- in the IdInfo of one early in the group
 
-tidyTopPair dflags show_unfold rhs_tidy_env caf_info name' (bndr, rhs)
+-- We have to treat bindings a bit specially when we're tidying
+-- for a fat interface.  Specifically:
+--  1. We don't globalize the Id, we want to preserve whether or not
+--  it was a local or exported local so later, after optimization,
+--  we can make an informed decision about what to globalize.
+--  2. We can skip filling in IdInfo, except for any IdInfo which was
+--  user-specified (in which case we must save it.)  This IdInfo is
+--  usually *dropped* for normal interfaces, but we have to keep it.
+tidyTopPair _dflags TidyForFatInterface _show_unfold rhs_tidy_env _caf_info name' (bndr, rhs)
+  = (bndr1, rhs1)
+  where
+    -- Don't globalize here (1)
+    bndr1    = bndr `setIdName` name' `setIdType` ty' `setIdInfo` idinfo'
+    ty'      = tidyTopType (idType bndr)
+    rhs1     = tidyExpr rhs_tidy_env rhs
+    idinfo   = idInfo bndr
+    -- Save the user-filled in stuff (2)
+    idinfo'  = vanillaIdInfo `setInlinePragInfo` inlinePragInfo idinfo
+                             `setRuleInfo` rule_info
+                             `setUnfoldingInfo` unfold_info
+    rule_info = mkRuleInfo (tidyRules rhs_tidy_env (ruleInfoRules (ruleInfo idinfo)))
+    unfold_info = case unfoldingInfo idinfo of
+                    df@DFunUnfolding { df_bndrs = bndrs, df_args = args } ->
+                        let (tidy_env', bndrs') = tidyBndrs rhs_tidy_env bndrs
+                        in df { df_bndrs = bndrs', df_args = map (tidyExpr tidy_env') args }
+                    unf@CoreUnfolding { uf_tmpl = unf_rhs } ->
+                        unf { uf_tmpl = tidyExpr rhs_tidy_env unf_rhs }
+                    unf -> unf
+tidyTopPair dflags TidyForInterface show_unfold rhs_tidy_env caf_info name' (bndr, rhs)
   = (bndr1, rhs1)
   where
     bndr1    = mkGlobalId details name' ty' idinfo'
@@ -1457,3 +1518,78 @@ mustExposeTyCon no_trim_types exports tc
     exported_con con = any (`elemNameSet` exports)
                            (dataConName con : dataConFieldLabels con)
 -}
+
+{-
+************************************************************************
+*                                                                      *
+        Plan C: tidy guts, minimal amount of cleanup
+*                                                                      *
+************************************************************************
+-}
+
+tidyGuts :: HscEnv -> ModGuts -> IO ModGuts
+tidyGuts hsc_env guts@ModGuts { mg_module    = mod
+                              , mg_rdr_env   = rdr_env
+                              , mg_tcs       = tcs
+                              , mg_fam_insts = fam_insts
+                              , mg_binds     = binds
+                              , mg_rules     = imp_rules
+                              , mg_vect_info = vect_info
+                              }
+  = do  { let { dflags     = hsc_dflags hsc_env
+              ; omit_prags = gopt Opt_OmitInterfacePragmas dflags
+              ; expose_all = gopt Opt_ExposeAllUnfoldings  dflags
+              ; print_unqual = mkPrintUnqualified dflags rdr_env
+              }
+        ; showPassIO dflags CoreTidyGuts
+
+        ; let { type_env = typeEnvFromEntities [] tcs fam_insts
+
+              ; implicit_binds
+                  = concatMap getClassImplicitBinds (typeEnvClasses type_env) ++
+                    concatMap getTyConImplicitBinds (typeEnvTyCons type_env)
+              }
+
+        ; (unfold_env, tidy_occ_env) <- chooseExternalIds hsc_env mod omit_prags expose_all
+                                   binds implicit_binds imp_rules (vectInfoVar vect_info)
+        ; let { (trimmed_binds, trimmed_rules)
+                    = findExternalRules TidyForFatInterface False binds imp_rules unfold_env }
+
+          -- unfold_env and tidy_occ_env???  Originally determined by
+          -- chooseExternalIds.
+          --
+          -- What is it used for?
+          --    unfold_env --> gives us a new name (same unique but good
+          --    for serialization) as well as whether or not when we
+          --    reconstruct the Id to put in the unfolding.
+          --        We don't really care about the unfoldings, but we
+          --        do want to rename the names
+          --    tidy_occ_env --> forms the basis for TidyEnv (what
+          --    local occurrences are 'used').  I think avoidance
+          --    is relevant, we have to give things the right names
+        ; (tidy_env, tidy_binds)
+                 <- tidyTopBinds hsc_env TidyForFatInterface
+                            mod unfold_env tidy_occ_env trimmed_binds
+
+        ; let {
+              -- no need to Id'ify cls_insts or patsyns; BUT rules need
+              -- to be tidied because they have binders and expressions
+              --
+              -- TypeEnv tidying is just trimming, don't do that
+              --
+              -- Maybe some vectorization stuff needs to be tidied, let's
+              -- not support vectorization for now
+              -- ; tidy_vect_info = tidyVectInfo tidy_env vect_info
+
+              ; tidy_rules = tidyRules tidy_env trimmed_rules
+                -- You might worry that the tidy_env contains IdInfo-rich stuff
+                -- and indeed it does, but if omit_prags is on, ext_rules is
+                -- empty
+              }
+
+        ; endPassIO hsc_env print_unqual CoreTidyGuts tidy_binds tidy_rules
+        ; return guts {
+                mg_binds = tidy_binds,
+                mg_rules = tidy_rules
+            }
+        }

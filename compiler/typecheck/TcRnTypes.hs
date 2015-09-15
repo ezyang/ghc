@@ -221,8 +221,31 @@ instance ContainsModule gbl => ContainsModule (Env gbl lcl) where
 ************************************************************************
 -}
 
+-- Note [Fat interfaces for type checking and compilation]
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- A fat interface can be used in two ways:
+--
+--      1. We can read and type-check a fat interface into a 'ModGuts',
+--      so that we can then optimize and codegen it.
+--
+--      2. We can read and type-check a fat interface for type-checking,
+--      e.g. if we are type-checking another hs file which depends on
+--      this module to generate a fat interface.
+--
+-- Mostly everything is the same in both cases, EXCEPT for the scoping
+-- of the identifiers.  If we are about to compile the module, we want
+-- to load the identifiers as local (possibly exported IDs); however,
+-- if we just want the types to help us typecheck a different module,
+-- we want to load the identifiers as global.  'if_load_fat_interface'
+-- is the flag that lets us distinguish between these two cases.
+
 data IfGblEnv
   = IfGblEnv {
+        -- When we are loading a fat interface to construct a
+        -- ModGuts, this is 'Just avail_set', where avail_set is
+        -- the set of exported identifiers.
+        -- See Note [Fat interfaces for type checking and compilation]
+        if_load_fat_interface :: Maybe NameSet,
         -- The type environment for the module being compiled,
         -- in case the interface refers back to it via a reference that
         -- was originally a hi-boot file.
@@ -339,8 +362,9 @@ data DsMetaVal
 -- This data type really should be in HscTypes, but it needs
 -- to have a TcGblEnv which is only defined here.
 data FrontendResult
-        = FrontendTypecheck TcGblEnv
-        | FrontendInterface ModIface
+        = FrontendTypecheck    TcGblEnv
+        | FrontendGuts ModGuts
+        | FrontendInterface    ModIface
 
 -- | 'TcGblEnv' describes the top-level of the module at the
 -- point at which the typechecker is finished work.

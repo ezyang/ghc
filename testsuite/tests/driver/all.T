@@ -460,3 +460,18 @@ test('T9360b', normal, run_command, ['{compiler} -e "" --interactive'])
 test('T10970', normal, compile_and_run, ['-hide-all-packages -package base -package containers'])
 test('T10970a', normal, compile_and_run, [''])
 test('T4931', normal, compile_and_run, [''])
+
+test('hifat01',
+     extra_clean(['HiFat01.hi-fat', 'HiFat01.hi', 'HiFat01.o']),
+     run_command,
+     ['$MAKE -s --no-print-directory hifat01'])
+
+test('hifat02_oneshot',
+     extra_clean(['hifat02_oneshot']),
+     run_command,
+     ['$MAKE -s --no-print-directory hifat02_oneshot'])
+
+test('hifat02_make',
+     extra_clean(['hifat02_make']),
+     run_command,
+     ['$MAKE -s --no-print-directory hifat02_make'])

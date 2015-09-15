@@ -19,6 +19,7 @@ Thumbs.db
 *.exe
 *.hi
 *.hi-boot
+*.hi-fat
 *.o
 *.o-boot
 *.pyc
@@ -1601,6 +1602,12 @@ mk/ghcconfig*_test___spaces_ghc*.exe.mk
 /tests/typecheck/should_run/tcrun050
 /tests/typecheck/should_run/tcrun051
 /tests/typecheck/should_run/testeq2
+/tests/typecheck/should_run/T10284
+/tests/typecheck/should_run/T9497a-run
+/tests/typecheck/should_run/T9497b-run
+/tests/typecheck/should_run/T9497c-run
+/tests/typecheck/should_run/T9858c
+/tests/typecheck/should_run/T9858d
 /tests/typecheck/testeq1/typecheck.testeq1
 /timeout/calibrate.out
 /timeout/dist/

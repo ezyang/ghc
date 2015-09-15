@@ -1,0 +1,7 @@
+[1 of 4] Compiling HiFat02b         ( HiFat02b.hs, nothing )
+[2 of 4] Compiling HiFat02[boot]    ( HiFat02.hs-boot, nothing )
+[3 of 4] Compiling HiFat02a         ( HiFat02a.hs, nothing )
+[4 of 4] Compiling HiFat02          ( HiFat02.hs, nothing )
+[1 of 4] Compiling HiFat02b         ( hifat02_make/HiFat02b.hi, hifat02_make_out/HiFat02b.o )
+[3 of 4] Compiling HiFat02a         ( hifat02_make/HiFat02a.hi, hifat02_make_out/HiFat02a.o )
+[4 of 4] Compiling HiFat02          ( hifat02_make/HiFat02.hi, hifat02_make_out/HiFat02.o )

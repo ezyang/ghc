@@ -19,6 +19,7 @@ module IfaceSyn (
         IfaceSrcBang(..), SrcUnpackedness(..), SrcStrictness(..),
         IfaceAxBranch(..),
         IfaceTyConParent(..),
+        IfaceIdScope(..), -- fat interface
 
         -- Misc
         ifaceDeclImplicitBndrs, visibleIfConDecls,
@@ -89,10 +90,34 @@ type IfaceTopBndr = OccName
   -- drop it when serialising and add it back in when deserialising.
 
 data IfaceDecl
+  -- An IfaceId describes a regular, exportable thing with a type
+  -- (and maybe some extra information.)  IfaceIds only occur in
+  -- regular interface files.
   = IfaceId { ifName      :: IfaceTopBndr,
               ifType      :: IfaceType,
               ifIdDetails :: IfaceIdDetails,
               ifIdInfo    :: IfaceIdInfo }
+
+  -- An IfaceBinding is like an IfaceId, but two extra pieces of
+  -- information: a right-hand side (which can be parsed into a
+  -- CoreBinding) and an exposed flags (which indicates whether
+  -- or not it is MANDATORY that this binding be exposed, or if
+  -- it may or may not be exposed depending on whether or not
+  -- it is in mi_exports).  IfaceBindings only occur in fat interface
+  -- files.
+  | IfaceBinding { ifName      :: IfaceTopBndr,
+                   -- NB: This is a HACK to recognize if a main 'ifName'
+                   -- is actually a root main, in which case we must
+                   -- give it a different name.  A better strategy is
+                   -- to just not inject these bindings in until later,
+                   -- but this is a bit annoying to do.
+                   ifRootMain  :: Bool,
+                   ifType      :: IfaceType,
+                   ifIdScope   :: IfaceIdScope,
+                   ifIdDetails :: IfaceIdDetails,
+                   ifIdInfo    :: IfaceIdInfo,
+                   ifRhs       :: IfaceExpr
+                 }
 
   | IfaceData { ifName       :: IfaceTopBndr,        -- Type constructor
                 ifCType      :: Maybe CType,    -- C type for CAPI FFI
@@ -157,6 +182,12 @@ data IfaceDecl
                   ifPatTy         :: IfaceType,
                   ifFieldLabels   :: [FieldLabel] }
 
+
+-- IdScope
+data IfaceIdScope
+  = IfLocalId
+  | IfExportedLocalId
+  deriving (Eq)
 
 data IfaceTyConParent
   = IfNoParent
@@ -680,6 +711,18 @@ pprIfaceDecl ss (IfaceData { ifName = tycon, ifCType = ctype,
             | otherwise = Outputable.empty
 
 
+pprIfaceDecl ss (IfaceBinding { ifName = var, ifRootMain = is_root_main, ifType = ty,
+                                ifIdDetails = details, ifIdInfo = info,
+                                ifIdScope = _scope, ifRhs = rhs })
+  = vcat [ hang (bndr_doc <+> dcolon)
+              2 (pprIfaceSigmaType ty)
+         -- , ppShowIface ss (ppr scope) TODO
+         , ppShowIface ss (ppr details)
+         , ppShowIface ss (ppr info)
+         , ppShowIface ss (ppr rhs) ]
+  where bndr_doc | is_root_main = text "main::Main.main"
+                 | otherwise    = pprPrefixIfDeclBndr ss var
+
 pprIfaceDecl ss (IfaceClass { ifATs = ats, ifSigs = sigs, ifRec = isrec
                             , ifCtxt   = context, ifName  = clas
                             , ifTyVars = tyvars,  ifRoles = roles
@@ -1114,6 +1157,11 @@ freeNamesIfDecl (IfaceId _s t d i) =
   freeNamesIfType t &&&
   freeNamesIfIdInfo i &&&
   freeNamesIfIdDetails d
+freeNamesIfDecl d@IfaceBinding{} =
+  freeNamesIfType (ifType d) &&&
+  freeNamesIfIdInfo (ifIdInfo d) &&&
+  freeNamesIfIdDetails (ifIdDetails d) &&&
+  freeNamesIfExpr (ifRhs d)
 freeNamesIfDecl d@IfaceData{} =
   freeNamesIfTvBndrs (ifTyVars d) &&&
   freeNamesIfaceTyConParent (ifParent d) &&&
@@ -1450,6 +1498,17 @@ instance Binary IfaceDecl where
         put_ bh a10
         put_ bh a11
 
+    put_ bh (IfaceBinding name rootMain ty scope details idinfo rhs) = do
+        if not rootMain
+            then putByte bh 8
+            else putByte bh 9
+        put_ bh (occNameFS name)
+        put_ bh ty
+        put_ bh scope
+        put_ bh details
+        put_ bh idinfo
+        put_ bh rhs
+
     get bh = do
         h <- getByte bh
         case h of
@@ -1517,7 +1576,33 @@ instance Binary IfaceDecl where
                     a11 <- get bh
                     occ <- return $! mkDataOccFS a1
                     return (IfacePatSyn occ a2 a3 a4 a5 a6 a7 a8 a9 a10 a11)
+            8 -> do name    <- get bh
+                    ty      <- get bh
+                    scope   <- get bh
+                    details <- get bh
+                    idinfo  <- get bh
+                    rhs     <- get bh
+                    occ <- return $! mkVarOccFS name
+                    return (IfaceBinding occ False ty scope details idinfo rhs)
+            9 -> do name    <- get bh
+                    ty      <- get bh
+                    scope   <- get bh
+                    details <- get bh
+                    idinfo  <- get bh
+                    rhs     <- get bh
+                    occ <- return $! mkVarOccFS name
+                    return (IfaceBinding occ True ty scope details idinfo rhs)
+
             _ -> panic (unwords ["Unknown IfaceDecl tag:", show h])
+
+instance Binary IfaceIdScope where
+    put_ bh IfLocalId = putByte bh 0
+    put_ bh IfExportedLocalId = putByte bh 1
+
+    get bh = do { h <- getByte bh
+                ; return $ case h of
+                    0 -> IfLocalId
+                    _ -> IfExportedLocalId }
 
 instance Binary IfaceFamTyConFlav where
     put_ bh IfaceDataFamilyTyCon              = putByte bh 0

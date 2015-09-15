@@ -216,6 +216,11 @@ uncacheModule hsc_env mod = do
 --
 --  4. Some special-case code in GHCi (ToDo: Figure out why that needs to
 --  call this.)
+--
+-- An important thing to note about the returned FindResult is that although
+-- we may search for an hi-boot or hi file, the returned location does
+-- NOT mention that name; it says the base hi name.  You will have to
+-- bootify/fatify it afterwards!
 findHomeModule :: HscEnv -> ModuleName -> IO FindResult
 findHomeModule hsc_env mod_name =
    homeSearchCache hsc_env mod_name $
@@ -235,6 +240,13 @@ findHomeModule hsc_env mod_name =
       , ("lhs-boot",  mkHomeModLocationSearched dflags mod_name "lhs")
       ]
 
+     source_hi_fat_exts =
+       -- for hi-boot
+       [ (addBootSuffix hisuf, mkHomeModLocationSearched dflags mod_name hisuf)
+       -- for hi (merge boot and fat interfaces)
+       , (hisuf,               mkHomeModLocationSearched dflags mod_name hisuf)
+       ]
+
      hi_exts = [ (hisuf,                mkHiOnlyModLocation dflags hisuf)
                , (addBootSuffix hisuf,  mkHiOnlyModLocation dflags hisuf)
                ]
@@ -242,8 +254,20 @@ findHomeModule hsc_env mod_name =
         -- In compilation manager modes, we look for source files in the home
         -- package because we can compile these automatically.  In one-shot
         -- compilation mode we look for .hi and .hi-boot files only.
-     exts | isOneShot (ghcMode dflags) = hi_exts
-          | otherwise                  = source_exts
+        --
+        -- For hi-fat: -ffrom-fat-interface means we are treating hi files
+        -- as source, to compile into hi files *against* hi files. In one-shot,
+        -- this means we should look for hi files; but in compilation manager
+        -- mode, we want to look for *hi* files, since they are the "source"
+        -- files we are compiling.
+        --
+        -- A bit finely balanced!
+     exts | isOneShot (ghcMode dflags)
+          = hi_exts
+          | otherwise
+          = if gopt Opt_FromFatInterface dflags
+                then source_hi_fat_exts
+                else source_exts
    in
 
   -- special case for GHC.Prim; we won't find it in the filesystem.
