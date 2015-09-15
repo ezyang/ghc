@@ -30,7 +30,8 @@ module DriverPhases (
    isCishFilename,
    isDynLibFilename,
    isHaskellUserSrcFilename,
-   isSourceFilename
+   isSourceFilename,
+   isFatInterfaceFilename
  ) where
 
 #include "HsVersions.h"
@@ -68,13 +69,19 @@ import Binary
 --        also be used to specify the *requirements* of a package,
 --        in which case there is an HsBootMerge associated with it.
 --
--- An HsBootMerge is a "fake" source file, which is constructed
--- by collecting up non-recursive HsBootFiles into a single interface.
--- HsBootMerges get an hi and o file, and are treated as "non-boot"
--- sources.
+-- There are also a few special input types:
+--
+--      * An HsBootMerge is a "fake" source file, which is constructed by
+--        collecting up non-recursive HsBootFiles into a single interface.
+--        HsBootMerges get an hi and o file, and are treated as "non-boot"
+--        sources.
+--
+--      * An HiFatFile is the cached results of typechecking a source file
+--        and saving its desugared source.  We can then complete compiling
+--        a file like this.
 
 data HscSource
-   = HsSrcFile | HsBootFile | HsBootMerge
+   = HsSrcFile | HsBootFile | HsBootMerge | HiFatFile
      deriving( Eq, Ord, Show )
         -- Ord needed for the finite maps we build in CompManager
 
@@ -82,33 +89,39 @@ instance Outputable HscSource where
     ppr HsSrcFile = text "HsSrcFile"
     ppr HsBootFile = text "HsBootFile"
     ppr HsBootMerge = text "HsBootMerge"
+    ppr HiFatFile = text "HiFatFile"
 
 instance Binary HscSource where
     put_ bh HsSrcFile = putByte bh 0
     put_ bh HsBootFile = putByte bh 1
     put_ bh HsBootMerge = putByte bh 2
+    put_ bh HiFatFile = putByte bh 3
     get bh = do
         h <- getByte bh
         case h of
             0 -> return HsSrcFile
             1 -> return HsBootFile
-            _ -> return HsBootMerge
+            2 -> return HsBootMerge
+            _ -> return HiFatFile
 
 hscSourceString :: HscSource -> String
 hscSourceString HsSrcFile   = ""
 hscSourceString HsBootFile  = "[boot]"
 hscSourceString HsBootMerge = "[merge]"
+hscSourceString HiFatFile   = "[hi-fat]"
 
 isHsBoot :: HscSource -> Bool
 isHsBoot HsBootFile  = True
 isHsBoot HsSrcFile   = False
 isHsBoot HsBootMerge = False
+isHsBoot HiFatFile   = False -- Hmm
 
 data Phase
         = Unlit HscSource
         | Cpp   HscSource
         | HsPp  HscSource
         | Hsc   HscSource
+        | HiFat HscSource
         | Ccxx          -- Compile C++
         | Cc            -- Compile C
         | Cobjc         -- Compile Objective-C
@@ -194,6 +207,7 @@ nextPhase dflags p
       Cpp   sf   -> HsPp sf
       HsPp  sf   -> Hsc  sf
       Hsc   _    -> maybeHCc
+      HiFat _    -> maybeHCc
       Splitter   -> SplitAs
       LlvmOpt    -> LlvmLlc
       LlvmLlc    -> LlvmMangle
@@ -222,6 +236,7 @@ startPhase "hs"       = Cpp   HsSrcFile
 startPhase "hs-boot"  = Cpp   HsBootFile
 startPhase "hscpp"    = HsPp  HsSrcFile
 startPhase "hspp"     = Hsc   HsSrcFile
+startPhase "hi-fat"   = Hsc   HiFatFile
 startPhase "hc"       = HCc
 startPhase "c"        = Cc
 startPhase "cpp"      = Ccxx
@@ -249,11 +264,13 @@ phaseInputExt :: Phase -> String
 phaseInputExt (Unlit HsSrcFile)   = "lhs"
 phaseInputExt (Unlit HsBootFile)  = "lhs-boot"
 phaseInputExt (Unlit HsBootMerge) = panic "phaseInputExt: Unlit HsBootMerge"
+phaseInputExt (Unlit HiFatFile)   = panic "phaseInputExt: Unlit HiFatFile"
         -- You can't Unlit an HsBootMerge, because there's no source
         -- file to Unlit!
 phaseInputExt (Cpp   _)           = "lpp"       -- intermediate only
 phaseInputExt (HsPp  _)           = "hscpp"     -- intermediate only
 phaseInputExt (Hsc   _)           = "hspp"      -- intermediate only
+phaseInputExt (HiFat _)           = panic "phaseInputExt: HiFat"
         -- NB: as things stand, phaseInputExt (Hsc x) must not evaluate x
         --     because runPipeline uses the StopBefore phase to pick the
         --     output filename.  That could be fixed, but watch out.
@@ -275,7 +292,7 @@ phaseInputExt MergeStub           = "o"
 phaseInputExt StopLn              = "o"
 
 haskellish_src_suffixes, haskellish_suffixes, cish_suffixes,
-    haskellish_user_src_suffixes
+    haskellish_user_src_suffixes, fat_interface_suffixes
  :: [String]
 -- When a file with an extension in the haskellish_src_suffixes group is
 -- loaded in --make mode, its imports will be loaded too.
@@ -284,6 +301,7 @@ haskellish_src_suffixes      = haskellish_user_src_suffixes ++
 haskellish_suffixes          = haskellish_src_suffixes ++
                                [ "hc", "cmm", "cmmcpp" ]
 cish_suffixes                = [ "c", "cpp", "C", "cc", "cxx", "s", "S", "ll", "bc", "lm_s", "m", "M", "mm" ]
+fat_interface_suffixes       = [ "hi-fat" ]
 
 -- Will not be deleted as temp files:
 haskellish_user_src_suffixes = [ "hs", "lhs", "hs-boot", "lhs-boot" ]
@@ -302,22 +320,23 @@ dynlib_suffixes platform = case platformOS platform of
   _         -> ["so"]
 
 isHaskellishSuffix, isHaskellSrcSuffix, isCishSuffix,
-    isHaskellUserSrcSuffix
+    isHaskellUserSrcSuffix, isFatInterfaceSuffix
  :: String -> Bool
 isHaskellishSuffix     s = s `elem` haskellish_suffixes
 isHaskellSrcSuffix     s = s `elem` haskellish_src_suffixes
 isCishSuffix           s = s `elem` cish_suffixes
 isHaskellUserSrcSuffix s = s `elem` haskellish_user_src_suffixes
+isFatInterfaceSuffix   s = s `elem` fat_interface_suffixes
 
 isObjectSuffix, isDynLibSuffix :: Platform -> String -> Bool
 isObjectSuffix platform s = s `elem` objish_suffixes platform
 isDynLibSuffix platform s = s `elem` dynlib_suffixes platform
 
 isSourceSuffix :: String -> Bool
-isSourceSuffix suff  = isHaskellishSuffix suff || isCishSuffix suff
+isSourceSuffix suff  = isHaskellishSuffix suff || isCishSuffix suff || isFatInterfaceSuffix suff
 
 isHaskellishFilename, isHaskellSrcFilename, isCishFilename,
-    isHaskellUserSrcFilename, isSourceFilename
+    isHaskellUserSrcFilename, isSourceFilename, isFatInterfaceFilename
  :: FilePath -> Bool
 -- takeExtension return .foo, so we drop 1 to get rid of the .
 isHaskellishFilename     f = isHaskellishSuffix     (drop 1 $ takeExtension f)
@@ -325,6 +344,7 @@ isHaskellSrcFilename     f = isHaskellSrcSuffix     (drop 1 $ takeExtension f)
 isCishFilename           f = isCishSuffix           (drop 1 $ takeExtension f)
 isHaskellUserSrcFilename f = isHaskellUserSrcSuffix (drop 1 $ takeExtension f)
 isSourceFilename         f = isSourceSuffix         (drop 1 $ takeExtension f)
+isFatInterfaceFilename   f = isFatInterfaceSuffix   (drop 1 $ takeExtension f)
 
 isObjectFilename, isDynLibFilename :: Platform -> FilePath -> Bool
 isObjectFilename platform f = isObjectSuffix platform (drop 1 $ takeExtension f)

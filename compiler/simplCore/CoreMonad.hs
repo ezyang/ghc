@@ -146,6 +146,8 @@ data CoreToDo           -- These are diff core-to-core passes,
                        --                 Core output, and hence useful to pass to endPass
 
   | CoreTidy
+  | CoreTidyGuts
+  | CoreLoadGuts
   | CorePrep
 
 instance Outputable CoreToDo where
@@ -165,6 +167,8 @@ instance Outputable CoreToDo where
   ppr CoreDesugar              = ptext (sLit "Desugar (before optimization)")
   ppr CoreDesugarOpt           = ptext (sLit "Desugar (after optimization)")
   ppr CoreTidy                 = ptext (sLit "Tidy Core")
+  ppr CoreTidyGuts             = ptext (sLit "Tidy Guts (for fat interface)")
+  ppr CoreLoadGuts             = ptext (sLit "Load Guts (for fat interface)")
   ppr CorePrep                 = ptext (sLit "CorePrep")
   ppr CoreDoPrintCore          = ptext (sLit "Print core")
   ppr (CoreDoRuleCheck {})     = ptext (sLit "Rule check")

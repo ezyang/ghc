@@ -1241,6 +1241,9 @@ fingerprintDataConName :: Name
 fingerprintDataConName =
     dcQual gHC_FINGERPRINT_TYPE (fsLit "Fingerprint") fingerprintDataConKey
 
+rootMainName :: Name
+rootMainName = mkExternalName rootMainKey rOOT_MAIN (mkVarOccFS (fsLit "main")) noSrcSpan
+
 {-
 ************************************************************************
 *                                                                      *

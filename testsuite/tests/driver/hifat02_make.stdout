@@ -1,0 +1,4 @@
+[1 of 2] Compiling HiFat02a         ( HiFat02a.hs, nothing )
+[2 of 2] Compiling HiFat02          ( HiFat02.hs, nothing )
+[1 of 2] Compiling HiFat02a[hi-fat] ( hifat02_make/HiFat02a.hi-fat, hifat02_make/HiFat02a.o )
+[2 of 2] Compiling HiFat02[hi-fat]  ( hifat02_make/HiFat02.hi-fat, hifat02_make/HiFat02.o )

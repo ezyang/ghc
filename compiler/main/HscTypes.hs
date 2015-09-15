@@ -68,6 +68,7 @@ module HscTypes (
         -- * Interfaces
         ModIface(..), mkIfaceWarnCache, mkIfaceHashCache, mkIfaceFixCache,
         emptyIfaceWarnCache, mi_boot,
+        CgIface(..),
 
         -- * Fixity
         FixityEnv, FixItem(..), lookupFixity, emptyFixityEnv,
@@ -82,7 +83,7 @@ module HscTypes (
         TypeEnv, lookupType, lookupTypeHscEnv, mkTypeEnv, emptyTypeEnv,
         typeEnvFromEntities, mkTypeEnvWithImplicits,
         extendTypeEnv, extendTypeEnvList,
-        extendTypeEnvWithIds,
+        extendTypeEnvWithIds, extendTypeEnvWithPatSyns,
         lookupTypeEnv,
         typeEnvElts, typeEnvTyCons, typeEnvIds, typeEnvPatSyns,
         typeEnvDataCons, typeEnvCoAxioms, typeEnvClasses,
@@ -722,6 +723,14 @@ data FindResult
 -- except that we explicitly make the 'mi_decls' and a few other fields empty;
 -- as when reading we consolidate the declarations etc. into a number of indexed
 -- maps and environments in the 'ExternalPackageState'.
+--
+-- We also support a special form of 'ModIface', called a fat interface.
+-- Fat interfaces are similar to 'ModIface's generated from type-checking
+-- only, but they store enough extra information so we can reconstruct
+-- a 'ModGuts' (which can then be optimized and codegenned).  Specifically,
+-- a fat interface will have 'IfaceBinding's in the 'mi_decls', and
+-- 'mi_impl' is filled in (which contains some extra, code-generation only
+-- information).
 data ModIface
   = ModIface {
         mi_module     :: !Module,             -- ^ Name of the module we are for
@@ -794,6 +803,9 @@ data ModIface
                 --
                 -- Strictly speaking this field should live in the
                 -- 'HomeModInfo', but that leads to more plumbing.
+
+        mi_impl :: Maybe CgIface,
+                -- Code generation bits, only Just for a fat interface.
 
                 -- Instance declarations and rules
         mi_insts       :: [IfaceClsInst],     -- ^ Sorted class instance
@@ -934,6 +946,7 @@ instance Binary ModIface where
                  mi_warns       = warns,
                  mi_decls       = decls,
                  mi_globals     = Nothing,
+                 mi_impl        = Nothing,
                  mi_insts       = insts,
                  mi_fam_insts   = fam_insts,
                  mi_rules       = rules,
@@ -974,6 +987,7 @@ emptyModIface mod
                mi_rules       = [],
                mi_decls       = [],
                mi_globals     = Nothing,
+               mi_impl        = Nothing,
                mi_orphan_hash = fingerprint0,
                mi_vect_info   = noIfaceVectInfo,
                mi_warn_fn     = emptyIfaceWarnCache,
@@ -998,6 +1012,11 @@ mkIfaceHashCache pairs
 emptyIfaceHashCache :: OccName -> Maybe (OccName, Fingerprint)
 emptyIfaceHashCache _occ = Nothing
 
+data CgIface
+  = CgIface {
+        ci_hpc_info :: HpcInfo,
+        ci_foreign :: ForeignStubs
+    }
 
 -- | The 'ModDetails' is essentially a cache for information in the 'ModIface'
 -- for home modules only. Information relating to packages will be loaded into
@@ -1043,9 +1062,7 @@ data ModGuts
         mg_exports   :: ![AvailInfo],    -- ^ What it exports
         mg_deps      :: !Dependencies,   -- ^ What it depends on, directly or
                                          -- otherwise
-        mg_dir_imps  :: !ImportedMods,   -- ^ Directly-imported modules; used to
-                                         -- generate initialisation code
-        mg_used_names:: !NameSet,        -- ^ What the module needed (used in 'MkIface.mkIface')
+        mg_usages    :: ![Usage],        -- ^ What was used?  Used for interfaces.
 
         mg_used_th   :: !Bool,           -- ^ Did we run a TH splice?
         mg_rdr_env   :: !GlobalRdrEnv,   -- ^ Top-level lexical environment
@@ -1084,11 +1101,9 @@ data ModGuts
                                                 -- one); c.f. 'tcg_fam_inst_env'
 
         mg_safe_haskell :: SafeHaskellMode,     -- ^ Safe Haskell mode
-        mg_trust_pkg    :: Bool,                -- ^ Do we need to trust our
+        mg_trust_pkg    :: Bool                 -- ^ Do we need to trust our
                                                 -- own package for Safe Haskell?
                                                 -- See Note [RnNames . Trust Own Package]
-
-        mg_dependent_files :: [FilePath]        -- ^ Dependencies from addDependentFile
     }
 
 -- The ModGuts takes on several slightly different forms:
@@ -1862,6 +1877,10 @@ extendTypeEnvWithIds :: TypeEnv -> [Id] -> TypeEnv
 extendTypeEnvWithIds env ids
   = extendNameEnvList env [(getName id, AnId id) | id <- ids]
 
+extendTypeEnvWithPatSyns :: [PatSyn] -> TypeEnv -> TypeEnv
+extendTypeEnvWithPatSyns tidy_patsyns type_env
+  = extendTypeEnvList type_env [AConLike (PatSynCon ps) | ps <- tidy_patsyns ]
+
 -- | Find the 'TyThing' for the given 'Name' by using all the resources
 -- at our disposal: the compiled modules in the 'HomePackageTable' and the
 -- compiled modules in other packages that live in 'PackageTypeEnv'. Note
@@ -2410,8 +2429,10 @@ data ModSummary
         ms_hspp_opts    :: DynFlags,
           -- ^ Cached flags from @OPTIONS@, @INCLUDE@ and @LANGUAGE@
           -- pragmas in the modules source code
-        ms_hspp_buf     :: Maybe StringBuffer
+        ms_hspp_buf     :: Maybe StringBuffer,
           -- ^ The actual preprocessed source, if we have it
+        ms_fat_iface    :: Maybe ModIface
+          -- ^ The actual fat ModIface, if we have it
      }
 
 ms_mod_name :: ModSummary -> ModuleName

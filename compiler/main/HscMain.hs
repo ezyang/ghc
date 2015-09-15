@@ -46,7 +46,11 @@ module HscMain
     , genModDetails
     , hscSimpleIface
     , hscWriteIface
+    , hscWriteFatIface
     , hscNormalIface
+    , hscFatIface
+    , hscViaFatIface
+    , hscReadFatIface -- rename me?
     , hscGenHardCode
     , hscInteractive
 
@@ -113,11 +117,11 @@ import Parser
 import Lexer
 import SrcLoc
 import TcRnDriver
-import TcIface          ( typecheckIface )
+import TcIface          ( typecheckIface, typecheckIface' )
 import TcRnMonad
 import IfaceEnv         ( initNameCache )
 import LoadIface        ( ifaceStats, initExternalPackageState
-                        , findAndReadIface )
+                        , findAndReadIface, readAnyIface )
 import PrelInfo
 import MkIface
 import Desugar
@@ -139,7 +143,6 @@ import CmmPipeline
 import CmmInfo
 import CodeOutput
 import NameEnv          ( emptyNameEnv )
-import NameSet          ( emptyNameSet )
 import InstEnv
 import FamInstEnv
 import Fingerprint      ( Fingerprint )
@@ -148,7 +151,9 @@ import Maybes
 
 import DynFlags
 import ErrUtils
+import UniqFM
 
+import Avail
 import Outputable
 import HscStats         ( ppSourceStats )
 import HscTypes
@@ -158,6 +163,11 @@ import Bag
 import Exception
 import qualified Stream
 import Stream (Stream)
+
+import CoreMonad (CoreToDo(..))
+import CoreLint (endPassIO, showPassIO)
+import TcIface (typecheckGuts)
+import IfaceEnv (extendIfaceIdEnv)
 
 import Util
 
@@ -601,6 +611,8 @@ genericHscFrontend' :: ModSummary -> Hsc FrontendResult
 genericHscFrontend' mod_summary
     | ms_hsc_src mod_summary == HsBootMerge
     = FrontendMerge `fmap` hscMergeFrontEnd mod_summary
+    | ms_hsc_src mod_summary == HiFatFile
+    = FrontendFatInterface `fmap` hscFatInterfaceFrontEnd mod_summary
     | otherwise
     = FrontendTypecheck `fmap` hscFileFrontEnd mod_summary
 
@@ -653,6 +665,8 @@ hscIncrementalCompile always_do_basic_recompilation_check m_tc_result
                        ms_hsc_src mod_summary == HsSrcFile
                        then finish              hsc_env mod_summary tc_result mb_old_hash
                        else finishTypecheckOnly hsc_env mod_summary tc_result mb_old_hash
+                FrontendFatInterface guts ->
+                    finishGuts hsc_env mod_summary guts mb_old_hash
                 FrontendMerge raw_iface ->
                             finishMerge         hsc_env mod_summary raw_iface mb_old_hash
             liftIO $ hscMaybeWriteIface dflags (hm_iface hmi) no_change mod_summary
@@ -688,6 +702,10 @@ finishTypecheckOnly :: HscEnv
 finishTypecheckOnly hsc_env summary tc_result mb_old_hash = do
     let dflags = hsc_dflags hsc_env
     MASSERT( hscTarget dflags == HscNothing || ms_hsc_src summary == HsBootFile )
+    when (gopt Opt_WriteFatInterface dflags) $ do
+        guts0 <- hscDesugar' (ms_location summary) tc_result
+        fat_iface <- liftIO $ hscFatIface hsc_env guts0
+        liftIO $ hscWriteFatIface dflags fat_iface summary
     (iface, changed, details) <- liftIO $ hscSimpleIface hsc_env tc_result mb_old_hash
     let hsc_status =
           case (hscTarget dflags, ms_hsc_src summary) of
@@ -716,7 +734,20 @@ finish hsc_env summary tc_result mb_old_hash = do
     MASSERT( ms_hsc_src summary == HsSrcFile )
     MASSERT( hscTarget dflags /= HscNothing )
     guts0 <- hscDesugar' (ms_location summary) tc_result
-    guts <- hscSimplify' guts0
+    finishGuts hsc_env summary guts0 mb_old_hash
+
+finishGuts :: HscEnv
+           -> ModSummary
+           -> ModGuts
+           -> Maybe Fingerprint
+           -> Hsc (HscStatus, HomeModInfo, Bool)
+finishGuts hsc_env summary guts0 mb_old_hash = do
+    let dflags = hsc_dflags hsc_env
+    when (gopt Opt_WriteFatInterface dflags) $ do
+        fat_iface <- liftIO $ hscFatIface hsc_env guts0
+        liftIO $ hscWriteFatIface dflags fat_iface summary
+    guts1 <- liftIO $ hscViaFatIface hsc_env guts0
+    guts <- hscSimplify' guts1
     (iface, changed, details, cgguts) <- liftIO $ hscNormalIface hsc_env guts mb_old_hash
 
     return (HscRecomp cgguts summary,
@@ -815,6 +846,26 @@ hscMergeFrontEnd mod_summary = do
                       }
                     }
     return iface
+
+hscFatInterfaceFrontEnd :: ModSummary -> Hsc ModGuts
+hscFatInterfaceFrontEnd mod_summary = do
+    hsc_env <- getHscEnv
+    let dflags = hsc_dflags hsc_env
+    fat_iface <- case ms_fat_iface mod_summary of
+                    Just iface -> return iface
+                    _ -> do let src_filename = ms_hspp_file mod_summary
+                            mb_iface <- liftIO . initIfaceCheck hsc_env $ readAnyIface src_filename
+                            case mb_iface of
+                                Succeeded r -> return r
+                                Failed e -> liftIO $ throwGhcExceptionIO (CmdLineError (showSDoc dflags e))
+    liftIO $ hscReadFatIface (text "fat interface") hsc_env
+                -- NB: These seem to just make a difference where there
+                -- are some optimizations which we can't apply if we don't
+                -- have accurate type families.  Instances seem to not matter
+                -- except for vectorizer.
+                emptyUFM -- TODO
+                emptyUFM -- TODO
+                fat_iface
 
 -- | Given a 'ModSummary', parses and typechecks it, returning the
 -- 'TcGblEnv' resulting from type-checking.
@@ -1252,9 +1303,59 @@ hscNormalIface' simpl_result mb_old_iface = do
     -- Return the prepared code.
     return (new_iface, no_change, details, cg_guts)
 
+hscFatIface :: HscEnv -> ModGuts -> IO ModIface
+hscFatIface hsc_env guts0 = do
+    guts <- tidyGuts hsc_env guts0
+    (iface, _) <- mkFatIface hsc_env guts
+    return iface
+
+-- For testing only, this forces a ModGuts through fat interface
+-- format.  Useful for wringing out any bugs related to
+-- serializing a ModGuts into a ModIface and back.
+hscViaFatIface :: HscEnv -> ModGuts -> IO ModGuts
+hscViaFatIface hsc_env guts0
+  | gopt Opt_ViaFatInterface (hsc_dflags hsc_env) = do
+    iface <- hscFatIface hsc_env guts0
+    -- TODO: should test that we can rederive this
+    let inst_env = mg_inst_env guts0
+        fam_inst_env = mg_fam_inst_env guts0
+    hscReadFatIface (text "-fvia-fat-interface") hsc_env inst_env fam_inst_env iface
+  | otherwise = return guts0
+
+hscReadFatIface :: SDoc -> HscEnv -> InstEnv -> FamInstEnv -> ModIface -> IO ModGuts
+hscReadFatIface loc_doc hsc_env inst_env fam_inst_env iface = do
+    -- We use the recursive types interface to feed in types into
+    -- the lazily typechecked ModGuts; if we didn't do this, TcIface
+    -- would attempt to load the interface we're compiling which
+    -- is a no-no.
+    tyenv_ref <- newIORef emptyTypeEnv
+    let export_set = availsToNameSet (mi_exports iface)
+        gbl_env = IfGblEnv { if_load_fat_interface = Just export_set
+                           , if_rec_types = Just (mi_module iface, readTcRef tyenv_ref) }
+        dflags = hsc_dflags hsc_env
+    showPassIO dflags CoreLoadGuts
+    initTcRnIf 'i' hsc_env gbl_env () . initIfaceLcl (mi_module iface) loc_doc $ do
+        details <- initIfaceTc iface $ \ tc_env_var -> -- hideous!
+                        updGblEnv (\env -> env { if_load_fat_interface = Just export_set } ) $
+                        typecheckIface' iface tc_env_var
+        -- Put in the types
+        writeTcRef tyenv_ref (md_types details)
+        -- Set up the IfaceEnv (TODO: don't need to do globals)
+        extendIfaceIdEnv (typeEnvIds (md_types details)) $ do
+        guts <- typecheckGuts inst_env fam_inst_env iface details
+        hsc_env <- getTopEnv
+        let print_unqual = mkPrintUnqualified dflags (mg_rdr_env guts)
+        liftIO $ endPassIO hsc_env print_unqual CoreLoadGuts (mg_binds guts) (mg_rules guts)
+        return guts
+
 --------------------------------------------------------------
 -- BackEnd combinators
 --------------------------------------------------------------
+
+hscWriteFatIface :: DynFlags -> ModIface -> ModSummary -> IO ()
+hscWriteFatIface dflags iface mod_summary = do
+    let ifaceFile = addFatSuffix (ml_hi_file (ms_location mod_summary))
+    writeIfaceFile dflags ifaceFile iface
 
 hscWriteIface :: DynFlags -> ModIface -> Bool -> ModSummary -> IO ()
 hscWriteIface dflags iface no_change mod_summary = do
@@ -1738,9 +1839,8 @@ mkModGuts mod safe binds =
         mg_loc          = mkGeneralSrcSpan (moduleNameFS (moduleName mod)),
                                   -- A bit crude
         mg_exports      = [],
+        mg_usages       = [],
         mg_deps         = noDependencies,
-        mg_dir_imps     = emptyModuleEnv,
-        mg_used_names   = emptyNameSet,
         mg_used_th      = False,
         mg_rdr_env      = emptyGlobalRdrEnv,
         mg_fix_env      = emptyFixityEnv,
@@ -1760,8 +1860,7 @@ mkModGuts mod safe binds =
         mg_inst_env     = emptyInstEnv,
         mg_fam_inst_env = emptyFamInstEnv,
         mg_safe_haskell = safe,
-        mg_trust_pkg    = False,
-        mg_dependent_files = []
+        mg_trust_pkg    = False
     }
 
 

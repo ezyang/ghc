@@ -192,6 +192,16 @@ pprIdDetails other     = brackets (pp other)
 -- Most of the 'IdInfo' gives information about the value, or definition, of
 -- the 'Id', independent of its usage. Exceptions to this
 -- are 'demandInfo', 'occInfo', 'oneShotInfo' and 'callArityInfo'.
+--
+-- Some 'IdInfo' is calculated while we are simplifying or tidying a program,
+-- but there are a few cases where 'IdInfo' comes from the user program,
+-- so it is well worth making sure we hold onto it.  Specifically:
+--
+--  1. 'SpecInfo', which may be non-empty for local IDs.  When we tidy,
+--  we'll collect these into the global rules for a module.
+--
+--  2. 'InlinePragma', which records what the user wrote, so we don't want to
+--  lose that.
 data IdInfo
   = IdInfo {
         arityInfo       :: !ArityInfo,          -- ^ 'Id' arity
@@ -339,7 +349,7 @@ pprStrictness sig = ppr sig
 
 Note [Specialisations and RULES in IdInfo]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Generally speaking, a GlobalIdshas an *empty* RuleInfo.  All their
+Generally speaking, a GlobalId has an *empty* SpecInfo.  All their
 RULES are contained in the globally-built rule-base.  In principle,
 one could attach the to M.f the RULES for M.f that are defined in M.
 But we don't do that for instance declarations and so we just treat

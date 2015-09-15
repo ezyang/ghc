@@ -54,6 +54,9 @@ import StringBuffer
 import SysTools
 import UniqFM
 import Util
+import LoadIface
+
+import qualified Maybes
 
 import Data.Either ( rights, partitionEithers )
 import qualified Data.Map as Map
@@ -1795,7 +1798,51 @@ summariseFile hsc_env old_summaries file mb_phase obj_allowed maybe_buf
                            Nothing    -> liftIO $ getModificationUTCTime file
                         -- getMofificationUTCTime may fail
 
-    new_summary src_timestamp = do
+    new_summary src_timestamp
+      | let dflags = hsc_dflags hsc_env
+      , gopt Opt_FromFatInterface dflags
+      = do
+        mb_iface <- initIfaceCheck hsc_env $ readAnyIface file
+        fat_iface <- case mb_iface of
+                    Maybes.Succeeded r -> return r
+                    Maybes.Failed e -> throwGhcExceptionIO (CmdLineError (showSDoc dflags (text file $$ e)))
+        let mod_name = moduleName (mi_module fat_iface)
+            -- TODO: dedupe me
+            (pre_srcimps, pre_the_imps) = partition snd (dep_mods (mi_deps fat_iface))
+            srcimps = [(Nothing, noLoc modname) | (modname, _) <- pre_srcimps]
+            the_imps = [(Nothing, noLoc modname) | (modname, _) <- pre_the_imps]
+                -- Find the object timestamp, and return the summary
+
+        -- Make a ModLocation for this file
+        location <- liftIO $ mkHomeModLocation dflags mod_name file
+
+        -- Tell the Finder cache where it is, so that subsequent calls
+        -- to findModule will find it, even if it's not on any search path
+        mod <- liftIO $ addHomeModuleToFinder hsc_env mod_name location
+
+        obj_timestamp <-
+           if isObjectTarget (hscTarget (hsc_dflags hsc_env))
+              || obj_allowed -- bug #1205
+              then liftIO $ modificationTimeIfExists (ml_obj_file location)
+              else return Nothing
+
+        hi_timestamp <- maybeGetIfaceDate dflags location
+
+        return (ModSummary { ms_mod       = mod,
+                              ms_hsc_src   = HiFatFile,
+                              ms_location  = location,
+                              ms_hspp_file = file,
+                              ms_hspp_opts = dflags,
+                              ms_hspp_buf  = Nothing,
+                              ms_fat_iface = Just fat_iface,
+                              ms_srcimps      = srcimps,
+                              ms_textual_imps = the_imps,
+                              ms_merge_imps = (False, []),
+                              ms_hs_date   = src_timestamp,
+                              ms_iface_date = hi_timestamp,
+                              ms_obj_date  = obj_timestamp })
+      | otherwise
+      = do
         let dflags = hsc_dflags hsc_env
 
         (dflags', hspp_fn, buf)
@@ -1828,6 +1875,7 @@ summariseFile hsc_env old_summaries file mb_phase obj_allowed maybe_buf
                              ms_hspp_file = hspp_fn,
                              ms_hspp_opts = dflags',
                              ms_hspp_buf  = Just buf,
+                             ms_fat_iface = Nothing,
                              ms_srcimps = srcimps, ms_textual_imps = the_imps,
                              ms_merge_imps = (False, []),
                              ms_hs_date = src_timestamp,
@@ -1929,6 +1977,7 @@ summariseModule hsc_env old_summary_map is_boot (L loc wanted_mod)
     just_found location mod = do
                 -- Adjust location to point to the hs-boot source file,
                 -- hi file, object file, when is_boot says so
+                -- TODO: booting this is wrong for hi-fat
         let location' | IsBoot <- is_boot = addBootSuffixLocn location
                       | otherwise         = location
             src_fn = expectJust "summarise2" (ml_hs_file location')
@@ -1942,6 +1991,40 @@ summariseModule hsc_env old_summary_map is_boot (L loc wanted_mod)
 
 
     new_summary location mod src_fn src_timestamp
+      | gopt Opt_FromFatInterface dflags
+      = do
+        mb_iface <- initIfaceCheck hsc_env $ readAnyIface src_fn
+        fat_iface <- case mb_iface of
+                    Maybes.Succeeded r -> return r
+                    Maybes.Failed e -> throwGhcExceptionIO (CmdLineError (showSDoc dflags e))
+        let -- TODO: dedupe me
+            (pre_srcimps, pre_the_imps) = partition snd (dep_mods (mi_deps fat_iface))
+            srcimps = [(Nothing, noLoc modname) | (modname, _) <- pre_srcimps]
+            the_imps = [(Nothing, noLoc modname) | (modname, _) <- pre_the_imps]
+                -- Find the object timestamp, and return the summary
+                -- Find the object timestamp, and return the summary
+        obj_timestamp <-
+           if isObjectTarget (hscTarget (hsc_dflags hsc_env))
+              || obj_allowed -- bug #1205
+              then getObjTimestamp location is_boot
+              else return Nothing
+
+        hi_timestamp <- maybeGetIfaceDate dflags location
+        return (Just (Right (ModSummary { ms_mod       = mod,
+                              ms_hsc_src   = HiFatFile,
+                              ms_location  = location,
+                              ms_hspp_file = src_fn,
+                              ms_hspp_opts = dflags,
+                              ms_hspp_buf  = Nothing,
+                              ms_fat_iface = Just fat_iface,
+                              ms_srcimps      = srcimps,
+                              ms_textual_imps = the_imps,
+                              ms_merge_imps = (False, []),
+                              ms_hs_date   = src_timestamp,
+                              ms_iface_date = hi_timestamp,
+                              ms_obj_date  = obj_timestamp })))
+
+      | otherwise
       = do
         -- Preprocess the source file and get its imports
         -- The dflags' contains the OPTIONS pragmas
@@ -1974,6 +2057,7 @@ summariseModule hsc_env old_summary_map is_boot (L loc wanted_mod)
                               ms_hspp_file = hspp_fn,
                               ms_hspp_opts = dflags',
                               ms_hspp_buf  = Just buf,
+                              ms_fat_iface = Nothing,
                               ms_srcimps      = srcimps,
                               ms_textual_imps = the_imps,
                               ms_merge_imps = (False, []),

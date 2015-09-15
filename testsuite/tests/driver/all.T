@@ -453,3 +453,18 @@ test('T365',
       unless(opsys('mingw32'), skip)],
       compile_fail,
       [''])
+
+test('hifat01',
+     extra_clean(['HiFat01.hi-fat', 'HiFat01.hi', 'HiFat01.o']),
+     run_command,
+     ['$MAKE -s --no-print-directory hifat01'])
+
+test('hifat02_oneshot',
+     extra_clean(['hifat02_oneshot']),
+     run_command,
+     ['$MAKE -s --no-print-directory hifat02_oneshot'])
+
+test('hifat02_make',
+     extra_clean(['hifat02_make']),
+     run_command,
+     ['$MAKE -s --no-print-directory hifat02_make'])

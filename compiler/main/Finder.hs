@@ -224,6 +224,9 @@ findHomeModule hsc_env mod_name =
      home_path = importPaths dflags
      hisuf = hiSuf dflags
      mod = mkModule (thisPackage dflags) mod_name
+     home_hisuf = if gopt Opt_WriteFatInterface dflags
+                    then hisuf ++ "-fat"
+                    else hisuf
 
      source_exts =
       [ ("hs",   mkHomeModLocationSearched dflags mod_name "hs")
@@ -235,7 +238,11 @@ findHomeModule hsc_env mod_name =
       , ("lhs-boot",  mkHomeModLocationSearched dflags mod_name "lhs")
       ]
 
-     hi_exts = [ (hisuf,                mkHiOnlyModLocation dflags hisuf)
+     hi_fat_exts =
+       [ ("hi-fat", mkHomeModLocationSearched dflags mod_name "hi-fat")
+       ]
+
+     hi_exts = [ (home_hisuf,           mkHiOnlyModLocation dflags home_hisuf)
                , (addBootSuffix hisuf,  mkHiOnlyModLocation dflags hisuf)
                ]
 
@@ -243,6 +250,7 @@ findHomeModule hsc_env mod_name =
         -- package because we can compile these automatically.  In one-shot
         -- compilation mode we look for .hi and .hi-boot files only.
      exts | isOneShot (ghcMode dflags) = hi_exts
+          | gopt Opt_FromFatInterface dflags = hi_fat_exts
           | otherwise                  = source_exts
    in
 

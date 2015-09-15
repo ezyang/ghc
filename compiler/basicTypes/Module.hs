@@ -60,6 +60,7 @@ module Module
         -- * The ModuleLocation type
         ModLocation(..),
         addBootSuffix, addBootSuffix_maybe, addBootSuffixLocn,
+        addFatSuffix,
 
         -- * Module mappings
         ModuleEnv,
@@ -135,6 +136,10 @@ correspond to actual files yet: for example, even if the object
 file doesn't exist, the ModLocation still contains the path to
 where the object file will reside if/when it is created.
 -}
+
+addFatSuffix :: FilePath -> FilePath
+-- ^ Add the @-fat@ suffix to .hi files
+addFatSuffix path = path ++ "-fat"
 
 addBootSuffix :: FilePath -> FilePath
 -- ^ Add the @-boot@ suffix to .hs, .hi and .o files

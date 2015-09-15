@@ -54,6 +54,9 @@ module Var (
         isGlobalId, isExportedId,
         mustHaveLocalBinding,
 
+        -- ** For fat interface files...
+        IdScope(..), ExportFlag(..), idScope,
+
         -- ** Constructing 'TyVar's
         mkTyVar, mkTcTyVar, mkKindVar,
 

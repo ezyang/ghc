@@ -143,7 +143,7 @@ test('T5658b',
      run_command,
      ['$MAKE -s --no-print-directory T5658b'])
 test('T5776',
-     normal,
+     extra_ways(['viafat']),
      run_command,
      ['$MAKE -s --no-print-directory T5776'])
 test('T4138',
