@@ -68,7 +68,7 @@ module HscTypes (
         -- * Interfaces
         ModIface(..), mkIfaceWarnCache, mkIfaceHashCache, mkIfaceFixCache,
         emptyIfaceWarnCache, mi_boot,
-        ModImpl(..),
+        CgIface(..),
 
         -- * Fixity
         FixityEnv, FixItem(..), lookupFixity, emptyFixityEnv,
@@ -811,8 +811,8 @@ data ModIface
                 -- Strictly speaking this field should live in the
                 -- 'HomeModInfo', but that leads to more plumbing.
 
-        mi_impl :: Maybe ModImpl,
-                -- Ingredients to turn this into a ModGuts
+        mi_impl :: Maybe CgIface,
+                -- Code generation bits, only Just for a fat interface.
 
                 -- Instance declarations and rules
         mi_insts       :: [IfaceClsInst],     -- ^ Sorted class instance
@@ -1019,12 +1019,10 @@ mkIfaceHashCache pairs
 emptyIfaceHashCache :: OccName -> Maybe (OccName, Fingerprint)
 emptyIfaceHashCache _occ = Nothing
 
-data ModImpl
-  = ModImpl {
-        -- Result of processing the imports
-        impl_rdr_env :: GlobalRdrEnv, -- Vectoriser only
-        impl_hpc_info :: HpcInfo, -- MkIface
-        impl_foreign :: ForeignStubs -- seems a bit difficult to serialize SDoc...
+data CgIface
+  = CgIface {
+        ci_hpc_info :: HpcInfo,
+        ci_foreign :: ForeignStubs
     }
 
 -- | The 'ModDetails' is essentially a cache for information in the 'ModIface'

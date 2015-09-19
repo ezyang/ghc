@@ -72,6 +72,7 @@ import DynFlags
 import Util
 import FastString
 import Rules (mkSpecInfo)
+import RdrName
 
 import Control.Monad
 import qualified Data.Map as Map
@@ -114,8 +115,7 @@ simplifier).
 
 -- | Turn a ModIface and ModDetails into a ModGuts
 typecheckGuts :: InstEnv -> FamInstEnv -> ModIface -> ModDetails -> IfL ModGuts
-typecheckGuts _ _ ModIface { mi_impl = Nothing } _ = error "shouldn't happen"
-typecheckGuts inst_env fam_inst_env mod_iface@ModIface { mi_impl = Just mod_impl } mod_details = do
+typecheckGuts inst_env fam_inst_env mod_iface mod_details = do
     fixities <- forM (mi_fixities mod_iface) $ \(occ,fix) -> do
         name <- lookupIfaceTop occ
         return (name, FixItem occ fix)
@@ -138,7 +138,7 @@ typecheckGuts inst_env fam_inst_env mod_iface@ModIface { mi_impl = Just mod_impl
         mg_deps    = mi_deps mod_iface,
         mg_usages  = mi_usages mod_iface,
         mg_used_th = mi_used_th mod_iface,
-        mg_rdr_env = impl_rdr_env mod_impl, -- same as mi_globals but it is serialized
+        mg_rdr_env = emptyGlobalRdrEnv, -- HACK
 
         mg_fix_env = mkNameEnv fixities,
         mg_tcs     = typeEnvTyCons (md_types mod_details),
@@ -148,13 +148,15 @@ typecheckGuts inst_env fam_inst_env mod_iface@ModIface { mi_impl = Just mod_impl
 
         mg_rules   = md_rules mod_details,
         mg_binds   = [Rec binds],
-        mg_foreign = impl_foreign mod_impl,
         mg_warns   = mi_warns mod_iface,
         mg_anns    = md_anns mod_details,
-        mg_hpc_info  = impl_hpc_info mod_impl, -- more detailed than mi_hpc
         mg_modBreaks = emptyModBreaks,   -- TODO: implement me
         mg_vect_decls= [] :: [CoreVect], -- TODO: implement me
         mg_vect_info = md_vect_info mod_details,
+
+        -- TODO!
+        mg_foreign   = maybe NoStubs ci_foreign (mi_impl mod_iface),
+        mg_hpc_info  = maybe (NoHpcInfo (mi_hpc mod_iface)) ci_hpc_info (mi_impl mod_iface),
 
         mg_inst_env    = extendInstEnvList inst_env (md_insts mod_details),
         mg_fam_inst_env= extendFamInstEnvList fam_inst_env (md_fam_insts mod_details),

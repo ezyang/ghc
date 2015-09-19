@@ -267,12 +267,11 @@ mkDependencies
                     -- sort to get into canonical order
                     -- NB. remember to use lexicographic ordering
 
-mkImpl :: ModGuts -> IO ModImpl
-mkImpl guts = do
-    return ModImpl {
-            impl_rdr_env = mg_rdr_env guts,
-            impl_hpc_info = mg_hpc_info guts,
-            impl_foreign = mg_foreign guts
+mkCgIface :: ModGuts -> IO CgIface
+mkCgIface guts = do
+    return CgIface {
+            ci_hpc_info = mg_hpc_info guts,
+            ci_foreign = mg_foreign guts
         }
 
 mkIface_ :: HscEnv -> Maybe Fingerprint -> Module -> HscSource
@@ -303,7 +302,7 @@ mkIface_ hsc_env maybe_old_fingerprint
   = do
     mb_impl <- case mb_guts of
                 Nothing -> return Nothing
-                Just guts -> fmap Just (mkImpl guts)
+                Just guts -> fmap Just (mkCgIface guts)
 
     let entities = typeEnvElts type_env
         decls0 = [ tyThingToIfaceDecl entity
