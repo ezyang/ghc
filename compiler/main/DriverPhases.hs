@@ -123,6 +123,7 @@ data Phase
         | Cpp   HscSource
         | HsPp  HscSource
         | Hsc   HscSource
+        | HsFat HscSource
         | Ccxx          -- Compile C++
         | Cc            -- Compile C
         | Cobjc         -- Compile Objective-C
@@ -208,6 +209,7 @@ nextPhase dflags p
       Cpp   sf   -> HsPp sf
       HsPp  sf   -> Hsc  sf
       Hsc   _    -> maybeHCc
+      HsFat _    -> maybeHCc
       Splitter   -> SplitAs
       LlvmOpt    -> LlvmLlc
       LlvmLlc    -> LlvmMangle
@@ -238,6 +240,7 @@ startPhase "hs-boot"  = Cpp   HsBootFile
 startPhase "hsig"     = Cpp   HsigFile
 startPhase "hscpp"    = HsPp  HsSrcFile
 startPhase "hspp"     = Hsc   HsSrcFile
+startPhase "hi-fat"   = HsFat HsSrcFile -- Boot?
 startPhase "hc"       = HCc
 startPhase "c"        = Cc
 startPhase "cpp"      = Ccxx
@@ -268,6 +271,7 @@ phaseInputExt (Unlit HsigFile)    = "lhsig"
 phaseInputExt (Cpp   _)           = "lpp"       -- intermediate only
 phaseInputExt (HsPp  _)           = "hscpp"     -- intermediate only
 phaseInputExt (Hsc   _)           = "hspp"      -- intermediate only
+phaseInputExt (HsFat _)           = "hspp"      -- intermediate only
         -- NB: as things stand, phaseInputExt (Hsc x) must not evaluate x
         --     because runPipeline uses the StopBefore phase to pick the
         --     output filename.  That could be fixed, but watch out.

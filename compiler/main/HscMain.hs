@@ -45,6 +45,7 @@ module HscMain
     , genModDetails
     , hscSimpleIface
     , hscWriteIface
+    , hscWriteFatIface
     , hscNormalIface
     , hscFatIface
     , hscViaFatIface
@@ -630,11 +631,14 @@ hscCompileOneShot' hsc_env mod_summary src_changed
                   return HscUpToDate
 
         compile mb_old_hash reason = runHsc hsc_env' $ do
+            dflags <- getDynFlags
             liftIO $ msg reason
             tc_result <- genericHscFrontend mod_summary
             guts0 <- hscDesugar' (ms_location mod_summary) tc_result
+            when (gopt Opt_WriteFatInterface dflags) $ liftIO $ do
+                iface <- hscFatIface hsc_env guts0
+                hscWriteFatIface dflags iface mod_summary
             guts1 <- liftIO $ hscViaFatIface hsc_env guts0
-            dflags <- getDynFlags
             case hscTarget dflags of
                 HscNothing -> do
                     when (gopt Opt_WriteInterface dflags) $ liftIO $ do
@@ -1212,6 +1216,11 @@ hscReadFatIface loc_doc hsc_env inst_env fam_inst_env iface = do
 --------------------------------------------------------------
 -- BackEnd combinators
 --------------------------------------------------------------
+
+hscWriteFatIface :: DynFlags -> ModIface -> ModSummary -> IO ()
+hscWriteFatIface dflags iface mod_summary = do
+    let ifaceFile = addFatSuffix (ml_hi_file (ms_location mod_summary))
+    writeIfaceFile dflags ifaceFile iface
 
 hscWriteIface :: DynFlags -> ModIface -> Bool -> ModSummary -> IO ()
 hscWriteIface dflags iface no_change mod_summary = do
