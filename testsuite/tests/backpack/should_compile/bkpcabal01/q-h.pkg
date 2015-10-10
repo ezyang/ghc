@@ -1,0 +1,7 @@
+id: q(H=h:H)
+name: q
+version: 1.0
+exposed: True
+depends: p(H=h:H), h
+exposed-modules: B
+import-dirs: ${pkgroot}/q/q-6KeuBvYi0jvLWqVbkSAZMq

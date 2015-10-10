@@ -137,7 +137,7 @@ typecheckIface iface
         ; anns      <- tcIfaceAnnotations (mi_anns iface)
 
                 -- Vectorisation information
-        ; vect_info <- tcIfaceVectInfo (mi_module iface) type_env (mi_vect_info iface)
+        ; vect_info <- tcIfaceVectInfo (mi_semantic_module iface) type_env (mi_vect_info iface)
 
                 -- Exports
         ; exports <- ifaceExportNames (mi_exports iface)
@@ -1308,7 +1308,7 @@ tcIfaceGlobal name
                 ; case lookupNameEnv type_env name of
                         Just thing -> return thing
                         Nothing   -> pprPanic "tcIfaceGlobal (local): not found:"
-                                                (ppr name $$ ppr type_env) }
+                                                (if_doc env $$ ppr name $$ ppr type_env) }
 
           ; _ -> do
 

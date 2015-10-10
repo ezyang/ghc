@@ -1,0 +1,30 @@
+[1 of 5] Processing p
+/--- Shape for p
+provides:
+requires: H -> T{T}
+\---
+  [1 of 1] Compiling H[sig]           ( p/H.hsig, nothing )
+[2 of 5] Processing q
+/--- Shape for q
+provides:
+requires: H -> T{T, T}
+\---
+  [1 of 1] Compiling H[sig]           ( q/H.hsig, nothing )
+[3 of 5] Processing pq0
+/--- Shape for pq0
+provides:
+requires: H -> T{T, T}
+\---
+  [1 of 1] Compiling H[sig]           ( pq0/H.hsig, nothing )
+[4 of 5] Processing pq1
+/--- Shape for pq1
+provides:
+requires: H -> T{T, T}
+\---
+  [1 of 1] Compiling H[sig]           ( pq1/H.hsig, nothing )
+[5 of 5] Processing pq2
+/--- Shape for pq2
+provides:
+requires: H -> T{T, T}
+\---
+  [1 of 1] Compiling H[sig]           ( pq2/H.hsig, nothing )

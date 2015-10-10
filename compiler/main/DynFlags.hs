@@ -328,6 +328,7 @@ data DumpFlag
    | Opt_D_dump_occur_anal
    | Opt_D_dump_parsed
    | Opt_D_dump_rn
+   | Opt_D_dump_shape
    | Opt_D_dump_simpl
    | Opt_D_dump_simpl_iterations
    | Opt_D_dump_spec
@@ -669,6 +670,13 @@ data DynFlags = DynFlags {
                                          --   Typically only 1 is needed
 
   thisPackage           :: UnitId,   -- ^ key of package currently being compiled
+  thisComponentId       :: ComponentId,
+                            -- ^ Cabal-specified ComponentId identifying
+                            -- what is being compiled
+  thisComponentName     :: Maybe ComponentName,
+                            -- ^ If this is set, we're assumed to only be
+                            -- compiling a single component (even if a Backpack
+                            -- file has many)
 
   -- ways
   ways                  :: [Way],       -- ^ Way flags from the command line
@@ -756,6 +764,10 @@ data DynFlags = DynFlags {
         -- ^ The @-trust@ and @-distrust@ flags
   packageEnv            :: Maybe FilePath,
         -- ^ Filepath to the package environment file (if overriding default)
+  packageModuleMap      :: Map ModuleName Module,
+        -- ^ Backpack programmable mapping of module names to modules
+  requirementsMap       :: Map ModuleName [Module],
+        -- ^ Backpack programmable mapping of module names to requirements
 
   -- Package state
   -- NB. do not modify this field, it is calculated by
@@ -1456,6 +1468,8 @@ defaultDynFlags mySettings =
         solverIterations        = treatZeroAsInf mAX_SOLVER_ITERATIONS,
 
         thisPackage             = mainUnitId,
+        thisComponentId         = ComponentId (fsLit ""),
+        thisComponentName       = Nothing,
 
         objectDir               = Nothing,
         dylibInstallName        = Nothing,
@@ -1502,6 +1516,8 @@ defaultDynFlags mySettings =
         ignorePackageFlags      = [],
         trustFlags              = [],
         packageEnv              = Nothing,
+        packageModuleMap        = Map.empty,
+        requirementsMap         = Map.empty,
         pkgDatabase             = Nothing,
         -- This gets filled in with GHC.setSessionDynFlags
         pkgState                = emptyPackageState,
@@ -1729,6 +1745,7 @@ dopt f dflags = (fromEnum f `IntSet.member` dumpFlags dflags)
           enableIfVerbose Opt_D_dump_vt_trace               = False
           enableIfVerbose Opt_D_dump_tc                     = False
           enableIfVerbose Opt_D_dump_rn                     = False
+          enableIfVerbose Opt_D_dump_shape                  = False
           enableIfVerbose Opt_D_dump_rn_stats               = False
           enableIfVerbose Opt_D_dump_hi_diffs               = False
           enableIfVerbose Opt_D_verbose_core2core           = False
@@ -2508,6 +2525,7 @@ dynamic_flags = [
   , defGhcFlag "ddump-cse"               (setDumpFlag Opt_D_dump_cse)
   , defGhcFlag "ddump-worker-wrapper"    (setDumpFlag Opt_D_dump_worker_wrapper)
   , defGhcFlag "ddump-rn-trace"          (setDumpFlag Opt_D_dump_rn_trace)
+  , defGhcFlag "ddump-shape"             (setDumpFlag Opt_D_dump_shape)
   , defGhcFlag "ddump-if-trace"          (setDumpFlag Opt_D_dump_if_trace)
   , defGhcFlag "ddump-cs-trace"          (setDumpFlag Opt_D_dump_cs_trace)
   , defGhcFlag "ddump-tc-trace"          (NoArg (do
@@ -3895,6 +3913,12 @@ exposePackage' p dflags
 
 setUnitId :: String -> DynFlags -> DynFlags
 setUnitId p s =  s{ thisPackage = stringToUnitId p }
+
+setComponentId :: String -> DynFlags -> DynFlags
+setComponentId v s = s{ thisComponentId = ComponentId (mkFastString v) }
+
+setComponentName :: String -> DynFlags -> DynFlags
+setComponentName v s = s{ thisComponentName = Just (ComponentName (mkFastString v)) }
 
 -- -----------------------------------------------------------------------------
 -- | Find the package environment (if one exists)
