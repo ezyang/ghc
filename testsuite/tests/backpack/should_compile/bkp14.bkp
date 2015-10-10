@@ -1,0 +1,13 @@
+unit p where
+    signature H where
+        data T
+        f :: T
+unit impl where
+    module F where
+        data T = T
+        f = T
+    module H(T, f) where
+        import F
+unit q where
+    include impl
+    include p

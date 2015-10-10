@@ -86,6 +86,8 @@ module HscMain
     , hscSimpleIface', hscNormalIface'
     , oneShotMsg
     , hscFileFrontEnd, genericHscFrontend, dumpIfaceStats
+    , ioMsgMaybe
+    , showModuleIndex
     ) where
 
 #ifdef GHCI
@@ -138,11 +140,11 @@ import CmmBuildInfoTables
 import CmmPipeline
 import CmmInfo
 import CodeOutput
-import NameEnv          ( emptyNameEnv )
 import InstEnv
 import FamInstEnv
 import Fingerprint      ( Fingerprint )
 import Hooks
+import TcEnv
 import Maybes
 
 import DynFlags
@@ -349,7 +351,9 @@ hscParse hsc_env mod_summary = runHsc hsc_env $ hscParse' mod_summary
 
 -- internal version, that doesn't fail due to -Werror
 hscParse' :: ModSummary -> Hsc HsParsedModule
-hscParse' mod_summary = do
+hscParse' mod_summary
+ | Just r <- ms_parsed_mod mod_summary = return r
+ | otherwise = do
     dflags <- getDynFlags
     let src_filename  = ms_hspp_file mod_summary
         maybe_src_buf = ms_hspp_buf  mod_summary

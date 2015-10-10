@@ -1,0 +1,21 @@
+unit p where
+    signature A where
+        data A
+    signature B where
+        import A
+        data B = B A
+
+unit q where
+    signature B where
+        data B
+    signature A where
+        import B
+        data A = A B
+
+unit pq where
+    include p
+    include q
+    module M where
+        import A
+        import B
+        x = A (B x)

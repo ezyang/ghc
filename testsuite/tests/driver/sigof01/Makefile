@@ -19,5 +19,5 @@ sigof01:
 sigof01m:
 	rm -rf tmp_sigof01m
 	mkdir tmp_sigof01m
-	'$(TEST_HC)' $(TEST_HC_OPTS_NO_RECOMP) -outputdir tmp_sigof01m --make Main.hs -sig-of "B is main:A" -o tmp_sigof01m/Main
+	'$(TEST_HC)' $(TEST_HC_OPTS_NO_RECOMP) -outputdir tmp_sigof01m --make A.hs B.hsig Main.hs -sig-of "B is main:A" -o tmp_sigof01m/Main
 	tmp_sigof01m/Main

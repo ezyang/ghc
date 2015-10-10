@@ -1,4 +1,4 @@
-{-# LANGUAGE CPP, RecordWildCards, MultiParamTypeClasses #-}
+{-# LANGUAGE CPP, RecordWildCards, FlexibleInstances, MultiParamTypeClasses #-}
 
 -- |
 -- Package configuration information: essentially the interface to Cabal, with
@@ -40,6 +40,7 @@ import Unique
 -- which is similar to a subset of the InstalledPackageInfo type from Cabal.
 
 type PackageConfig = InstalledPackageInfo
+                       ComponentId
                        SourcePackageId
                        PackageName
                        Module.UnitId
@@ -50,13 +51,8 @@ type PackageConfig = InstalledPackageInfo
 --       feature, but ghc doesn't currently have convenient support for any
 --       other compact string types, e.g. plain ByteString or Text.
 
-newtype ComponentId = ComponentId FastString deriving (Eq, Ord)
 newtype SourcePackageId    = SourcePackageId    FastString deriving (Eq, Ord)
 newtype PackageName        = PackageName        FastString deriving (Eq, Ord)
-
-instance BinaryStringRep ComponentId where
-  fromStringRep = ComponentId . mkFastStringByteString
-  toStringRep (ComponentId s) = fastStringToByteString s
 
 instance BinaryStringRep SourcePackageId where
   fromStringRep = SourcePackageId . mkFastStringByteString
@@ -66,17 +62,11 @@ instance BinaryStringRep PackageName where
   fromStringRep = PackageName . mkFastStringByteString
   toStringRep (PackageName s) = fastStringToByteString s
 
-instance Uniquable ComponentId where
-  getUnique (ComponentId n) = getUnique n
-
 instance Uniquable SourcePackageId where
   getUnique (SourcePackageId n) = getUnique n
 
 instance Uniquable PackageName where
   getUnique (PackageName n) = getUnique n
-
-instance Outputable ComponentId where
-  ppr (ComponentId str) = ftext str
 
 instance Outputable SourcePackageId where
   ppr (SourcePackageId str) = ftext str
@@ -124,7 +114,6 @@ pprPackageConfig InstalledPackageInfo {..} =
     ]
   where
     field name body = text name <> colon <+> nest 4 body
-
 
 -- -----------------------------------------------------------------------------
 -- UnitId (package names, versions and dep hash)

@@ -1,0 +1,46 @@
+[1 of 2] Processing helper
+  [1 of 2] Compiling H[sig]           ( helper/H.hsig, nothing )
+  [2 of 2] Compiling B                ( helper/B.hs, nothing )
+[2 of 2] Processing p
+  [1 of 2] Compiling H[sig]           ( p/H.hsig, nothing )
+  [2 of 2] Compiling A                ( p/A.hs, nothing )
+Reading package info from "p-helper.pkg" ... done.
+Reading package info from "p.pkg" ... done.
+[1 of 1] Processing q
+  [1 of 2] Compiling H[sig]           ( q/H.hsig, nothing )
+  [2 of 2] Compiling B                ( q/B.hs, nothing )
+Reading package info from "q.pkg" ... done.
+[1 of 1] Processing h
+  Instantiating h
+  [1 of 1] Compiling H                ( h/H.hs, h/H.o )
+Reading package info from "h.pkg" ... done.
+[1 of 2] Processing helper
+[2 of 2] Processing p
+  Instantiating p-1.0(h-1.0:H)
+  [1 of 1] Including p-helper
+    Instantiating p-helper(h-1.0:H)
+    [1 of 2] Compiling H[sig]           ( helper/H.hsig, nothing )
+    [2 of 2] Compiling B                ( helper/B.hs, p/p-helper/p-helper-6KeuBvYi0jvLWqVbkSAZMq/B.o )
+  [1 of 2] Compiling H[sig]           ( p/H.hsig, nothing )
+  [2 of 2] Compiling A                ( p/A.hs, p/p-6KeuBvYi0jvLWqVbkSAZMq/A.o )
+Reading package info from "p-helper-h.pkg" ... done.
+Reading package info from "p-h.pkg" ... done.
+[1 of 2] Processing helper
+  [1 of 2] Compiling H[sig]           ( helper/H.hsig, nothing )
+  [2 of 2] Compiling B                ( helper/B.hs, nothing )
+[2 of 2] Processing p
+  Instantiating p-1.0(h-1.0:H)
+  [1 of 1] Including p-helper
+  [1 of 2] Compiling H[sig]           ( p/H.hsig, nothing )
+  [2 of 2] Compiling A                ( p/A.hs, p/p-6KeuBvYi0jvLWqVbkSAZMq/A.o )
+[1 of 1] Processing q
+  Instantiating q-1.0(h-1.0:H)
+  [1 of 1] Including p-1.0
+  [1 of 2] Compiling H[sig]           ( q/H.hsig, nothing )
+  [2 of 2] Compiling B                ( q/B.hs, q/q-6KeuBvYi0jvLWqVbkSAZMq/B.o )
+Reading package info from "q-h.pkg" ... done.
+[1 of 1] Processing r
+  Instantiating r
+  [1 of 2] Including h-1.0
+  [2 of 2] Including q-1.0
+  [1 of 1] Compiling C                ( r/C.hs, r/C.o )

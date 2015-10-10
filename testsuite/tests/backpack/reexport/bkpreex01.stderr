@@ -1,0 +1,5 @@
+[1 of 2] Processing h
+  [1 of 1] Compiling H[sig]           ( h/H.hsig, nothing )
+
+bkpreex01.bkp:2:5: error:
+    Explicit exports not supported in hsig files

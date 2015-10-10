@@ -1,0 +1,7 @@
+[1 of 2] Processing q
+  [1 of 3] Compiling X[sig]           ( q/X.hsig, nothing )
+  [2 of 3] Compiling T                ( q/T.hs, nothing )
+  [3 of 3] Compiling H[sig]           ( q/H.hsig, nothing )
+
+bkprec02.bkp:7:5: error:
+    Explicit exports not supported in hsig files

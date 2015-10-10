@@ -1,0 +1,25 @@
+[1 of 4] Processing ab-sigs
+unit ab-sigs(hole:A, hole:B)
+  [1 of 2] Compiling A[sig]           ( ab-sigs/A.hsig, nothing )
+  [2 of 2] Compiling B[sig]           ( ab-sigs/B.hsig, nothing )
+[2 of 4] Processing ab
+unit ab(hole:B)
+- include ab-sigs(hole:A, hole:B) []
+  [1 of 2] Compiling B[sig]           ( ab/B.hsig, nothing )
+  [2 of 2] Compiling A                ( ab/A.hs, nothing )
+[3 of 4] Processing ba
+unit ba(hole:A)
+- include ab-sigs(hole:A, hole:B) []
+  [1 of 2] Compiling A[sig]           ( ba/A.hsig, nothing )
+  [2 of 2] Compiling B                ( ba/B.hs, nothing )
+[4 of 4] Processing ab-rec
+  Instantiating ab-rec
+ghc-stage2: panic! (the 'impossible' happened)
+  (GHC version 8.1.20160202 for x86_64-unknown-linux):
+	cycles not supported
+CallStack (from ImplicitParams):
+  error, called at compiler/backpack/Shaping.hs:207:20 in ghc:Shaping
+  unroll, called at compiler/backpack/Shaping.hs:208:19 in ghc:Shaping
+
+Please report this as a GHC bug:  http://www.haskell.org/ghc/reportabug
+

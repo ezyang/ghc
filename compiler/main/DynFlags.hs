@@ -201,6 +201,7 @@ import System.IO
 import System.IO.Error
 import Text.ParserCombinators.ReadP hiding (char)
 import Text.ParserCombinators.ReadP as R
+import Text.ParserCombinators.ReadP as Parse
 
 import Data.IntSet (IntSet)
 import qualified Data.IntSet as IntSet
@@ -328,6 +329,7 @@ data DumpFlag
    | Opt_D_dump_occur_anal
    | Opt_D_dump_parsed
    | Opt_D_dump_rn
+   | Opt_D_dump_shape
    | Opt_D_dump_simpl
    | Opt_D_dump_simpl_iterations
    | Opt_D_dump_spec
@@ -674,6 +676,9 @@ data DynFlags = DynFlags {
                                          --   Typically only 1 is needed
 
   thisPackage           :: UnitId,   -- ^ key of package currently being compiled
+  thisComponentId       :: ComponentId,
+                            -- ^ Cabal-specified ComponentId identifying
+                            -- what is being compiled
 
   -- ways
   ways                  :: [Way],       -- ^ Way flags from the command line
@@ -1137,8 +1142,11 @@ isNoLink _      = False
 -- is used.
 data PackageArg =
       PackageArg String    -- ^ @-package@, by 'PackageName'
-    | UnitIdArg String     -- ^ @-package-id@, by 'UnitId'
+    | UnitIdArg UnitId     -- ^ @-package-id@, by 'UnitId'
   deriving (Eq, Show)
+instance Outputable PackageArg where
+    ppr (PackageArg pn) = text "package" <+> text pn
+    ppr (UnitIdArg uid) = text "unit" <+> ppr uid
 
 -- | Represents the renaming that may be associated with an exposed
 -- package, e.g. the @rns@ part of @-package "foo (rns)"@.
@@ -1156,6 +1164,8 @@ data ModRenaming = ModRenaming {
     modRenamings :: [(ModuleName, ModuleName)] -- ^ Bring module @m@ into scope
                                                --   under name @n@.
   } deriving (Eq)
+instance Outputable ModRenaming where
+    ppr (ModRenaming b rns) = ppr b <+> parens (ppr rns)
 
 -- | Flags for manipulating the set of non-broken packages.
 newtype IgnorePackageFlag = IgnorePackage String -- ^ @-ignore-package@
@@ -1174,6 +1184,10 @@ data PackageFlag
   deriving (Eq)
 -- NB: equality instance is used by InteractiveUI to test if
 -- package flags have changed.
+
+instance Outputable PackageFlag where
+    ppr (ExposePackage n arg rn) = text n <> braces (ppr arg <+> ppr rn)
+    ppr (HidePackage str) = text "-hide-package" <+> text str
 
 defaultHscTarget :: Platform -> HscTarget
 defaultHscTarget = defaultObjectTarget
@@ -1460,6 +1474,7 @@ defaultDynFlags mySettings =
         solverIterations        = treatZeroAsInf mAX_SOLVER_ITERATIONS,
 
         thisPackage             = mainUnitId,
+        thisComponentId         = ComponentId (fsLit ""),
 
         objectDir               = Nothing,
         dylibInstallName        = Nothing,
@@ -1733,6 +1748,7 @@ dopt f dflags = (fromEnum f `IntSet.member` dumpFlags dflags)
           enableIfVerbose Opt_D_dump_vt_trace               = False
           enableIfVerbose Opt_D_dump_tc                     = False
           enableIfVerbose Opt_D_dump_rn                     = False
+          enableIfVerbose Opt_D_dump_shape                  = False
           enableIfVerbose Opt_D_dump_rn_stats               = False
           enableIfVerbose Opt_D_dump_hi_diffs               = False
           enableIfVerbose Opt_D_verbose_core2core           = False
@@ -2512,6 +2528,7 @@ dynamic_flags = [
   , defGhcFlag "ddump-cse"               (setDumpFlag Opt_D_dump_cse)
   , defGhcFlag "ddump-worker-wrapper"    (setDumpFlag Opt_D_dump_worker_wrapper)
   , defGhcFlag "ddump-rn-trace"          (setDumpFlag Opt_D_dump_rn_trace)
+  , defGhcFlag "ddump-shape"             (setDumpFlag Opt_D_dump_shape)
   , defGhcFlag "ddump-if-trace"          (setDumpFlag Opt_D_dump_if_trace)
   , defGhcFlag "ddump-cs-trace"          (setDumpFlag Opt_D_dump_cs_trace)
   , defGhcFlag "ddump-tc-trace"          (NoArg (do
@@ -3858,17 +3875,17 @@ parseModuleName = fmap mkModuleName
                 $ munch1 (\c -> isAlphaNum c || c `elem` "_.")
 
 parsePackageFlag :: String                 -- the flag
-                 -> (String -> PackageArg) -- type of argument
+                 -> ReadP PackageArg       -- type of argument
                  -> String                 -- string to parse
                  -> PackageFlag
-parsePackageFlag flag constr str
+parsePackageFlag flag arg_parse str
  = case filter ((=="").snd) (readP_to_S parse str) of
     [(r, "")] -> r
     _ -> throwGhcException $ CmdLineError ("Can't parse package flag: " ++ str)
   where doc = flag ++ " " ++ str
         parse = do
-            pkg <- tok $ munch1 (\c -> isAlphaNum c || c `elem` ":-_.")
-            let mk_expose = ExposePackage doc (constr pkg)
+            pkg_arg <- tok arg_parse
+            let mk_expose = ExposePackage doc pkg_arg
             ( do _ <- tok $ string "with"
                  fmap (mk_expose . ModRenaming True) parseRns
              <++ fmap (mk_expose . ModRenaming False) parseRns
@@ -3893,13 +3910,13 @@ exposePackage, exposePackageId, hidePackage,
 exposePackage p = upd (exposePackage' p)
 exposePackageId p =
   upd (\s -> s{ packageFlags =
-    parsePackageFlag "-package-id" UnitIdArg p : packageFlags s })
+    parsePackageFlag "-package-id" parseUnitIdArg p : packageFlags s })
 exposePluginPackage p =
   upd (\s -> s{ pluginPackageFlags =
-    parsePackageFlag "-plugin-package" PackageArg p : pluginPackageFlags s })
+    parsePackageFlag "-plugin-package" parsePackageArg p : pluginPackageFlags s })
 exposePluginPackageId p =
   upd (\s -> s{ pluginPackageFlags =
-    parsePackageFlag "-plugin-package-id" UnitIdArg p : pluginPackageFlags s })
+    parsePackageFlag "-plugin-package-id" parseUnitIdArg p : pluginPackageFlags s })
 hidePackage p =
   upd (\s -> s{ packageFlags = HidePackage p : packageFlags s })
 ignorePackage p =
@@ -3913,10 +3930,51 @@ distrustPackage p = exposePackage p >>
 exposePackage' :: String -> DynFlags -> DynFlags
 exposePackage' p dflags
     = dflags { packageFlags =
-            parsePackageFlag "-package" PackageArg p : packageFlags dflags }
+            parsePackageFlag "-package" parsePackageArg p : packageFlags dflags }
+
+parsePackageArg :: ReadP PackageArg
+parsePackageArg =
+    fmap PackageArg (munch1 (\c -> isAlphaNum c || c `elem` ":-_."))
+
+parseUnitIdArg :: ReadP PackageArg
+parseUnitIdArg =
+    fmap UnitIdArg parseUnitId
 
 setUnitId :: String -> DynFlags -> DynFlags
-setUnitId p s =  s{ thisPackage = stringToUnitId p }
+setUnitId p s =  s{ thisPackage =
+                        case filter ((=="").snd) (readP_to_S parseUnitId p) of
+                            [(r, "")] -> r
+                            _ -> throwGhcException $ CmdLineError ("Can't parse unit identity: " ++ p)
+                  }
+
+parseUnitId :: ReadP UnitId
+parseUnitId = parseUnitIdVar <++ parseFullUnitId <++ parseSimpleUnitId
+  where
+    parseUnitIdVar = do _ <- Parse.char '?'
+                        fmap UnitIdVar (readS_to_P reads)
+    parseFullUnitId = do cid <- parseComponentId
+                         insts <- parseModSubst
+                         return (unsafeNewUnitId cid insts)
+    parseSimpleUnitId = do cid <- parseComponentId
+                           return (unsafeNewUnitId cid [])
+
+parseComponentId :: ReadP ComponentId
+parseComponentId = (ComponentId . mkFastString)  `fmap` Parse.munch1 abi_char
+   where abi_char c = isAlphaNum c || c `elem` "-_."
+
+parseModule :: ReadP Module
+parseModule = do uid <- parseUnitId
+                 _ <- Parse.char ':'
+                 modname <- parseModuleName
+                 return (mkModule uid modname)
+
+parseModSubst :: ReadP [(ModuleName, Module)]
+parseModSubst = Parse.between (Parse.char '[') (Parse.char ']')
+      . flip Parse.sepBy (Parse.char ',')
+      $ do k <- parseModuleName
+           _ <- Parse.char '='
+           v <- parseModule
+           return (k, v)
 
 -- -----------------------------------------------------------------------------
 -- | Find the package environment (if one exists)

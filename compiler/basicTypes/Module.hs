@@ -22,17 +22,39 @@ module Module
         moduleNameString,
         moduleNameSlashes, moduleNameColons,
         moduleStableString,
+        moduleFreeHoles,
+        moduleIsDefinite,
         mkModuleName,
         mkModuleNameFS,
         stableModuleNameCmp,
 
         -- * The UnitId type
-        UnitId,
+        ComponentId(..),
+        ShFreeHoles,
+        UnitId(..),
+        pprUnitId,
+        unsafeNewUnitId,
+        mapUnitIdInsts,
+        {-
+            unitIdFS,
+            unitIdComponentId,
+            unitIdInsts,
+            unitIdFreeHoles,
+        -}
         fsToUnitId,
-        unitIdFS,
         stringToUnitId,
         unitIdString,
         stableUnitIdCmp,
+        indefiniteUnitId,
+
+    -- * Hole substitutions
+    ShHoleSubst,
+    unitIdHoleSubst,
+    addListToHoleSubst,
+
+    -- * HOLE renaming
+    renameHoleUnitId,
+    renameHoleModule,
 
         -- * Wired-in UnitIds
         -- $wired_in_packages
@@ -87,8 +109,16 @@ import UniqFM
 import FastString
 import Binary
 import Util
-import {-# SOURCE #-} Packages
-import GHC.PackageDb (BinaryStringRep(..), DbModuleRep(..), DbModule(..))
+import UniqSet
+import GHC.PackageDb (BinaryStringRep(..), DbUnitIdModuleRep(..), DbModule(..), DbUnitId(..))
+
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Unsafe as BS
+import qualified Data.ByteString.Char8 as BS.Char8
+import System.IO.Unsafe
+import Foreign.Ptr (castPtr)
+import GHC.Fingerprint
+import Encoding
 
 import Data.Data
 import Data.Map (Map)
@@ -322,6 +352,16 @@ data Module = Module {
   }
   deriving (Eq, Ord, Typeable)
 
+-- | Calculate the free holes of a 'Module'.
+moduleFreeHoles :: Module -> ShFreeHoles
+moduleFreeHoles m
+    | moduleUnitId m == holeUnitId = unitUniqSet (moduleName m)
+    | otherwise = unitIdFreeHoles (moduleUnitId m)
+
+-- | A 'Module' is definite if it has no free holes.
+moduleIsDefinite :: Module -> Bool
+moduleIsDefinite = isEmptyUniqSet . moduleFreeHoles
+
 instance Uniquable Module where
   getUnique (Module p n) = getUnique (unitIdFS p `appendFS` moduleNameFS n)
 
@@ -372,9 +412,25 @@ class ContainsModule t where
 class HasModule m where
     getModule :: m Module
 
-instance DbModuleRep UnitId ModuleName Module where
+instance DbUnitIdModuleRep ComponentId UnitId ModuleName Module where
   fromDbModule (DbModule uid mod_name) = mkModule uid mod_name
   toDbModule mod = DbModule (moduleUnitId mod) (moduleName mod)
+  fromDbUnitId (DbUnitId { dbUnitIdComponentId = cid, dbUnitIdInsts = insts })
+    = unsafeNewUnitId cid insts
+  fromDbUnitId (DbUnitIdVar { dbUnitIdVar = var })
+    = UnitIdVar var
+  {-
+  fromDbUnitId (DbDefiniteUnitId bs)
+    = fsToUnitId (mkFastStringByteString bs)
+    -}
+  toDbUnitId UnitId{ unitIdComponentId = cid, unitIdInsts = insts }
+    = DbUnitId cid insts
+  toDbUnitId UnitIdVar{ unitIdVar = var }
+    = DbUnitIdVar var
+  {-
+  toDbUnitId DefiniteUnitId{ unitIdFS = fs }
+    = DbDefiniteUnitId (fastStringToByteString fs)
+    -}
 
 {-
 ************************************************************************
@@ -384,15 +440,127 @@ instance DbModuleRep UnitId ModuleName Module where
 ************************************************************************
 -}
 
+-- | A 'ComponentId' consists of the package name, package version, component
+-- ID, the transitive dependencies of the component, and other information to
+-- uniquely identify the source code and build configuration of a component.
+--
+-- This used to be known as an 'InstalledPackageId', but a package can contain
+-- multiple components and a 'ComponentId' uniquely identifies a component
+-- within a package.  When a package only has one component, the 'ComponentId'
+-- coincides with the 'InstalledPackageId'
+newtype ComponentId        = ComponentId        FastString deriving (Eq, Ord)
+
+instance BinaryStringRep ComponentId where
+  fromStringRep = ComponentId . mkFastStringByteString
+  toStringRep (ComponentId s) = fastStringToByteString s
+
+instance Uniquable ComponentId where
+  getUnique (ComponentId n) = getUnique n
+
+instance Outputable ComponentId where
+  ppr (ComponentId str) = ftext str
+
+-- | Given a Name or Module, the 'ShFreeHoles' contains the set
+-- of free variables, i.e. HOLE:A modules, which may be substituted.
+-- If this set is empty no substitutions are possible.
+type ShFreeHoles = UniqSet ModuleName
+
 -- | A string which uniquely identifies a package.  For wired-in packages,
 -- it is just the package name, but for user compiled packages, it is a hash.
 -- ToDo: when the key is a hash, we can do more clever things than store
 -- the hex representation and hash-cons those strings.
-newtype UnitId = PId FastString deriving( Eq, Typeable )
-    -- here to avoid module loops with PackageConfig
+data UnitId = UnitId {
+        unitIdFS :: FastString,
+        unitIdKey :: Unique, -- cached unique of unitIdFS
+        unitIdComponentId :: !ComponentId,
+        unitIdInsts :: ![(ModuleName, Module)],
+        unitIdFreeHoles :: ShFreeHoles
+    }
+    | UnitIdVar {
+        unitIdVar :: Int
+    } deriving (Typeable)
+
+indefiniteUnitId :: UnitId -> Bool
+indefiniteUnitId = not . isEmptyUniqSet . unitIdFreeHoles
+
+instance Show UnitId where
+    show = unitIdString
+
+-- These are ONLY used to get Uniques.  If you want to actually make
+-- symbols, these are NOT what you want.  This is totally internal to GHC.
+--
+-- TODO: Consider using a TrieMap instead, and a proper unique supply.
+-- (Downside of native unique supply: can't plunder FastString uniques)
+
+hashUnitId :: ComponentId -> [(ModuleName, Module)] -> FastString
+hashUnitId (ComponentId fs_cid) sorted_holes
+    | all (\(mod_name, m) -> mkModule holeUnitId mod_name == m) sorted_holes = fs_cid
+hashUnitId cid sorted_holes =
+    mkFastStringByteString
+  . fingerprintUnitId (toStringRep cid)
+  . fingerprintByteString
+  . BS.concat $ do
+        (m, b) <- sorted_holes
+        [ toStringRep m,                BS.Char8.singleton ' ',
+          fastStringToByteString (unitIdFS (moduleUnitId b)), BS.Char8.singleton ':',
+          toStringRep (moduleName b),   BS.Char8.singleton '\n']
+
+fingerprintByteString :: BS.ByteString -> Fingerprint
+fingerprintByteString bs = unsafePerformIO
+                         . BS.unsafeUseAsCStringLen bs
+                         $ \(p,l) -> fingerprintData (castPtr p) l
+
+fingerprintUnitId :: BS.ByteString -> Fingerprint -> BS.ByteString
+fingerprintUnitId prefix (Fingerprint a b)
+    = BS.concat
+    $ [ prefix
+      , BS.Char8.singleton '-'
+      , BS.Char8.pack (toBase62Padded a)
+      , BS.Char8.pack (toBase62Padded b) ]
+
+
+-- | Unsafe because it doesn't check if the instantiation makes sense
+-- for the 'ComponentId'.
+unsafeNewUnitId :: ComponentId -> [(ModuleName, Module)] -> UnitId
+unsafeNewUnitId cid insts = mkUnitId cid insts (hashUnitId cid insts)
+
+mkUnitId :: ComponentId -> [(ModuleName, Module)] -> FastString -> UnitId
+mkUnitId cid insts fs =
+    -- ASSERT( sortBy stableModuleNameCmp (map fst insts) == map fst insts )
+    UnitId {
+        unitIdComponentId = cid,
+        unitIdInsts = insts,
+        unitIdFreeHoles = unionManyUniqSets (map (moduleFreeHoles.snd) insts),
+        unitIdFS = fs,
+        unitIdKey = getUnique fs
+    }
+
+mapUnitIdInsts :: ((ModuleName, Module) -> Module) -> UnitId -> UnitId
+mapUnitIdInsts f UnitId{ unitIdComponentId = cid, unitIdInsts = insts0 } =
+    unsafeNewUnitId cid (zip (map fst insts0) (map f insts0))
+-- TODO: this should be illegal
+mapUnitIdInsts _ v@UnitIdVar{} = v
+-- mapUnitIdInsts _ uid@DefiniteUnitId{} = uid
+
+pprUnitId :: UnitId -> SDoc
+-- pprUnitId DefiniteUnitId{ unitIdFS = fs } = ftext fs
+pprUnitId (UnitIdVar v) = ppr v
+pprUnitId UnitId{ unitIdComponentId = cid, unitIdInsts = insts } =
+    ppr cid <>
+        (if not (null insts) -- pprIf
+          then
+            parens (hsep
+                (punctuate comma [ ppUnless (moduleName m == modname)
+                                            (ppr modname <+> text "->")
+                                   <+> ppr m
+                                 | (modname, m) <- insts]))
+          else empty)
+
+instance Eq UnitId where
+  uid1 == uid2 = unitIdKey uid1 == unitIdKey uid2
 
 instance Uniquable UnitId where
- getUnique pid = getUnique (unitIdFS pid)
+  getUnique = unitIdKey
 
 -- Note: *not* a stable lexicographic ordering, a faster unique-based
 -- ordering.
@@ -410,28 +578,43 @@ stableUnitIdCmp :: UnitId -> UnitId -> Ordering
 stableUnitIdCmp p1 p2 = unitIdFS p1 `compare` unitIdFS p2
 
 instance Outputable UnitId where
-   ppr pk = getPprStyle $ \sty -> sdocWithDynFlags $ \dflags ->
-    case unitIdPackageIdString dflags pk of
-      Nothing -> ftext (unitIdFS pk)
-      Just pkg -> text pkg
-           -- Don't bother qualifying if it's wired in!
-           <> (if qualPackage sty pk && not (pk `elem` wiredInUnitIds)
-                then char '@' <> ftext (unitIdFS pk)
-                else empty)
+   ppr pk = pprUnitId pk
 
+-- Performance: would prefer to have a NameCache like thing
 instance Binary UnitId where
-  put_ bh pid = put_ bh (unitIdFS pid)
-  get bh = do { fs <- get bh; return (fsToUnitId fs) }
+  {-
+  put_ bh DefiniteUnitId{ unitIdFS = fs } = do
+    putByte bh 0
+    put_ bh fs
+    -}
+  put_ bh (UnitIdVar v) = do
+    putByte bh 0
+    put_ bh v
+  put_ bh UnitId{ unitIdComponentId = cid, unitIdInsts = insts } = do
+    putByte bh 1
+    put_ bh cid
+    put_ bh insts
+  get bh = do b <- getByte bh
+              case b of
+                -- 0 -> fmap fsToUnitId (get bh)
+                0 -> fmap UnitIdVar (get bh)
+                _ -> do
+                  cid <- get bh
+                  insts <- get bh
+                  return (unsafeNewUnitId cid insts)
 
-instance BinaryStringRep UnitId where
-  fromStringRep = fsToUnitId . mkFastStringByteString
-  toStringRep   = fastStringToByteString . unitIdFS
+instance Binary ComponentId where
+  put_ bh (ComponentId fs) = put_ bh fs
+  get bh = do { fs <- get bh; return (ComponentId fs) }
 
 fsToUnitId :: FastString -> UnitId
-fsToUnitId = PId
-
-unitIdFS :: UnitId -> FastString
-unitIdFS (PId fs) = fs
+fsToUnitId fs = unsafeNewUnitId (ComponentId fs) []
+{-
+fsToUnitId fs = DefiniteUnitId {
+    unitIdFS = fs,
+    unitIdKey = getUnique fs
+    }
+    -}
 
 stringToUnitId :: String -> UnitId
 stringToUnitId = fsToUnitId . mkFastString
@@ -439,6 +622,47 @@ stringToUnitId = fsToUnitId . mkFastString
 unitIdString :: UnitId -> String
 unitIdString = unpackFS . unitIdFS
 
+{-
+************************************************************************
+*                                                                      *
+                        Hole substitutions
+*                                                                      *
+************************************************************************
+-}
+
+-- | Substitution on @HOLE:A@.
+type ShHoleSubst = ModuleNameEnv Module
+
+unitIdHoleSubst :: UnitId -> ShHoleSubst
+unitIdHoleSubst uid = listToUFM (unitIdInsts uid)
+
+addListToHoleSubst :: ShHoleSubst -> [(ModuleName, Module)] -> ShHoleSubst
+addListToHoleSubst subst xs0 =
+    -- TODO: handle ambiguous module imports (overlap) properly
+    plusUFM_C (panic "addListToHoleSubst duplicate") subst (listToUFM xs0)
+
+-- | Substitutes holes in a 'Module'.  NOT suitable for being called
+-- directly on a 'nameModule'.
+-- @p(A -> HOLE:A):B@ maps to @p(A -> q():A):B@ with @A -> q():A@;
+-- similarly, @HOLE:A@ maps to @q():A@.
+renameHoleModule :: ShHoleSubst -> Module -> Module
+renameHoleModule env m
+  | not (isHoleModule m) =
+        let uid = renameHoleUnitId env (moduleUnitId m)
+        in mkModule uid (moduleName m)
+  | Just m' <- lookupUFM env (moduleName m) = m'
+  -- NB m = HOLE:Blah, that's what's in scope.
+  | otherwise = m
+
+-- | Substitutes holes in a 'UnitId', suitable for renaming when
+-- an include occurs.
+--
+-- @p(A -> HOLE:A)@ maps to @p(A -> HOLE:B)@ with @A -> HOLE:B@.
+renameHoleUnitId :: ShHoleSubst -> UnitId -> UnitId
+renameHoleUnitId env uid =
+    if isNullUFM (intersectUFM_C const (unitIdFreeHoles uid) env)
+        then uid
+        else mapUnitIdInsts (\(_, mod) -> renameHoleModule env mod) uid
 
 -- -----------------------------------------------------------------------------
 -- $wired_in_packages
