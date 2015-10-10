@@ -1,0 +1,11 @@
+[1 of 2] Processing p
+  [1 of 2] Compiling Int[boot]        ( p/Int.hs-boot, nothing )
+  [2 of 2] Compiling Int[merge]       ( p/Int.hs-boot-merge, nothing )
+[2 of 2] Processing q
+  Instantiating main-q
+  [1 of 2] Including base-4.8.2.0
+  [2 of 2] Including main-p
+    Instantiating main-p(Int -> base-4.8.2.0:GHC.Exts)
+    [1 of 1] Including ghc-prim-0.4.0.0
+    [1 of 2] Compiling Int[boot]        ( p/Int.hs-boot, bkp16-out/main-p/main-p-97PZnzqiJmd2hTwUNGdjod/Int.o-boot )
+    [2 of 2] Compiling Int[merge]       ( p/Int.hs-boot-merge, bkp16-out/main-p/main-p-97PZnzqiJmd2hTwUNGdjod/Int.o )

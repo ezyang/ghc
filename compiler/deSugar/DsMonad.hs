@@ -232,7 +232,9 @@ mkDsEnvs :: DynFlags -> Module -> GlobalRdrEnv -> TypeEnv -> FamInstEnv
          -> (DsGblEnv, DsLclEnv)
 mkDsEnvs dflags mod rdr_env type_env fam_inst_env msg_var static_binds_var
   = let if_genv = IfGblEnv { if_load_fat_interface = Nothing
-                           , if_rec_types = Just (mod, return type_env) }
+                           , if_doc = text "mkDsEnvs"
+                           , if_rec_types = Just (mod, return type_env)
+                           , if_impl_rdr_env = Nothing }
         if_lenv = mkIfLclEnv mod (ptext (sLit "GHC error in desugarer lookup in") <+> ppr mod)
         gbl_env = DsGblEnv { ds_mod     = mod
                            , ds_fam_inst_env = fam_inst_env

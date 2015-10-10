@@ -1,0 +1,18 @@
+[1 of 3] Processing p
+  [1 of 3] Compiling H[boot]          ( p/H.hs-boot, nothing )
+  [2 of 3] Compiling H[merge]         ( p/H.hs-boot-merge, nothing )
+  [3 of 3] Compiling A                ( p/A.hs, nothing )
+[2 of 3] Processing q
+  Instantiating main-q
+  [1 of 1] Compiling H                ( q/H.hs, nothing )
+[3 of 3] Processing r
+  Instantiating main-r
+  [1 of 2] Including main-q
+  [2 of 2] Including main-p
+    Instantiating main-p(main-q:H)
+    [1 of 3] Compiling H[boot]          ( p/H.hs-boot, nothing )
+
+bkpfail01.bkp:2:5: error:
+    Not in scope: type constructor or class ‘H’
+
+bkpfail01.bkp:2:5: error: Not in scope: data constructor ‘H’

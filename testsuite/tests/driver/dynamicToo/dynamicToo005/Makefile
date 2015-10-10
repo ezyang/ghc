@@ -13,6 +13,7 @@ dynamicToo005:
 	$(call checkExists,A005.o-boot)
 	$(call checkExists,A005.hi-boot)
 	"$(TEST_HC)" $(TEST_HC_OPTS) -dynamic-too -v0 \
+                               -sig-of A005=base:Prelude \
                                --merge-requirements A005
 	$(call checkExists,A005.o)
 	$(call checkExists,A005.hi)

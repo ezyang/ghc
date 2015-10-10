@@ -147,7 +147,7 @@ tcLookupGlobal name
                 Nothing    ->
 
                 -- Should it have been in the local envt?
-          if nameIsLocalOrFrom (tcg_mod env) name
+          if nameIsLocalOrFrom (topModSemantic (tcg_top_mod env)) name
           then notFound name  -- Internal names can happen in GHCi
           else
 

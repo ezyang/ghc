@@ -1,0 +1,13 @@
+[1 of 1] Processing p
+
+bkpfail02.bkp:1:1: error:
+    Failed to unify when merging requirements:
+    Context:
+      provides: M1 -> main-p(hole:A):M1
+                      M{M, M}
+                M2 -> main-p(hole:A):M2
+                      M{M, M}
+      requires: A -> main-p(hole:A):M1.M{M}
+    Merging shape:
+      provides:
+      requires: A -> main-p(hole:A):M2.M{M}

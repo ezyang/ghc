@@ -56,7 +56,7 @@ initV hsc_env guts info thing_inside
   = do { dumpIfVtTrace "Incoming VectInfo" (ppr info)
 
        ; let type_env = typeEnvFromEntities ids (mg_tcs guts) (mg_fam_insts guts)
-       ; (_, Just res) <- initDs hsc_env (mg_module guts)
+       ; (_, Just res) <- initDs hsc_env (topModSemantic (mg_top_module guts))
                                          (mg_rdr_env guts) type_env
                                          (mg_fam_inst_env guts) go
 

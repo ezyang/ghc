@@ -1,0 +1,9 @@
+unit p where
+    signature A where
+        foo :: a -> a
+
+unit q where
+    include p
+    module B where
+        import A
+        bar x = foo (x + x)

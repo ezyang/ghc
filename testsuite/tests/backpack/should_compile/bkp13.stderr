@@ -1,0 +1,19 @@
+[1 of 2] Processing h
+/--- Shape for h
+provides:
+requires: H -> T{T}
+\---
+  [1 of 2] Compiling H[boot]          ( h/H.hs-boot, nothing )
+  [2 of 2] Compiling H[merge]         ( h/H.hs-boot-merge, nothing )
+[2 of 2] Processing p
+/--- Shape for p
+provides: B -> main-p(hole:H):B
+               T{T, T}
+          A -> main-p(hole:H):A
+               main-p(hole:H):B.T{T}
+requires: H -> main-p(hole:H):B.T{T, T}, f
+\---
+  [1 of 4] Compiling B                ( p/B.hs, nothing )
+  [2 of 4] Compiling H[boot]          ( p/H.hs-boot, nothing )
+  [3 of 4] Compiling H[merge]         ( p/H.hs-boot-merge, nothing )
+  [4 of 4] Compiling A                ( p/A.hs, nothing )

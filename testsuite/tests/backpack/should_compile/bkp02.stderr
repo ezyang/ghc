@@ -1,0 +1,21 @@
+[1 of 3] Processing p
+/--- Shape for p
+provides: A -> main-p(hole:H):A
+               A{A, MkA}
+requires: H -> T{T}
+\---
+  [1 of 3] Compiling H[boot]          ( p/H.hs-boot, nothing )
+  [2 of 3] Compiling H[merge]         ( p/H.hs-boot-merge, nothing )
+  [3 of 3] Compiling A                ( p/A.hs, nothing )
+[2 of 3] Processing q
+  Instantiating main-q
+  [1 of 1] Compiling H                ( q/H.hs, bkp02-out/main-q/main-q/H.o )
+[3 of 3] Processing r
+  Instantiating main-r
+  [1 of 2] Including main-q
+  [2 of 2] Including main-p
+    Instantiating main-p(main-q:H)
+    [1 of 3] Compiling H[boot]          ( p/H.hs-boot, bkp02-out/main-p/main-p-AfPF58nQxUsAxkagpf0nF0/H.o-boot )
+    [2 of 3] Compiling H[merge]         ( p/H.hs-boot-merge, bkp02-out/main-p/main-p-AfPF58nQxUsAxkagpf0nF0/H.o )
+    [3 of 3] Compiling A                ( p/A.hs, bkp02-out/main-p/main-p-AfPF58nQxUsAxkagpf0nF0/A.o )
+  [1 of 1] Compiling R                ( r/R.hs, bkp02-out/main-r/main-r/R.o )

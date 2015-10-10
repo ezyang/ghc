@@ -12,12 +12,12 @@ sigof02:
 	mkdir tmp_sigof02
 	'$(GHC_PKG)' field containers key | sed 's/^.*: *//' > tmp_sigof02/containers
 	'$(TEST_HC)' $(S02_OPTS) -c Map.hs-boot -sig-of "Map is `cat tmp_sigof02/containers`:Data.Map.Strict"
-	'$(TEST_HC)' $(S02_OPTS) --merge-requirements Map
+	'$(TEST_HC)' $(S02_OPTS) --merge-requirements Map -sig-of "Map is `cat tmp_sigof02/containers`:Data.Map.Strict"
 	'$(TEST_HC)' $(S02_OPTS) -c Main.hs
 	'$(TEST_HC)' $(S02_OPTS) -package containers tmp_sigof02/Main.o -o tmp_sigof02/StrictMain
 	! ./tmp_sigof02/StrictMain
 	'$(TEST_HC)' $(S02_OPTS) -c Map.hs-boot -sig-of "Map is `cat tmp_sigof02/containers`:Data.Map.Lazy"
-	'$(TEST_HC)' $(S02_OPTS) --merge-requirements Map
+	'$(TEST_HC)' $(S02_OPTS) --merge-requirements Map -sig-of "Map is `cat tmp_sigof02/containers`:Data.Map.Lazy"
 	'$(TEST_HC)' $(S02_OPTS) -c Main.hs
 	'$(TEST_HC)' $(S02_OPTS) -package containers tmp_sigof02/Main.o -o tmp_sigof02/LazyMain
 	./tmp_sigof02/LazyMain

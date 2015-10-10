@@ -998,7 +998,7 @@ tcLookupTh name
                 Just thing -> return (AGlobal thing);
                 Nothing    ->
 
-          if nameIsLocalOrFrom (tcg_mod gbl_env) name
+          if nameIsLocalOrFrom (topModSemantic (tcg_top_mod gbl_env)) name
           then  -- It's defined in this module
                 failWithTc (notInEnv name)
 

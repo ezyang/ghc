@@ -12,6 +12,7 @@ module RnNames (
         gresFromAvails,
         calculateAvails,
         reportUnusedNames,
+        plusAvail,
         checkConName
     ) where
 
@@ -149,7 +150,10 @@ with yes we have gone with no for now.
 rnImports :: [LImportDecl RdrName]
           -> RnM ([LImportDecl Name], GlobalRdrEnv, ImportAvails, AnyHpcUsage)
 rnImports imports = do
-    this_mod <- getModule
+    tcg_env <- getGblEnv
+    -- NB: want an identity module here, because it's OK for a signature
+    -- module to import from its implementor
+    let this_mod = topModIdentity (tcg_top_mod tcg_env)
     let (source, ordinary) = partition is_source_import imports
         is_source_import d = ideclSource (unLoc d)
     stuff1 <- mapAndReportM (rnImportDecl this_mod) ordinary
@@ -765,7 +769,8 @@ filterImports iface decl_spec (Just (want_hiding, L l import_items))
         --    T(T,T1,T2,T3) and C(C,T)  to give   (T, T(T,T1,T2,T3), Just C)
         combine (name1, a1@(AvailTC p1 _ []), mp1)
                 (name2, a2@(AvailTC p2 _ []), mp2)
-          = ASSERT( name1 == name2 && isNothing mp1 && isNothing mp2 )
+          = ASSERT2( name1 == name2 && isNothing mp1 && isNothing mp2
+                   , ppr name1 <+> ppr name2 <+> ppr mp1 <+> ppr mp2)
             if p1 == name1 then (name1, a1, Just p2)
                            else (name1, a2, Just p1)
         combine x y = pprPanic "filterImports/combine" (ppr x $$ ppr y)
@@ -1144,7 +1149,7 @@ rnExports :: Bool       -- False => no 'module M(..) where' header at all
         -- Complains about exports items not in scope
 
 rnExports explicit_mod exports
-          tcg_env@(TcGblEnv { tcg_mod     = this_mod,
+          tcg_env@(TcGblEnv { tcg_top_mod = top_mod,
                               tcg_rdr_env = rdr_env,
                               tcg_imports = imports })
  = unsetWOptM Opt_WarnWarningsDeprecations $
@@ -1167,7 +1172,7 @@ rnExports explicit_mod exports
                         -- ToDo: the 'noLoc' here is unhelpful if 'main'
                         --       turns out to be out of scope
 
-        ; (rn_exports, avails) <- exports_from_avail real_exports rdr_env imports this_mod
+        ; (rn_exports, avails) <- exports_from_avail real_exports rdr_env imports top_mod
         ; traceRn (ppr avails)
         ; let final_avails = nubAvails avails    -- Combine families
               final_ns     = availsToNameSetWithSelectors final_avails
@@ -1187,10 +1192,10 @@ exports_from_avail :: Maybe (Located [LIE RdrName])
                          -- Nothing => no explicit export list
                    -> GlobalRdrEnv
                    -> ImportAvails
-                   -> Module
+                   -> TopModule
                    -> RnM (Maybe [LIE Name], [AvailInfo])
 
-exports_from_avail Nothing rdr_env _imports _this_mod
+exports_from_avail Nothing rdr_env _imports _top_mod
  = -- The same as (module M) where M is the current module name,
    -- so that's how we handle it.
    let
@@ -1200,7 +1205,7 @@ exports_from_avail Nothing rdr_env _imports _this_mod
    in
     return (Nothing, avails)
 
-exports_from_avail (Just (L _ rdr_items)) rdr_env imports this_mod
+exports_from_avail (Just (L _ rdr_items)) rdr_env imports top_mod
   = do (ie_names, _, exports) <- foldlM do_litem emptyExportAccum rdr_items
        return (Just ie_names, exports)
   where
@@ -1232,7 +1237,7 @@ exports_from_avail (Just (L _ rdr_items)) rdr_env imports this_mod
         | otherwise
         = do { warnDodgyExports <- woptM Opt_WarnDodgyExports
              ; let { exportValid = (mod `elem` imported_modules)
-                                || (moduleName this_mod == mod)
+                                || (moduleName (topModIdentity top_mod) == mod)
                    ; gre_prs     = pickGREsModExp mod (globalRdrEnvElts rdr_env)
                    ; new_exports = map (availFromGRE . fst) gre_prs
                    ; names       = map (gre_name     . fst) gre_prs
@@ -1700,7 +1705,8 @@ printMinimalImports imports_w_usage
       = do { let ImportDecl { ideclName    = L _ mod_name
                             , ideclSource  = is_boot
                             , ideclPkgQual = mb_pkg } = decl
-           ; iface <- loadSrcInterface doc mod_name is_boot (fmap sl_fs mb_pkg)
+           ; iface <- loadSrcInterface doc mod_name is_boot
+                                        (fmap sl_fs mb_pkg)
            ; let lies = map (L l) (concatMap (to_ie iface) used)
            ; return (L l (decl { ideclHiding = Just (False, L l lies) })) }
       where
@@ -1796,7 +1802,11 @@ badImportItemErrStd iface decl_spec ie
     source_import | mi_boot iface = ptext (sLit "(hi-boot interface)")
                   | otherwise     = Outputable.empty
 
-badImportItemErrDataCon :: OccName -> ModIface -> ImpDeclSpec -> IE RdrName -> SDoc
+badImportItemErrDataCon :: OccName
+                        -> ModIface
+                        -> ImpDeclSpec
+                        -> IE RdrName
+                        -> SDoc
 badImportItemErrDataCon dataType_occ iface decl_spec ie
   = vcat [ ptext (sLit "In module")
              <+> quotes (ppr (is_mod decl_spec))

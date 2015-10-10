@@ -19,13 +19,13 @@ recomp014: clean
 	'$(TEST_HC)' $(TEST_HC_OPTS_NO_RECOMP) -c A.hs
 	'$(TEST_HC)' $(TEST_HC_OPTS_NO_RECOMP) -c A1.hs
 	'$(TEST_HC)' $(TEST_HC_OPTS_NO_RECOMP) -c B.hs-boot -sig-of "B is main:A"
-	'$(TEST_HC)' $(TEST_HC_OPTS_NO_RECOMP) --merge-requirements B
+	'$(TEST_HC)' $(TEST_HC_OPTS_NO_RECOMP) --merge-requirements B -sig-of "B is main:A"
 	echo 'import B; main = print a' > C.hs
 	'$(TEST_HC)' $(TEST_HC_OPTS_NO_RECOMP) -c C.hs
 	'$(TEST_HC)' $(TEST_HC_OPTS_NO_RECOMP) -c C.hs
 	echo 'second run'
 	'$(TEST_HC)' $(TEST_HC_OPTS_NO_RECOMP) -c B.hs-boot -sig-of "B is main:A1"
-	'$(TEST_HC)' $(TEST_HC_OPTS_NO_RECOMP) --merge-requirements B
+	'$(TEST_HC)' $(TEST_HC_OPTS_NO_RECOMP) --merge-requirements B -sig-of "B is main:A1"
 	'$(TEST_HC)' $(TEST_HC_OPTS_NO_RECOMP) -c C.hs
 	'$(TEST_HC)' $(TEST_HC_OPTS_NO_RECOMP) A1.o C.o -o recomp014
 	./recomp014

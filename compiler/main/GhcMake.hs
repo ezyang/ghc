@@ -14,9 +14,13 @@
 -- -----------------------------------------------------------------------------
 module GhcMake(
         depanal,
-        load, LoadHowMuch(..),
+        load, load', LoadHowMuch(..),
 
         topSortModuleGraph,
+
+        IsBoot(..),
+        summariseModule,
+        hscSourceToIsBoot,
 
         noModError, cyclicModuleErr
     ) where
@@ -39,6 +43,7 @@ import HscMain ( genModDetails )
 import Module
 import TcIface          ( typecheckIface )
 import TcRnMonad        ( initIfaceCheck )
+import HscMain
 
 import Bag              ( listToBag )
 import BasicTypes
@@ -56,6 +61,7 @@ import SysTools
 import UniqFM
 import Util
 import LoadIface
+import ShUnify
 
 import qualified Maybes
 
@@ -152,6 +158,11 @@ data LoadHowMuch
 load :: GhcMonad m => LoadHowMuch -> m SuccessFlag
 load how_much = do
     mod_graph <- depanal [] False
+    load' how_much (Just batchMsg) mod_graph
+
+load' :: GhcMonad m => LoadHowMuch -> Maybe Messager -> ModuleGraph -> m SuccessFlag
+load' how_much mHscMessage mod_graph = do
+    modifySession $ \hsc_env -> hsc_env { hsc_mod_graph = mod_graph }
     guessOutputFile
     hsc_env <- getSession
 
@@ -296,7 +307,7 @@ load how_much = do
 
     setSession hsc_env{ hsc_HPT = emptyHomePackageTable }
     (upsweep_ok, modsUpswept)
-       <- upsweep_fn pruned_hpt stable_mods cleanup mg
+       <- upsweep_fn mHscMessage pruned_hpt stable_mods cleanup mg
 
     -- Make modsDone be the summaries for each home module now
     -- available; this should equal the domain of hpt3.
@@ -726,13 +737,14 @@ parUpsweep
     :: GhcMonad m
     => Int
     -- ^ The number of workers we wish to run in parallel
+    -> Maybe Messager
     -> HomePackageTable
     -> ([ModuleName],[ModuleName])
     -> (HscEnv -> IO ())
     -> [SCC ModSummary]
     -> m (SuccessFlag,
           [ModSummary])
-parUpsweep n_jobs old_hpt stable_mods cleanup sccs = do
+parUpsweep n_jobs mHscMessage old_hpt stable_mods cleanup sccs = do
     hsc_env <- getSession
     let dflags = hsc_dflags hsc_env
 
@@ -820,7 +832,7 @@ parUpsweep n_jobs old_hpt stable_mods cleanup sccs = do
                 -- work to compile the module (see parUpsweep_one).
                 m_res <- try $ unmask $ prettyPrintGhcErrors lcl_dflags $
                         parUpsweep_one mod home_mod_map comp_graph_loops
-                                       lcl_dflags cleanup
+                                       lcl_dflags mHscMessage cleanup
                                        par_sem hsc_env_var old_hpt_var
                                        stable_mods mod_idx (length sccs)
 
@@ -919,6 +931,8 @@ parUpsweep_one
     -- ^ The list of all module loops within the compilation graph.
     -> DynFlags
     -- ^ The thread-local DynFlags
+    -> Maybe Messager
+    -- ^ The messager
     -> (HscEnv -> IO ())
     -- ^ The callback for cleaning up intermediate files
     -> QSem
@@ -935,7 +949,7 @@ parUpsweep_one
     -- ^ The total number of modules
     -> IO SuccessFlag
     -- ^ The result of this compile
-parUpsweep_one mod home_mod_map comp_graph_loops lcl_dflags cleanup par_sem
+parUpsweep_one mod home_mod_map comp_graph_loops lcl_dflags mHscMessage cleanup par_sem
                hsc_env_var old_hpt_var stable_mods mod_index num_mods = do
 
     let this_build_mod = mkBuildModule mod
@@ -1039,7 +1053,7 @@ parUpsweep_one mod home_mod_map comp_graph_loops lcl_dflags cleanup par_sem
                 let lcl_hsc_env = localize_hsc_env hsc_env
 
                 -- Compile the module.
-                mod_info <- upsweep_mod lcl_hsc_env old_hpt stable_mods lcl_mod
+                mod_info <- upsweep_mod lcl_hsc_env mHscMessage old_hpt stable_mods lcl_mod
                                         mod_index num_mods
                 return (Just mod_info)
 
@@ -1090,7 +1104,8 @@ parUpsweep_one mod home_mod_map comp_graph_loops lcl_dflags cleanup par_sem
 -- There better had not be any cyclic groups here -- we check for them.
 upsweep
     :: GhcMonad m
-    => HomePackageTable            -- ^ HPT from last time round (pruned)
+    => Maybe Messager
+    -> HomePackageTable            -- ^ HPT from last time round (pruned)
     -> ([ModuleName],[ModuleName]) -- ^ stable modules (see checkStability)
     -> (HscEnv -> IO ())           -- ^ How to clean up unwanted tmp files
     -> [SCC ModSummary]            -- ^ Mods to do (the worklist)
@@ -1102,7 +1117,7 @@ upsweep
        --  2. The 'HscEnv' in the monad has an updated HPT
        --  3. A list of modules which succeeded loading.
 
-upsweep old_hpt stable_mods cleanup sccs = do
+upsweep mHscMessage old_hpt stable_mods cleanup sccs = do
    (res, done) <- upsweep' old_hpt [] sccs 1 (length sccs)
    return (res, reverse done)
  where
@@ -1132,7 +1147,7 @@ upsweep old_hpt stable_mods cleanup sccs = do
         mb_mod_info
             <- handleSourceError
                    (\err -> do logger mod (Just err); return Nothing) $ do
-                 mod_info <- liftIO $ upsweep_mod hsc_env old_hpt stable_mods
+                 mod_info <- liftIO $ upsweep_mod hsc_env mHscMessage old_hpt stable_mods
                                                   mod mod_index nmods
                  logger mod Nothing -- log warnings
                  return (Just mod_info)
@@ -1177,13 +1192,14 @@ maybeGetIfaceDate dflags location
 -- | Compile a single module.  Always produce a Linkable for it if
 -- successful.  If no compilation happened, return the old Linkable.
 upsweep_mod :: HscEnv
+            -> Maybe Messager
             -> HomePackageTable
             -> ([ModuleName],[ModuleName])
             -> ModSummary
             -> Int  -- index of module
             -> Int  -- total number of modules
             -> IO HomeModInfo
-upsweep_mod hsc_env old_hpt (stable_obj, stable_bco) summary mod_index nmods
+upsweep_mod hsc_env mHscMessage old_hpt (stable_obj, stable_bco) summary mod_index nmods
    =    let
             this_mod_name = ms_mod_name summary
             this_mod    = ms_mod summary
@@ -1236,13 +1252,13 @@ upsweep_mod hsc_env old_hpt (stable_obj, stable_bco) summary mod_index nmods
 
             compile_it :: Maybe Linkable -> SourceModified -> IO HomeModInfo
             compile_it  mb_linkable src_modified =
-                  compileOne hsc_env summary' mod_index nmods
+                  compileOne' Nothing mHscMessage hsc_env summary' mod_index nmods
                              mb_old_iface mb_linkable src_modified
 
             compile_it_discard_iface :: Maybe Linkable -> SourceModified
                                      -> IO HomeModInfo
             compile_it_discard_iface mb_linkable  src_modified =
-                  compileOne hsc_env summary' mod_index nmods
+                  compileOne' Nothing mHscMessage hsc_env summary' mod_index nmods
                              Nothing mb_linkable src_modified
 
             -- With the HscNothing target we create empty linkables to avoid
@@ -1261,18 +1277,6 @@ upsweep_mod hsc_env old_hpt (stable_obj, stable_bco) summary mod_index nmods
         in
         case () of
          _
-          -- Need to have it in the graph so we add the interface
-          -- to the HPT, but don't want to actually build it
-          | gopt Opt_FromFatInterface dflags
-          , Just iface <- ms_fat_iface summary
-          , (ms_hsc_src summary == HsBootFile || ms_hsc_src summary == HsBootMerge) -> do
-                details <- genModDetails hsc_env iface
-                return HomeModInfo {
-                    hm_iface = iface,
-                    hm_details = details,
-                    hm_linkable = Nothing
-                }
-
                 -- Regardless of whether we're generating object code or
                 -- byte code, we can always use an existing object file
                 -- if it is *stable* (see checkStability).
@@ -1847,6 +1851,7 @@ summariseFile hsc_env old_summaries file mb_phase obj_allowed maybe_buf
                               ms_hspp_file = file,
                               ms_hspp_opts = dflags,
                               ms_hspp_buf  = Nothing,
+                              ms_parsed_mod = Nothing,
                               ms_fat_iface = Just fat_iface,
                               ms_srcimps      = srcimps,
                               ms_textual_imps = the_imps,
@@ -1889,6 +1894,7 @@ summariseFile hsc_env old_summaries file mb_phase obj_allowed maybe_buf
                              ms_hspp_opts = dflags',
                              ms_hspp_buf  = Just buf,
                              ms_fat_iface = Nothing,
+                             ms_parsed_mod = Nothing,
                              ms_srcimps = srcimps, ms_textual_imps = the_imps,
                              ms_merge_imps = (False, []),
                              ms_hs_date = src_timestamp,
@@ -2006,9 +2012,10 @@ summariseModule hsc_env old_summary_map is_boot (L loc wanted_mod)
       | gopt Opt_FromFatInterface dflags
       = do
         mb_iface <- initIfaceCheck hsc_env $ readAnyIface src_fn
-        fat_iface <- case mb_iface of
+        fat_iface0 <- case mb_iface of
                     Maybes.Succeeded r -> return r
                     Maybes.Failed e -> throwGhcExceptionIO (CmdLineError (showSDoc dflags e))
+        fat_iface <- liftIO $ rnModIface hsc_env (thisPackage dflags) fat_iface0
         let -- TODO: dedupe me
             (pre_srcimps, pre_the_imps) = partition snd (dep_mods (mi_deps fat_iface))
             srcimps = [(Nothing, noLoc modname) | (modname, _) <- pre_srcimps]
@@ -2029,6 +2036,7 @@ summariseModule hsc_env old_summary_map is_boot (L loc wanted_mod)
                               ms_hspp_file = src_fn,
                               ms_hspp_opts = dflags,
                               ms_hspp_buf  = Nothing,
+                              ms_parsed_mod = Nothing,
                               ms_fat_iface = Just fat_iface,
                               ms_srcimps      = srcimps,
                               ms_textual_imps = the_imps,
@@ -2071,6 +2079,7 @@ summariseModule hsc_env old_summary_map is_boot (L loc wanted_mod)
                               ms_hspp_opts = dflags',
                               ms_hspp_buf  = Just buf,
                               ms_fat_iface = Nothing,
+                              ms_parsed_mod = Nothing,
                               ms_srcimps      = srcimps,
                               ms_textual_imps = the_imps,
                               ms_merge_imps = (False, []),

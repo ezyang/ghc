@@ -1,0 +1,29 @@
+[1 of 2] Processing q
+/--- Shape for q
+provides: T -> main-q(hole:X, hole:H):T
+               hole:X.X{X, X}, T{T, T}
+requires: X -> X{X, X}
+          H -> main-q(hole:X, hole:H):T.T{T, T}, f
+\---
+  [1 of 5] Compiling X[boot]          ( q/X.hs-boot, nothing )
+  [2 of 5] Compiling X[merge]         ( q/X.hs-boot-merge, nothing )
+  [3 of 5] Compiling T                ( q/T.hs, nothing )
+  [4 of 5] Compiling H[boot]          ( q/H.hs-boot, nothing )
+  [5 of 5] Compiling H[merge]         ( q/H.hs-boot-merge, nothing )
+[2 of 2] Processing p
+/--- Shape for p
+provides: T -> main-q(hole:X, hole:H):T
+               main-p(hole:X, hole:H):XImpl.X{X, X}, T{T, T}
+          XImpl -> main-p(hole:X, hole:H):XImpl
+                   X{X, X}
+          A -> main-p(hole:X, hole:H):A
+               main-q(hole:X, hole:H):T.T{T}
+requires: X -> main-p(hole:X, hole:H):XImpl.X{X, X}
+          H -> main-q(hole:X, hole:H):T.T{T, T}, f
+\---
+  [1 of 6] Compiling XImpl            ( p/XImpl.hs, nothing )
+  [2 of 6] Compiling X[boot]          ( p/X.hs-boot, nothing )
+  [3 of 6] Compiling X[merge]         ( p/X.hs-boot-merge, nothing )
+  [4 of 6] Compiling H[boot]          ( p/H.hs-boot, nothing )
+  [5 of 6] Compiling H[merge]         ( p/H.hs-boot-merge, nothing )
+  [6 of 6] Compiling A                ( p/A.hs, nothing )

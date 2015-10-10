@@ -931,8 +931,8 @@ rnTyClDecls tycl_ds
        ; let decl_names = mkNameSet (map (tcdName . unLoc . fst) ds_w_fvs)
        ; role_annot_env <- rnRoleAnnots decl_names (concatMap group_roles tycl_ds)
        ; tcg_env        <- getGblEnv
-       ; let this_mod  = tcg_mod tcg_env
-             boot_info = tcg_self_boot tcg_env
+       ; this_mod       <- getModule
+       ; let boot_info = tcg_self_boot tcg_env
 
              add_boot_deps :: [(LTyClDecl Name, FreeVars)] -> [(LTyClDecl Name, FreeVars)]
              -- See Note [Extra dependencies from .hs-boot files]

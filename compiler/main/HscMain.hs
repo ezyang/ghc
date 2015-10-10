@@ -89,6 +89,8 @@ module HscMain
     , hscSimpleIface', hscNormalIface'
     , oneShotMsg
     , hscFileFrontEnd, genericHscFrontend, dumpIfaceStats
+    , ioMsgMaybe
+    , showModuleIndex
     ) where
 
 #ifdef GHCI
@@ -122,7 +124,10 @@ import TcIface          ( typecheckIface, typecheckIface' )
 import TcRnMonad
 import IfaceEnv         ( initNameCache )
 import LoadIface        ( ifaceStats, initExternalPackageState
-                        , findAndReadIface, readAnyIface, loadInterface )
+                        , readAnyIface, loadInterface )
+import LoadIface (computeInterface)
+import ShUnitId     ( canonicalizeModule )
+import MergeIface
 import PrelInfo
 import MkIface
 import Desugar
@@ -148,6 +153,7 @@ import InstEnv
 import FamInstEnv
 import Fingerprint      ( Fingerprint )
 import Hooks
+import TcEnv
 import Maybes
 
 import DynFlags
@@ -327,7 +333,9 @@ hscParse hsc_env mod_summary = runHsc hsc_env $ hscParse' mod_summary
 
 -- internal version, that doesn't fail due to -Werror
 hscParse' :: ModSummary -> Hsc HsParsedModule
-hscParse' mod_summary = do
+hscParse' mod_summary
+ | Just r <- ms_parsed_mod mod_summary = return r
+ | otherwise = do
     dflags <- getDynFlags
     let src_filename  = ms_hspp_file mod_summary
         maybe_src_buf = ms_hspp_buf  mod_summary
@@ -447,7 +455,7 @@ tcRnModule' hsc_env sum save_rn_syntax mod = do
                 False -> return ()
             return tcg_res'
   where
-    pprMod t  = ppr $ moduleName $ tcg_mod t
+    pprMod t  = ppr . moduleName . topModIdentity $ tcg_top_mod t
     errSafe t = quotes (pprMod t) <+> text "has been inferred as safe!"
     errTwthySafe t = quotes (pprMod t)
       <+> text "is marked as Trustworthy but has been inferred as safe!"
@@ -832,35 +840,82 @@ batchMsg hsc_env mod_index recomp mod_summary =
 hscMergeFrontEnd :: ModSummary -> Hsc ModIface
 hscMergeFrontEnd mod_summary = do
     hsc_env <- getHscEnv
-    MASSERT( ms_hsc_src mod_summary == HsBootMerge )
     let dflags = hsc_dflags hsc_env
-    -- TODO: actually merge in signatures from external packages.
+    MASSERT( ms_hsc_src mod_summary == HsBootMerge )
     -- Grovel in HPT if necessary
-    -- TODO: replace with 'computeInterface'
     let hpt = hsc_HPT hsc_env
-    -- TODO multiple mods
     let name = moduleName (ms_mod mod_summary)
-        mod = mkModule (thisPackage dflags) name
-        is_boot = True
-    iface0 <- case lookupHptByModule hpt mod of
-        Just hm -> return (hm_iface hm)
-        Nothing -> do
-            mb_iface0 <- liftIO . initIfaceCheck hsc_env
-                    $ findAndReadIface (text "merge-requirements")
-                                       mod is_boot
-            case mb_iface0 of
-                Succeeded (i, _) -> return i
-                Failed err -> liftIO $ throwGhcExceptionIO
-                                (ProgramError (showSDoc dflags err))
-    let iface = iface0 {
-                    mi_hsc_src = HsBootMerge,
-                    -- TODO: mkDependencies doublecheck
-                    mi_deps = (mi_deps iface0) {
-                        dep_mods = (name, is_boot)
-                                 : dep_mods (mi_deps iface0)
-                      }
-                    }
-    return iface
+        local_mod = mkModule (thisPackage dflags) name
+    -- TODO duplicated with TcRnDriver
+    hole_mod <-
+        case getSigOf dflags (moduleName local_mod) of
+            Nothing -> liftIO $ canonicalizeModule dflags local_mod
+            Just sof -> return sof
+    let (has_local, ms) = ms_merge_imps mod_summary
+        -- We mostly just want to merge the interfaces, but there
+        -- are a few fields which it is wrong to directly merge:
+        -- mi_deps and mi_usages.
+        --
+        -- For mi_deps, we want to REPLACE the field with what
+        -- accurate dependency information would be "as if" we
+        -- imported the module.  So if this is a local interface,
+        -- have a single dep_mods field; otherwise add to dep_pkgs,
+        -- and inherit dep_orphs and dep_finsts.
+        --
+        -- For mi_usages... XXX??? TODO???
+        fixup_iface i = i { mi_deps = (mi_deps i) {
+                                dep_mods = if moduleUnitId (mi_module i) == thisPackage dflags
+                                            -- NB: DO NOT ADD SELF HERE
+                                            then dep_mods (mi_deps i)
+                                            else [],
+                                dep_pkgs = if moduleUnitId (mi_module i) == thisPackage dflags
+                                            then []
+                                            else [(moduleUnitId (mi_module i), False)] -- TODO safe haskell
+                            }
+                          }
+        get_iface is_boot mod = do
+            (iface, _) <- liftIO . initIfaceCheck hsc_env
+                                 -- I think this is wrong: it has to go through
+                                 -- loadInterface so that we can put it in the EPS
+                                 . withException
+                                 $ computeInterface (text "merge-requirements")
+                                                    is_boot mod
+            return (fixup_iface iface)
+        get_local_iface = do
+            case lookupHptByModule hpt local_mod of
+                Just hm -> return [fixup_iface (hm_iface hm)]
+                Nothing -> do i <- get_iface True local_mod
+                              return [(fixup_iface i)]
+    local_ifaces <- if has_local then get_local_iface else return []
+    external_ifaces <- mapM (get_iface False) ms
+    case foldM mergeModIface ((emptyModIface (TopModule {
+                                                topModSemantic = hole_mod,
+                                                topModIdentity = local_mod
+                                                })) {
+                                    mi_deps = noDependencies {
+                                        dep_mods = if moduleUnitId hole_mod == thisPackage dflags
+                                                    -- TODO: actually needs to
+                                                    -- be transitive list
+                                                    then [(moduleName hole_mod, False)]
+                                                    else [],
+                                        dep_pkgs = if moduleUnitId hole_mod /= thisPackage dflags && not (isHoleModule hole_mod)
+                                                    -- DON'T add hole module in
+                                                    then [(moduleUnitId hole_mod, False)]
+                                                    else []
+                                    }
+                                    })
+                             (external_ifaces ++ local_ifaces) of
+        Failed errs -> liftIO . throwIO $ mkSrcErr (format_msgs errs)
+            where format_msgs errs = listToBag
+                            [ mkLongErrMsg dflags noSrcSpan alwaysQualify
+                                           msg
+                                           (ppr d1 $$ ppr d2)
+                                           -- TODO: make this prettier
+                            | (d1, d2, msg) <- errs ]
+        Succeeded iface ->
+            -- "typecheck" the iface to make sure all the interfaces
+            -- are loaded in
+            return iface
 
 hscFatInterfaceFrontEnd :: ModSummary -> Hsc FrontendResult
 hscFatInterfaceFrontEnd mod_summary = do
@@ -886,6 +941,14 @@ hscFatInterfaceFrontEnd mod_summary = do
                         fat_iface
             return (FrontendGuts guts)
         _ -> do
+            -- Re-TYPECHECK the interface, make sure everything looks right
+            ioMsgMaybe $ initTc hsc_env (mi_hsc_src fat_iface) False (mi_top_module fat_iface) (realSrcLocSpan (mkRealSrcLoc (mkFastString (ms_hspp_file mod_summary)) 0 0)) $ do
+                tcg_env <- tcRnSignature (mi_hsc_src fat_iface)
+                setGblEnv tcg_env $ do
+                sig_details <- typecheckIface fat_iface { mi_impl_rdr_env = tcg_impl_rdr_env tcg_env }
+                case tcg_impl_rdr_env tcg_env of
+                    Just gr -> checkHsigIface' gr sig_details
+                    Nothing -> return ()
             -- Make sure ModIface hash function works by loading all deps
             let hpt = hsc_HPT hsc_env
             forM_ (dep_mods (mi_deps fat_iface)) $ \(modname, is_boot) ->
@@ -1238,7 +1301,7 @@ markUnsafeInfer tcg_env whyUnsafe = do
 
   where
     wiped_trust   = (tcg_imports tcg_env) { imp_trust_pkgs = [] }
-    pprMod        = ppr $ moduleName $ tcg_mod tcg_env
+    pprMod        = ppr . moduleName . topModIdentity $ tcg_top_mod tcg_env
     whyUnsafe' df = vcat [ quotes pprMod <+> text "has been inferred as unsafe!"
                          , text "Reason:"
                          , nest 4 $ (vcat $ badFlags df) $+$
@@ -1365,6 +1428,8 @@ hscReadFatIface loc_doc hsc_env inst_env fam_inst_env iface = do
     tyenv_ref <- newIORef emptyTypeEnv
     let export_set = availsToNameSet (mi_exports iface)
         gbl_env = IfGblEnv { if_load_fat_interface = Just export_set
+                           , if_doc = text "hscReadFatIface"
+                           , if_impl_rdr_env = Nothing -- TODO
                            , if_rec_types = Just (mi_module iface, readTcRef tyenv_ref) }
         dflags = hsc_dflags hsc_env
     showPassIO dflags CoreLoadGuts
@@ -1868,7 +1933,7 @@ hscCompileCore hsc_env simplify safe_mode mod_summary binds output_filename
 mkModGuts :: Module -> SafeHaskellMode -> CoreProgram -> ModGuts
 mkModGuts mod safe binds =
     ModGuts {
-        mg_module       = mod,
+        mg_top_module   = hsTopModule mod,
         mg_hsc_src      = HsSrcFile,
         mg_loc          = mkGeneralSrcSpan (moduleNameFS (moduleName mod)),
                                   -- A bit crude

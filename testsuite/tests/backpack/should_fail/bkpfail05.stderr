@@ -1,0 +1,33 @@
+[1 of 5] Processing h
+/--- Shape for h
+provides:
+requires: H -> T{T, T1}
+\---
+  [1 of 2] Compiling H[boot]          ( h/H.hs-boot, nothing )
+  [2 of 2] Compiling H[merge]         ( h/H.hs-boot-merge, nothing )
+[2 of 5] Processing t-impl
+  Instantiating main-t-impl
+  [1 of 1] Compiling T                ( t-impl/T.hs, bkpfail05-out/main-t-impl/main-t-impl/T.o )
+[3 of 5] Processing p
+/--- Shape for p
+provides: T -> main-t-impl:T
+               T{T, T2}
+requires: H -> main-t-impl:T.T{T, T1, T2}
+\---
+  [1 of 2] Compiling H[boot]          ( p/H.hs-boot, nothing )
+  [2 of 2] Compiling H[merge]         ( p/H.hs-boot-merge, nothing )
+[4 of 5] Processing h-impl
+  Instantiating main-h-impl
+  [1 of 1] Including main-t-impl
+  [1 of 1] Compiling H                ( h-impl/H.hs, bkpfail05-out/main-h-impl/main-h-impl/H.o )
+[5 of 5] Processing q
+  Instantiating main-q
+  [1 of 2] Including main-h-impl
+  [2 of 2] Including main-p
+    Instantiating main-p(main-h-impl:H)
+    [1 of 2] Including main-t-impl
+    [2 of 2] Including main-h
+      Instantiating main-h(main-h-impl:H)
+      [1 of 2] Compiling H[boot]          ( h/H.hs-boot, bkpfail05-out/main-h/main-h-9ounnqs7oqA38IZEscm2tL/H.o-boot )
+
+bkpfail05.bkp:2:5: error: Not in scope: data constructor ‘T1’

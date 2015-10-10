@@ -130,7 +130,7 @@ typecheckGuts inst_env fam_inst_env mod_iface mod_details = do
                 return (id, rhs)
 
     return ModGuts {
-        mg_module  = mi_module mod_iface,
+        mg_top_module  = mi_top_module mod_iface,
         mg_hsc_src = mi_hsc_src mod_iface,
         mg_loc     = noSrcSpan, -- TODO
         mg_exports = md_exports mod_details,
@@ -214,7 +214,7 @@ typecheckIface' iface tc_env_var
         ; anns      <- tcIfaceAnnotations (mi_anns iface)
 
                 -- Vectorisation information
-        ; vect_info <- tcIfaceVectInfo (mi_module iface) type_env (mi_vect_info iface)
+        ; vect_info <- tcIfaceVectInfo (mi_semantic_module iface) type_env (mi_vect_info iface)
 
                 -- Exports
         ; exports <- ifaceExportNames (mi_exports iface)
@@ -1423,7 +1423,7 @@ tcIfaceGlobal name
                 ; case lookupNameEnv type_env name of
                         Just thing -> return thing
                         Nothing   -> pprPanic "tcIfaceGlobal (local): not found:"
-                                                (ppr name $$ ppr type_env) }
+                                                (if_doc env $$ ppr name $$ ppr type_env) }
 
           ; _ -> do
 

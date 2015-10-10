@@ -74,11 +74,12 @@ import qualified Data.Map as Map
 -- a dependencies information for the module being compiled.
 mkDependencies :: TcGblEnv -> IO Dependencies
 mkDependencies
-          TcGblEnv{ tcg_mod = mod,
+          TcGblEnv{ tcg_top_mod = top_mod,
                     tcg_imports = imports,
                     tcg_th_used = th_var
                   }
  = do
+      let mod = topModIdentity top_mod
       -- Template Haskell used?
       th_used <- readIORef th_var
       let dep_mods = eltsUFM (delFromUFM (imp_dep_mods imports) (moduleName mod))
@@ -105,15 +106,16 @@ mkDependencies
                     -- sort to get into canonical order
                     -- NB. remember to use lexicographic ordering
 
+
 mkUsedNames :: TcGblEnv -> NameSet
 mkUsedNames TcGblEnv{ tcg_dus = dus } = allUses dus
 
-mkUsageInfo :: HscEnv -> Module -> ImportedMods -> NameSet -> [FilePath] -> IO [Usage]
-mkUsageInfo hsc_env this_mod dir_imp_mods used_names dependent_files
+mkUsageInfo :: HscEnv -> TopModule -> ImportedMods -> NameSet -> [FilePath] -> IO [Usage]
+mkUsageInfo hsc_env top_mod dir_imp_mods used_names dependent_files
   = do
     eps <- hscEPS hsc_env
     hashes <- mapM getFileHash dependent_files
-    let mod_usages = mk_mod_usage_info (eps_PIT eps) hsc_env this_mod
+    let mod_usages = mk_mod_usage_info (eps_PIT eps) hsc_env top_mod
                                        dir_imp_mods used_names
     let usages = mod_usages ++ [ UsageFile { usg_file_path = f
                                            , usg_file_hash = hash }
@@ -125,11 +127,11 @@ mkUsageInfo hsc_env this_mod dir_imp_mods used_names dependent_files
 
 mk_mod_usage_info :: PackageIfaceTable
               -> HscEnv
-              -> Module
+              -> TopModule
               -> ImportedMods
               -> NameSet
               -> [Usage]
-mk_mod_usage_info pit hsc_env this_mod direct_imports used_names
+mk_mod_usage_info pit hsc_env top_mod direct_imports used_names
   = mapMaybe mkUsage usage_mods
   where
     hpt = hsc_HPT hsc_env
@@ -145,6 +147,7 @@ mk_mod_usage_info pit hsc_env this_mod direct_imports used_names
 
     -- ent_map groups together all the things imported and used
     -- from a particular module
+    -- NB: Module here is semantic, see Note [Semantic and identity modules]
     ent_map :: ModuleEnv [OccName]
     ent_map  = foldNameSet add_mv emptyModuleEnv used_names
      where
@@ -169,8 +172,11 @@ mk_mod_usage_info pit hsc_env this_mod direct_imports used_names
     mkUsage mod
       | isNothing maybe_iface           -- We can't depend on it if we didn't
                                         -- load its interface.
-      || mod == this_mod                -- We don't care about usages of
+      || mod == topModIdentity top_mod  -- We don't care about usages of
                                         -- things in *this* module
+      || mod == topModSemantic top_mod  -- nor do we care about the usages
+                                        -- of semantically equiv.
+                                        -- See Note [Signatures and usages]
       = Nothing
 
       | moduleUnitId mod /= this_pkg
@@ -260,7 +266,7 @@ deSugar :: HscEnv -> ModLocation -> TcGblEnv -> IO (Messages, Maybe ModGuts)
 
 deSugar hsc_env
         mod_loc
-        tcg_env@(TcGblEnv { tcg_mod          = mod,
+        tcg_env@(TcGblEnv { tcg_top_mod      = top_mod@TopModule{ topModSemantic = mod },
                             tcg_src          = hsc_src,
                             tcg_type_env     = type_env,
                             tcg_imports      = imports,
@@ -357,10 +363,10 @@ deSugar hsc_env
         ; used_th <- readIORef tc_splice_used
         ; dep_files <- readIORef dependent_files
         ; safe_mode <- finalSafeMode dflags tcg_env
-        ; usages <- mkUsageInfo hsc_env mod (imp_mods imports) used_names dep_files
+        ; usages <- mkUsageInfo hsc_env top_mod (imp_mods imports) used_names dep_files
 
         ; let mod_guts = ModGuts {
-                mg_module       = mod,
+                mg_top_module   = top_mod,
                 mg_hsc_src      = hsc_src,
                 mg_loc          = mkFileSrcSpan mod_loc,
                 mg_exports      = exports,

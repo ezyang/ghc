@@ -1,0 +1,27 @@
+[1 of 3] Processing p
+/--- Shape for p
+provides:
+requires: A -> A{A, A, foo}
+\---
+  [1 of 2] Compiling A[boot]          ( p/A.hs-boot, nothing )
+  [2 of 2] Compiling A[merge]         ( p/A.hs-boot-merge, nothing )
+[2 of 3] Processing q
+/--- Shape for q
+provides:
+requires: A -> A{A, A, bar}
+\---
+  [1 of 2] Compiling A[boot]          ( q/A.hs-boot, nothing )
+  [2 of 2] Compiling A[merge]         ( q/A.hs-boot-merge, nothing )
+[3 of 3] Processing r
+/--- Shape for r
+provides: M -> main-r(hole:A):M
+               x, y
+requires: A -> A{A, A, bar, foo}
+\---
+  [1 of 2] Compiling A[merge]         ( r/A.hs-boot-merge, nothing )
+
+<no location info>: error:
+    The record label lists for ‘A’ differ
+    data A = A {bar :: GHC.Types.Bool}
+      Promotable
+    data A = A {foo :: GHC.Types.Int}

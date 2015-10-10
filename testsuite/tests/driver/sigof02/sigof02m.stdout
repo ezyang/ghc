@@ -2,8 +2,8 @@
 [2 of 3] Compiling Map[merge]       ( Map.hs-boot-merge, tmp_sigof02m/Map.o )
 [3 of 3] Compiling Main             ( Main.hs, tmp_sigof02m/Main.o )
 Linking tmp_sigof02m/StrictMain ...
-[1 of 3] Compiling Map[boot]        ( Map.hs-boot, tmp_sigof02m/Map.o-boot ) [sig-of changed]
-[2 of 3] Compiling Map[merge]       ( Map.hs-boot-merge, tmp_sigof02m/Map.o ) [sig-of changed]
+[1 of 3] Compiling Map[boot]        ( Map.hs-boot, tmp_sigof02m/Map.o-boot ) [implementing module changed]
+[2 of 3] Compiling Map[merge]       ( Map.hs-boot-merge, tmp_sigof02m/Map.o ) [implementing module changed]
 [3 of 3] Compiling Main             ( Main.hs, tmp_sigof02m/Main.o ) [Map changed]
 Linking tmp_sigof02m/LazyMain ...
 False

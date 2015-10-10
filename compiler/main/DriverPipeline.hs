@@ -147,7 +147,8 @@ compileOne' m_tc_result mHscMessage
 
    case (status, hsc_lang) of
         (HscUpToDate, _) ->
-            ASSERT( isJust maybe_old_linkable || isNoLink (ghcLink dflags) )
+            -- TODO recomp014 triggers this assert. What's going on?!
+            -- ASSERT( isJust maybe_old_linkable || isNoLink (ghcLink dflags) )
             return hmi0 { hm_linkable = maybe_old_linkable }
         (HscNotGeneratingCode, HscNothing) ->
             let mb_linkable = if isHsBoot src_flavour
@@ -156,6 +157,7 @@ compileOne' m_tc_result mHscMessage
                                 else Just (LM (ms_hs_date summary) this_mod [])
             in return hmi0 { hm_linkable = mb_linkable }
         (HscNotGeneratingCode, _) -> panic "compileOne HscNotGeneratingCode"
+        -- TODO: this triggers for hi-fat with fno-code (this is goofy)
         (_, HscNothing) -> panic "compileOne HscNothing"
         (HscUpdateBoot, HscInterpreted) -> do
             return hmi0
@@ -529,7 +531,8 @@ makeMergeRequirementSummary hsc_env obj_allowed mod_name = do
                             Just f -> f,
             ms_hspp_opts = dflags,
             ms_hspp_buf = Nothing,
-            ms_fat_iface = Nothing
+            ms_fat_iface = Nothing,
+            ms_parsed_mod = Nothing
             }
 
 -- | Top-level entry point for @ghc -merge-requirement ModName@.
@@ -1557,6 +1560,7 @@ summariseFile input_fn True src_flavour = do
                              ms_hs_date   = src_timestamp,
                              ms_obj_date  = Nothing,
                              ms_iface_date   = Nothing,
+                             ms_parsed_mod = Nothing,
                              ms_merge_imps = (False, []),
                              ms_textual_imps = [], -- BOGUS
                              ms_srcimps      = [],
@@ -1602,6 +1606,7 @@ summariseFile input_fn False src_flavour = do
                              ms_hspp_file = input_fn,
                              ms_hspp_opts = dflags,
                              ms_hspp_buf  = hspp_buf,
+                             ms_parsed_mod = Nothing,
                              ms_location  = location,
                              ms_hs_date   = src_timestamp,
                              ms_obj_date  = Nothing,

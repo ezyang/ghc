@@ -1,0 +1,21 @@
+[1 of 3] Processing p
+  [1 of 3] Compiling H[boot]          ( p/H.hs-boot, nothing )
+  [2 of 3] Compiling H[merge]         ( p/H.hs-boot-merge, nothing )
+  [3 of 3] Compiling A                ( p/A.hs, nothing )
+[2 of 3] Processing qimpl
+  Instantiating main-qimpl
+  [1 of 2] Compiling T                ( qimpl/T.hs, bkpfail06-out/main-qimpl/main-qimpl/T.o )
+  [2 of 2] Compiling H                ( qimpl/H.hs, bkpfail06-out/main-qimpl/main-qimpl/H.o )
+[3 of 3] Processing q
+  Instantiating main-q
+  [1 of 2] Including main-qimpl
+  [2 of 2] Including main-p
+    Instantiating main-p(main-qimpl:H)
+    [1 of 3] Compiling H[boot]          ( p/H.hs-boot, bkpfail06-out/main-p/main-p-CCHFgiYLkMuD2FKMVNcmVF/H.o-boot )
+
+bkpfail06.bkp:3:9: error:
+    Type constructor ‘T’ has conflicting definitions in the module
+    and its signature file
+    Main module: data T = T Bool
+    Signature file:  data T = T Int
+    The constructors do not match: The types for ‘T’ differ

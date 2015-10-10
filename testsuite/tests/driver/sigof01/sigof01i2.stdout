@@ -4,6 +4,6 @@ class Foo a where
 data T = A.T
 mkT :: T
 x :: Bool
-Trust type is (Module: Safe, Package: trusted)
+Trust type is (Module: None, Package: trusted)
 Package Trust: Off
-B is trusted!
+B is NOT trusted!

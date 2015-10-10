@@ -25,8 +25,10 @@ module LoadIface (
         readAnyIface,
         loadDecls,      -- Should move to TcIface and be renamed
         initExternalPackageState,
+        computeInterface,
+        computeExports,
 
-        ifaceStats, pprModIface, showIface
+        ifaceStats, pprModIface, pprModIfaceSimple, showIface
    ) where
 
 #include "HsVersions.h"
@@ -70,10 +72,14 @@ import FastString
 import Fingerprint
 import Hooks
 import FieldLabel
+import ShUnitId
+import ShUnify
+import UniqSet
 
 import Control.Monad
 import Data.IORef
 import System.FilePath
+import qualified Data.Map as Map
 
 {-
 ************************************************************************
@@ -265,10 +271,25 @@ loadSrcInterface_maybe doc mod want_boot maybe_pkg
   -- interface; it will call the Finder again, but the ModLocation will be
   -- cached from the first search.
   = do { hsc_env <- getTopEnv
-       ; res <- liftIO $ findImportedModule hsc_env mod maybe_pkg
+       ; tcg_env <- getGblEnv
+       ; dflags <- getDynFlags
+       -- This is a bit goofy, but we actually have two ways to "inject"
+       -- interfaces into the source interface loading business.
+       -- (1) tcg_ifaces is used during shaping to make "fake" interfaces
+       -- available for modules we have shaped but not typechecked.
+       ; case lookupUFM (tcg_ifaces tcg_env) mod of
+            Just iface -> return (Succeeded iface)
+            Nothing -> do {
+       -- (2) packageModuleMap is used by Backpack as a convenient way
+       -- to setup the set of visible modules twiddled by include flags,
+       -- since it's annoying to go through Packages to do it.
+       ; case Map.lookup mod (packageModuleMap dflags) of
+            Just mod -> do initIfaceTcRn $ loadInterface doc mod (ImportByUser want_boot)
+            Nothing -> do {
+         res <- liftIO $ findImportedModule hsc_env mod maybe_pkg
        ; case res of
            Found _ mod -> initIfaceTcRn $ loadInterface doc mod (ImportByUser want_boot)
-           err         -> return (Failed (cannotFindInterface (hsc_dflags hsc_env) mod err)) }
+           err         -> return (Failed (cannotFindInterface (hsc_dflags hsc_env) mod err)) }}}
 
 -- | Load interface directly for a fully qualified 'Module'.  (This is a fairly
 -- rare operation, but in particular it is used to load orphan modules
@@ -348,11 +369,7 @@ loadPluginInterface doc mod_name
 -- | A wrapper for 'loadInterface' that throws an exception if it fails
 loadInterfaceWithException :: SDoc -> Module -> WhereFrom -> IfM lcl ModIface
 loadInterfaceWithException doc mod_name where_from
-  = do  { mb_iface <- loadInterface doc mod_name where_from
-        ; dflags <- getDynFlags
-        ; case mb_iface of
-            Failed err      -> liftIO $ throwGhcExceptionIO (ProgramError (showSDoc dflags err))
-            Succeeded iface -> return iface }
+  = withException (loadInterface doc mod_name where_from)
 
 ------------------
 loadInterface :: SDoc -> Module -> WhereFrom
@@ -371,6 +388,12 @@ loadInterface :: SDoc -> Module -> WhereFrom
 -- is no longer used
 
 loadInterface doc_str mod from
+  | isHoleModule mod
+  -- Hole modules get special treatment
+  = do dflags <- getDynFlags
+       -- Redo search for our local hole module
+       loadInterface doc_str (mkModule (thisPackage dflags) (moduleName mod)) from
+  | otherwise
   = do  {       -- Read the state
           (eps,hpt) <- getEpsAndHpt
         ; gbl_env <- getGblEnv
@@ -398,10 +421,10 @@ loadInterface doc_str mod from
                             WARN( hi_boot_file &&
                                   fmap fst (if_rec_types gbl_env) == Just mod,
                                   ppr mod )
-                            findAndReadIface doc_str mod hi_boot_file
+                            computeInterface doc_str hi_boot_file mod
         ; case read_result of {
             Failed err -> do
-                { let fake_iface = emptyModIface mod
+                { let fake_iface = emptyModIface (hsTopModule mod)
 
                 ; updateEps_ $ \eps ->
                         eps { eps_PIT = extendModuleEnv (eps_PIT eps) (mi_module fake_iface) fake_iface }
@@ -419,11 +442,9 @@ loadInterface doc_str mod from
         -- But this is no longer valid because thNameToGhcName allows users to
         -- cause the system to load arbitrary interfaces (by supplying an appropriate
         -- Template Haskell original-name).
-            Succeeded (iface, file_path) ->
+            Succeeded (iface, loc) ->
+        let loc_doc = text loc in
 
-        let
-            loc_doc = text file_path
-        in
         initIfaceLcl mod loc_doc $ do
 
         --      Load the new ModIface into the External Package State
@@ -490,6 +511,70 @@ loadInterface doc_str mod from
 
         ; return (Succeeded final_iface)
     }}}}
+
+indefiniteIfaceCache :: Module
+                     -> TcRnIf gbl lcl (MaybeErr MsgDoc (ModIface, FilePath))
+                     -> TcRnIf gbl lcl (MaybeErr MsgDoc (ModIface, FilePath))
+indefiniteIfaceCache mod do_this = do
+    eps <- getEps
+    case lookupModuleEnv (eps_IIT eps) mod of
+        Just r -> return (Succeeded r)
+        Nothing -> do
+            m <- do_this
+            case m of
+                Succeeded r -> do
+                    updateEps_ $ \eps ->
+                        eps { eps_IIT = extendModuleEnv (eps_IIT eps) mod r }
+                Failed _ -> return ()
+            return m
+
+-- | Like 'findAndReadIface', but looks up interfaces based on the indefinite
+-- unit database, rather than the installed unit database.
+findAndReadIndefiniteIface
+    :: SDoc -> Module
+    -> TcRnIf gbl lcl (MaybeErr MsgDoc (ModIface, FilePath))
+findAndReadIndefiniteIface doc mod = indefiniteIfaceCache mod $ do
+    findAndReadIface' IsFatInterface doc mod False
+
+computeInterfaceAnd ::
+       (ModIface -> a)
+    -> (UnitId -> ModIface -> TcRnIf gbl lcl a)
+    -> SDoc -> IsBootInterface -> Module
+    -> TcRnIf gbl lcl (MaybeErr MsgDoc (a, FilePath))
+computeInterfaceAnd def_action indef_action doc_str hi_boot_file mod = do
+    dflags <- getDynFlags
+    -- First try for a fully compiled interface
+    fh <- liftIO $ moduleFreeHoles dflags mod
+    r <- findAndReadIface doc_str mod hi_boot_file
+    case r of
+        Succeeded (iface0, path) | isEmptyUniqSet fh -> do
+            return (Succeeded (def_action iface0, path))
+        _ -> do
+            -- Now try for a fat interface
+            imod <- liftIO $ generalizeHoleModule dflags mod
+            r <- findAndReadIndefiniteIface doc_str imod
+            case r of
+                Succeeded (iface0, path) -> do
+                    r <- indef_action (moduleUnitId mod) iface0
+                    return (Succeeded (r, path))
+                Failed err -> return (Failed err)
+
+-- | Not only finds and reads an interface, but can also handle if
+-- the requested module is instantiated in some way (in which case
+-- we may only have a raw 'ModIface' for the generalized version).
+computeInterface :: SDoc -> IsBootInterface -> Module
+                 -> TcRnIf gbl lcl (MaybeErr MsgDoc (ModIface, FilePath))
+computeInterface =
+    computeInterfaceAnd id
+        (\uid iface -> do hsc_env <- getTopEnv
+                          liftIO (rnModIface hsc_env uid iface))
+
+computeExports :: SDoc -> IsBootInterface -> Module
+               -> TcRnIf gbl lcl (MaybeErr MsgDoc ([IfaceExport], FilePath))
+computeExports =
+    computeInterfaceAnd mi_exports
+        (\uid iface -> do hsc_env <- getTopEnv
+                          liftIO (rnModExports hsc_env uid (mi_exports iface)))
 
 wantHiBootFile :: DynFlags -> ExternalPackageState -> Module -> WhereFrom
                -> MaybeErr MsgDoc IsBootInterface
@@ -677,6 +762,10 @@ This actually happened with P=base, Q=ghc-prim, via the AMP warnings.
 See Trac #8320.
 -}
 
+data IsFatInterface = IsFatInterface
+                    | IsInterface
+    deriving (Eq)
+
 findAndReadIface :: SDoc -> Module
                  -> IsBootInterface     -- True  <=> Look for a .hi-boot file
                                         -- False <=> Look for .hi file
@@ -686,8 +775,13 @@ findAndReadIface :: SDoc -> Module
 
         -- It *doesn't* add an error to the monad, because
         -- sometimes it's ok to fail... see notes with loadInterface
+findAndReadIface = findAndReadIface' IsInterface
 
-findAndReadIface doc_str mod hi_boot_file
+findAndReadIface' :: IsFatInterface
+                  -> SDoc -> Module
+                  -> IsBootInterface
+                  -> TcRnIf gbl lcl (MaybeErr MsgDoc (ModIface, FilePath))
+findAndReadIface' is_fat doc_str mod hi_boot_file
   = do traceIf (sep [hsep [ptext (sLit "Reading"),
                            if hi_boot_file
                              then ptext (sLit "[boot]")
@@ -706,10 +800,11 @@ findAndReadIface doc_str mod hi_boot_file
                dflags <- getDynFlags
                -- Look for the file
                hsc_env <- getTopEnv
-               mb_found <- liftIO (findExactModule hsc_env mod)
+               mb_found <- liftIO $ case is_fat of
+                                        IsFatInterface -> findIndefiniteModule hsc_env mod
+                                        IsInterface -> findExactModule hsc_env mod
                case mb_found of
                    Found loc mod -> do
-
                        -- Found file, so read it
                        let file_path = addBootSuffix_maybe hi_boot_file
                                      $ ml_hi_file loc
@@ -801,9 +896,12 @@ initExternalPackageState
   = EPS {
       eps_is_boot      = emptyUFM,
       eps_PIT          = emptyPackageIfaceTable,
+      eps_IIT          = emptyIndefiniteIfaceTable,
+      eps_shape        = emptyNameEnv,
       eps_PTE          = emptyTypeEnv,
       eps_inst_env     = emptyInstEnv,
       eps_fam_inst_env = emptyFamInstEnv,
+      eps_EST          = Map.empty,
       eps_rule_base    = mkRuleBase builtinRules,
         -- Initialise the EPS rule pool with the built-in rules
       eps_mod_fam_inst_env
@@ -825,7 +923,7 @@ initExternalPackageState
 
 ghcPrimIface :: ModIface
 ghcPrimIface
-  = (emptyModIface gHC_PRIM) {
+  = (emptyModIface (hsTopModule gHC_PRIM)) {
         mi_exports  = ghcPrimExports,
         mi_decls    = [],
         mi_fixities = fixities,
@@ -878,6 +976,11 @@ showIface hsc_env filename = do
    let dflags = hsc_dflags hsc_env
    log_action dflags dflags SevDump noSrcSpan defaultDumpStyle (pprModIface iface)
 
+-- Show a ModIface but don't display details; suitable for ModIfaces stored in
+-- the EPT.
+pprModIfaceSimple :: ModIface -> SDoc
+pprModIfaceSimple iface = ppr (mi_module iface) $$ pprDeps (mi_deps iface) $$ nest 2 (vcat (map pprExport (mi_exports iface)))
+
 pprModIface :: ModIface -> SDoc
 -- Show a ModIface
 pprModIface iface
@@ -892,11 +995,14 @@ pprModIface iface
         , nest 2 (text "export-list hash:" <+> ppr (mi_exp_hash iface))
         , nest 2 (text "orphan hash:" <+> ppr (mi_orphan_hash iface))
         , nest 2 (text "flag hash:" <+> ppr (mi_flag_hash iface))
-        , nest 2 (text "sig of:" <+> ppr (mi_sig_of iface))
         , nest 2 (text "used TH splices:" <+> ppr (mi_used_th iface))
         , nest 2 (ptext (sLit "where"))
         , ptext (sLit "exports:")
         , nest 2 (vcat (map pprExport (mi_exports iface)))
+        , if (not (null (mi_parents iface)))
+            then ptext (sLit "parents:") $$
+                 nest 2 (vcat (map ppr (mi_parents iface)))
+            else empty
         , pprDeps (mi_deps iface)
         , vcat (map pprUsage (mi_usages iface))
         , vcat (map pprIfaceAnnotation (mi_anns iface))

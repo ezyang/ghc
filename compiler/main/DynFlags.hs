@@ -100,6 +100,9 @@ module DynFlags (
         parseDynamicFilePragma,
         parseDynamicFlagsFull,
 
+        -- ** Unit ID cache
+        UnitIdCache,
+
         -- ** Available DynFlags
         allFlags,
         flagsAll,
@@ -175,6 +178,7 @@ import Outputable
 import Foreign.C        ( CInt(..) )
 import System.IO.Unsafe ( unsafeDupablePerformIO )
 import {-# SOURCE #-} ErrUtils ( Severity(..), MsgDoc, mkLocMessage )
+import UniqFM
 
 import System.IO.Unsafe ( unsafePerformIO )
 import Data.IORef
@@ -271,6 +275,7 @@ data DumpFlag
    | Opt_D_dump_occur_anal
    | Opt_D_dump_parsed
    | Opt_D_dump_rn
+   | Opt_D_dump_shape
    | Opt_D_dump_simpl
    | Opt_D_dump_simpl_iterations
    | Opt_D_dump_spec
@@ -664,6 +669,10 @@ type SigOf = Map ModuleName Module
 getSigOf :: DynFlags -> ModuleName -> Maybe Module
 getSigOf dflags n = Map.lookup n (sigOf dflags)
 
+-- NameCache updNameCache
+type UnitIdEnv = UniqFM
+type UnitIdCache = UnitIdEnv ShUnitId
+
 -- | Contains not only a collection of 'GeneralFlag's but also a plethora of
 -- information relating to the compilation of a single file or GHC session
 data DynFlags = DynFlags {
@@ -709,6 +718,13 @@ data DynFlags = DynFlags {
                                          --   Typically only 1 is needed
 
   thisPackage           :: UnitId,   -- ^ key of package currently being compiled
+  thisComponentId       :: ComponentId,
+                            -- ^ Cabal-specified ComponentId identifying
+                            -- what is being compiled
+  thisComponentName     :: Maybe ComponentName,
+                            -- ^ If this is set, we're assumed to only be
+                            -- compiling a single component (even if a Backpack
+                            -- file has many)
 
   -- ways
   ways                  :: [Way],       -- ^ Way flags from the command line
@@ -789,12 +805,15 @@ data DynFlags = DynFlags {
         -- ^ The @-package@ and @-hide-package@ flags from the command-line
   packageEnv            :: Maybe FilePath,
         -- ^ Filepath to the package environment file (if overriding default)
+  packageModuleMap      :: Map ModuleName Module,
+        -- ^ Backpack programmable mapping of module names to modules
 
   -- Package state
   -- NB. do not modify this field, it is calculated by
   -- Packages.initPackages
   pkgDatabase           :: Maybe [(FilePath, [PackageConfig])],
   pkgState              :: PackageState,
+  unitIdCache           :: {-# UNPACK #-} !(IORef UnitIdCache),
 
   -- Temporary files
   -- These have to be IORefs, because the defaultCleanupHandler needs to
@@ -1151,7 +1170,7 @@ data ModRenaming = ModRenaming {
 -- | Flags for manipulating packages.
 data PackageFlag
   = ExposePackage   PackageArg ModRenaming -- ^ @-package@, @-package-id@
-                                           -- and @-package-key@
+                                           -- and @-unit-key@
   | HidePackage     String -- ^ @-hide-package@
   | IgnorePackage   String -- ^ @-ignore-package@
   | TrustPackage    String -- ^ @-trust-package@
@@ -1450,6 +1469,8 @@ defaultDynFlags mySettings =
         solverIterations        = treatZeroAsInf mAX_SOLVER_ITERATIONS,
 
         thisPackage             = mainUnitId,
+        thisComponentId         = ComponentId (fsLit ""),
+        thisComponentName       = Nothing,
 
         objectDir               = Nothing,
         dylibInstallName        = Nothing,
@@ -1492,9 +1513,11 @@ defaultDynFlags mySettings =
         extraPkgConfs           = id,
         packageFlags            = [],
         packageEnv              = Nothing,
+        packageModuleMap        = Map.empty,
         pkgDatabase             = Nothing,
         -- This gets filled in with GHC.setSessionDynFlags
         pkgState                = emptyPackageState,
+        unitIdCache             = v_unsafePkgKeyCache,
         ways                    = defaultWays mySettings,
         buildTag                = mkBuildTag (defaultWays mySettings),
         rtsBuildTag             = mkBuildTag (defaultWays mySettings),
@@ -1709,6 +1732,7 @@ dopt f dflags = (fromEnum f `IntSet.member` dumpFlags dflags)
           enableIfVerbose Opt_D_dump_vt_trace               = False
           enableIfVerbose Opt_D_dump_tc                     = False
           enableIfVerbose Opt_D_dump_rn                     = False
+          enableIfVerbose Opt_D_dump_shape                  = False
           enableIfVerbose Opt_D_dump_rn_stats               = False
           enableIfVerbose Opt_D_dump_hi_diffs               = False
           enableIfVerbose Opt_D_verbose_core2core           = False
@@ -2505,6 +2529,7 @@ dynamic_flags = [
   , defGhcFlag "ddump-cse"               (setDumpFlag Opt_D_dump_cse)
   , defGhcFlag "ddump-worker-wrapper"    (setDumpFlag Opt_D_dump_worker_wrapper)
   , defGhcFlag "ddump-rn-trace"          (setDumpFlag Opt_D_dump_rn_trace)
+  , defGhcFlag "ddump-shape"             (setDumpFlag Opt_D_dump_shape)
   , defGhcFlag "ddump-if-trace"          (setDumpFlag Opt_D_dump_if_trace)
   , defGhcFlag "ddump-cs-trace"          (setDumpFlag Opt_D_dump_cs_trace)
   , defGhcFlag "ddump-tc-trace"          (NoArg (do
@@ -2766,8 +2791,11 @@ package_flags = [
                                       upd (setUnitId name)
                                       deprecate "Use -this-package-key instead")
   , defGhcFlag "this-package-key"   (hasArg setUnitId)
+  , defGhcFlag "this-component-id"   (hasArg setComponentId)
+  , defGhcFlag "this-component-name" (hasArg setComponentName)
   , defFlag "package-id"            (HasArg exposePackageId)
   , defFlag "package"               (HasArg exposePackage)
+    -- backwards compat with GHC 7.10; not deprecated for now
   , defFlag "package-key"           (HasArg exposeUnitId)
   , defFlag "hide-package"          (HasArg hidePackage)
   , defFlag "hide-all-packages"     (NoArg (setGeneralFlag Opt_HideAllPackages))
@@ -3795,6 +3823,12 @@ exposePackage' p dflags
 setUnitId :: String -> DynFlags -> DynFlags
 setUnitId p s =  s{ thisPackage = stringToUnitId p }
 
+setComponentId :: String -> DynFlags -> DynFlags
+setComponentId v s = s{ thisComponentId = ComponentId (mkFastString v) }
+
+setComponentName :: String -> DynFlags -> DynFlags
+setComponentName v s = s{ thisComponentName = Just (ComponentName (mkFastString v)) }
+
 -- -----------------------------------------------------------------------------
 -- | Find the package environment (if one exists)
 --
@@ -4296,6 +4330,8 @@ unsafeGlobalDynFlags = unsafePerformIO $ readIORef v_unsafeGlobalDynFlags
 
 setUnsafeGlobalDynFlags :: DynFlags -> IO ()
 setUnsafeGlobalDynFlags = writeIORef v_unsafeGlobalDynFlags
+
+GLOBAL_VAR(v_unsafePkgKeyCache, emptyUFM, UnitIdCache)
 
 -- -----------------------------------------------------------------------------
 -- SSE and AVX

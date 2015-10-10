@@ -24,6 +24,7 @@ import LoadIface        ( showIface )
 import HscMain          ( newHscEnv )
 import DriverPipeline   ( oneShot, compileFile, mergeRequirement )
 import DriverMkDepend   ( doMkDependHS )
+import Backpack   ( doBackpack )
 #ifdef GHCI
 import InteractiveUI    ( interactiveUI, ghciWelcomeMsg, defaultGhciSettings )
 #endif
@@ -155,6 +156,7 @@ main' postLoadMode dflags0 args flagWarnings = do
                DoInteractive   -> (CompManager, HscInterpreted, LinkInMemory)
                DoEval _        -> (CompManager, HscInterpreted, LinkInMemory)
                DoMake          -> (CompManager, dflt_target,    LinkBinary)
+               DoBackpack _    -> (CompManager, dflt_target,    LinkBinary)
                DoMkDependHS    -> (MkDepend,    dflt_target,    LinkBinary)
                DoAbiHash       -> (OneShot,     dflt_target,    LinkBinary)
                DoMergeRequirements -> (OneShot, dflt_target,    LinkBinary)
@@ -255,6 +257,7 @@ main' postLoadMode dflags0 args flagWarnings = do
        DoAbiHash              -> abiHash (map fst srcs)
        DoMergeRequirements           -> doMergeRequirements (map fst srcs)
        ShowPackages           -> liftIO $ showPackages dflags6
+       DoBackpack b           -> doBackpack b
 
   liftIO $ dumpFinalStats dflags6
 
@@ -455,6 +458,7 @@ data PostLoadMode
   | StopBefore Phase        -- ghc -E | -C | -S
                             -- StopBefore StopLn is the default
   | DoMake                  -- ghc --make
+  | DoBackpack String       -- ghc --backpack foo.bkp
   | DoInteractive           -- ghc --interactive
   | DoEval [String]         -- ghc -e foo -e bar => DoEval ["bar", "foo"]
   | DoAbiHash               -- ghc --abi-hash
@@ -478,6 +482,9 @@ stopBeforeMode phase = mkPostLoadMode (StopBefore phase)
 
 doEvalMode :: String -> Mode
 doEvalMode str = mkPostLoadMode (DoEval [str])
+
+doBackpackMode :: String -> Mode
+doBackpackMode str = mkPostLoadMode (DoBackpack str)
 
 mkPostLoadMode :: PostLoadMode -> Mode
 mkPostLoadMode = Right . Right
@@ -609,6 +616,7 @@ mode_flags =
   , defFlag "S"            (PassFlag (setMode (stopBeforeMode (As False))))
   , defFlag "-make"        (PassFlag (setMode doMakeMode))
   , defFlag "-merge-requirements" (PassFlag (setMode doMergeRequirementsMode))
+  , defFlag "-backpack"    (SepArg   (\s -> setMode (doBackpackMode s) "-backpack"))
   , defFlag "-interactive" (PassFlag (setMode doInteractiveMode))
   , defFlag "-abi-hash"    (PassFlag (setMode doAbiHashMode))
   , defFlag "e"            (SepArg   (\s -> setMode (doEvalMode s) "-e"))

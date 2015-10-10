@@ -21,6 +21,7 @@ module MkIface (
         checkOldIface,  -- See if recompilation is required, by
                         -- comparing version information
         RecompileRequired(..), recompileRequired,
+        mkIfaceExports,
 
         tyThingToIfaceDecl -- Converting things to their Iface equivalents
  ) where
@@ -110,6 +111,7 @@ import Maybes
 import Binary
 import Fingerprint
 import Exception
+import ShUnitId
 
 import PrelNames
 
@@ -140,7 +142,7 @@ mkIface :: HscEnv
                          --          to write it
 
 mkIface hsc_env maybe_old_fingerprint mod_details
-         ModGuts{     mg_module       = this_mod,
+         ModGuts{     mg_top_module   = top_mod,
                       mg_hsc_src      = hsc_src,
                       mg_usages       = usages,
                       mg_used_th      = used_th,
@@ -154,13 +156,13 @@ mkIface hsc_env maybe_old_fingerprint mod_details
                     }
         =
        do mkIface_ hsc_env maybe_old_fingerprint
-                   this_mod hsc_src used_th deps rdr_env fix_env
+                   top_mod hsc_src used_th deps rdr_env fix_env
                    warns hpc_info self_trust
                    safe_mode usages mod_details Nothing
 
 mkFatIface :: HscEnv -> ModGuts -> IO (ModIface, Bool)
 mkFatIface hsc_env
-    guts@ModGuts{     mg_module       = this_mod,
+    guts@ModGuts{     mg_top_module   = top_mod,
                       mg_hsc_src      = hsc_src,
                       mg_used_th      = used_th,
                       mg_usages       = usages,
@@ -186,7 +188,7 @@ mkFatIface hsc_env
             md_exports   = mg_exports guts
         }
     in mkIface_ hsc_env Nothing
-                   this_mod hsc_src used_th deps rdr_env fix_env
+                   top_mod hsc_src used_th deps rdr_env fix_env
                    warns hpc_info self_trust
                    safe_mode usages details (Just guts)
 
@@ -229,7 +231,7 @@ mkIfaceTc :: HscEnv
           -> TcGblEnv           -- Usages, deprecations, etc
           -> IO (ModIface, Bool)
 mkIfaceTc hsc_env maybe_old_fingerprint safe_mode mod_details
-  tc_result@TcGblEnv{ tcg_mod = this_mod,
+  tc_result@TcGblEnv{ tcg_top_mod = top_mod,
                       tcg_src = hsc_src,
                       tcg_imports = imports,
                       tcg_rdr_env = rdr_env,
@@ -245,9 +247,9 @@ mkIfaceTc hsc_env maybe_old_fingerprint safe_mode mod_details
           let hpc_info = emptyHpcInfo other_hpc_info
           used_th <- readIORef tc_splice_used
           dep_files <- (readIORef dependent_files)
-          usages <- mkUsageInfo hsc_env this_mod (imp_mods imports) used_names dep_files
+          usages <- mkUsageInfo hsc_env top_mod (imp_mods imports) used_names dep_files
           mkIface_ hsc_env maybe_old_fingerprint
-                   this_mod hsc_src
+                   top_mod hsc_src
                    used_th deps rdr_env
                    fix_env warns hpc_info
                    (imp_trust_own_pkg imports) safe_mode usages mod_details Nothing
@@ -259,7 +261,7 @@ mkCgIface guts = do
             ci_foreign = mg_foreign guts
         }
 
-mkIface_ :: HscEnv -> Maybe Fingerprint -> Module -> HscSource
+mkIface_ :: HscEnv -> Maybe Fingerprint -> TopModule -> HscSource
          -> Bool -> Dependencies -> GlobalRdrEnv
          -> NameEnv FixItem -> Warnings -> HpcInfo
          -> Bool
@@ -269,7 +271,7 @@ mkIface_ :: HscEnv -> Maybe Fingerprint -> Module -> HscSource
          -> Maybe ModGuts -- If 'Just', make a fat interface.
          -> IO (ModIface, Bool)
 mkIface_ hsc_env maybe_old_fingerprint
-         this_mod hsc_src used_th deps rdr_env fix_env src_warns
+         top_mod hsc_src used_th deps rdr_env fix_env src_warns
          hpc_info pkg_trust_req safe_mode usages
          ModDetails{  md_insts     = insts,
                       md_fam_insts = fam_insts,
@@ -285,6 +287,7 @@ mkIface_ hsc_env maybe_old_fingerprint
 --      to expose in the interface
 
   = do
+    let semantic_mod = topModSemantic top_mod
     mb_impl <- case mb_guts of
                 Nothing -> return Nothing
                 Just guts -> fmap Just (mkCgIface guts)
@@ -299,7 +302,7 @@ mkIface_ hsc_env maybe_old_fingerprint
                       -- Nor wired-in things; the compiler knows about them anyhow
                    not (name `elemNameSet` decls_guts_names),
                       -- Nor things we will write CoreBindings for
-                   nameIsLocalOrFrom this_mod name  ]
+                   nameIsLocalOrFrom semantic_mod name  ]
                       -- Sigh: see Note [Root-main Id] in TcRnDriver
         decls_guts_pairs =
                      [ (id, rhs)
@@ -323,15 +326,14 @@ mkIface_ hsc_env maybe_old_fingerprint
         iface_vect_info = flattenVectInfo vect_info
         trust_info  = setSafeMode safe_mode
         annotations = map mkIfaceAnnotation anns
-        sig_of = getSigOf dflags (moduleName this_mod)
 
         intermediate_iface = ModIface {
-              mi_module      = this_mod,
-              mi_sig_of      = sig_of,
+              mi_top_module  = top_mod,
               mi_hsc_src     = hsc_src,
               mi_deps        = deps,
               mi_usages      = usages,
               mi_exports     = mkIfaceExports exports,
+              mi_parents     = [],
 
               -- Sort these lexicographically, so that
               -- the result is stable across compilations
@@ -346,6 +348,7 @@ mkIface_ hsc_env maybe_old_fingerprint
               mi_anns        = annotations,
               mi_globals     = maybeGlobalRdrEnv rdr_env,
               mi_impl        = mb_impl,
+              mi_impl_rdr_env = Nothing, -- could thread this through, but it won't be useful here
 
               -- Left out deliberately: filled in by addFingerprints
               mi_iface_hash  = fingerprint0,
@@ -453,17 +456,25 @@ writeIfaceFile dflags hi_file_path new_iface
 mkHashFun
         :: HscEnv                       -- needed to look up versions
         -> ExternalPackageState         -- ditto
-        -> (Name -> Fingerprint)
-mkHashFun hsc_env eps
-  = \name ->
+        -> (Name -> IO Fingerprint)
+mkHashFun hsc_env eps name
+  | isHoleModule (nameModule name)
+  = return fingerprint0 -- TODO: fingerprinting holes not supported yet
+  | otherwise
+  = do
       let
         mod = ASSERT2( isExternalName name, ppr name ) nameModule name
         occ = nameOccName name
-        iface = lookupIfaceByModule (hsc_dflags hsc_env) hpt pit mod `orElse`
-                   pprPanic "lookupVers2" (ppr mod <+> ppr occ)
-      in
-        snd (mi_hash_fn iface occ `orElse`
-                  pprPanic "lookupVers1" (ppr mod <+> ppr occ))
+      iface <- case lookupIfaceByModule (hsc_dflags hsc_env) hpt pit mod of
+                Just iface -> return iface
+                Nothing ->
+                    -- This can occur when we're writing out ifaces for
+                    -- requirements; we didn't do any /real/ typechecking
+                    -- so there's no guarantee everything is loaded.
+                    -- Kind of a heinous hack.
+                    initIfaceCheck hsc_env $ loadSysInterface (text "lookupVers2") mod
+      return $ snd (mi_hash_fn iface occ `orElse`
+                pprPanic "lookupVers1" (ppr mod <+> ppr occ))
   where
       hpt = hsc_HPT hsc_env
       pit = eps_PIT eps
@@ -533,9 +544,9 @@ addFingerprints hsc_env mb_old_fingerprint iface0 new_decls
           | otherwise
           = ASSERT2( isExternalName name, ppr name )
             let hash | nameModule name /= this_mod =  global_hash_fn name
-                     | otherwise = snd (lookupOccEnv local_env (getOccName name)
+                     | otherwise = return (snd (lookupOccEnv local_env (getOccName name)
                            `orElse` pprPanic "urk! lookup local fingerprint"
-                                       (ppr name)) -- (undefined,fingerprint0))
+                                       (ppr name))) -- (undefined,fingerprint0))
                 -- This panic indicates that we got the dependency
                 -- analysis wrong, because we needed a fingerprint for
                 -- an entity that wasn't in the environment.  To debug
@@ -543,7 +554,7 @@ addFingerprints hsc_env mb_old_fingerprint iface0 new_decls
                 -- pprTraces below, run the compile again, and inspect
                 -- the output and the generated .hi file with
                 -- --show-iface.
-            in put_ bh hash
+            in hash >>= put_ bh
 
         -- take a strongly-connected group of declarations and compute
         -- its fingerprint.
@@ -676,6 +687,9 @@ addFingerprints hsc_env mb_old_fingerprint iface0 new_decls
                 mi_exp_hash    = export_hash,
                 mi_orphan_hash = orphan_hash,
                 mi_flag_hash   = flag_hash,
+                mi_parents = if mi_hsc_src iface0 == HsBootMerge
+                    then [(b, ifName d) | d <- new_decls, b <- ifaceDeclImplicitBndrs d]
+                    else [],
                 mi_orphan      = not (   all ifRuleAuto orph_rules
                                            -- See Note [Orphans and auto-generated rules]
                                       && null orph_insts
@@ -962,6 +976,26 @@ mkOrphMap get_key decls
 -}
 
 
+-- Note [Signatures and usages]
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Usages are based off of (1) direct imports and (2) used 'Name's.
+-- In the presence of signatures, usage can be a little more difficult
+-- to track.  Here are rules that work for NON-recursive, definite
+-- compilation.
+--
+--      - A module may import one or more signatures, which gives
+--        us a view into the mi_avails of the implementing module.
+--        In this case, we want to record the IDENTITY MODULE of
+--        each direct import as a usage (but exclude any of our
+--        own identity module.
+--
+--      - A module uses some number of names.  Even if this name was
+--        defined/brought into scope for us by a signature, there is
+--        no way we can "figure" this out, since the 'Name' will always
+--        identify the original module.  But we don't care either.
+--        So record the SEMANTIC MODULE of names.
+
+
 mkIfaceAnnotation :: Annotation -> IfaceAnnotation
 mkIfaceAnnotation (Annotation { ann_target = target, ann_value = payload })
   = IfaceAnnotation {
@@ -1136,9 +1170,9 @@ checkVersions hsc_env mod_summary iface
 
        ; recomp <- checkFlagHash hsc_env iface
        ; if recompileRequired recomp then return (recomp, Nothing) else do {
-       ; if getSigOf (hsc_dflags hsc_env) (moduleName (mi_module iface))
-                /= mi_sig_of iface
-            then return (RecompBecause "sig-of changed", Nothing) else do {
+       -- TODO: need to also do this for the other codepath in tcRnModule
+       ; recomp <- checkHsig hsc_env mod_summary iface
+       ; if recompileRequired recomp then return (recomp, Nothing) else do {
        ; recomp <- checkDependencies hsc_env mod_summary iface
        ; if recompileRequired recomp then return (recomp, Just iface) else do {
 
@@ -1164,6 +1198,19 @@ checkVersions hsc_env mod_summary iface
     -- This is a bit of a hack really
     mod_deps :: ModuleNameEnv (ModuleName, IsBootInterface)
     mod_deps = mkModDeps (dep_mods (mi_deps iface))
+
+checkHsig :: HscEnv -> ModSummary -> ModIface -> IfG RecompileRequired
+checkHsig hsc_env mod_summary iface = do
+    let outer_mod = ms_mod mod_summary
+        dflags = hsc_dflags hsc_env
+    -- TODO: duplicate with tcRnModule
+    inner_mod <-
+        case getSigOf dflags (moduleName outer_mod) of
+            Nothing -> liftIO $ canonicalizeModule dflags outer_mod
+            Just sof -> return sof
+    case inner_mod == mi_semantic_module iface of
+        True -> up_to_date (text "implementing module unchanged")
+        False -> return (RecompBecause "implementing module changed")
 
 -- | Check the flags haven't changed
 checkFlagHash :: HscEnv -> ModIface -> IfG RecompileRequired

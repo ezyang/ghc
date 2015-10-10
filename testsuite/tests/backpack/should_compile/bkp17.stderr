@@ -1,0 +1,17 @@
+[1 of 3] Processing p
+/--- Shape for p
+provides:
+requires: H ->
+\---
+  [1 of 2] Compiling H[boot]          ( p/H.hs-boot, nothing )
+  [2 of 2] Compiling H[merge]         ( p/H.hs-boot-merge, nothing )
+[2 of 3] Processing q
+  Instantiating main-q
+  [1 of 1] Compiling M                ( q/M.hs, bkp17-out/main-q/main-q/M.o )
+[3 of 3] Processing r
+  Instantiating main-r
+  [1 of 2] Including main-q
+  [2 of 2] Including main-p
+    Instantiating main-p(H -> main-q:M)
+    [1 of 2] Compiling H[boot]          ( p/H.hs-boot, bkp17-out/main-p/main-p-6ICqGSVlp3sCmADGw7Kwj3/H.o-boot )
+    [2 of 2] Compiling H[merge]         ( p/H.hs-boot-merge, bkp17-out/main-p/main-p-6ICqGSVlp3sCmADGw7Kwj3/H.o )

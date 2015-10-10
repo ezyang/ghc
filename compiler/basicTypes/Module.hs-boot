@@ -1,8 +1,8 @@
-module Module where
+module Module(module Module, moduleName, moduleUnitId) where
 
-data Module
+import GHC.PackageDb (GenModule(..))
+
+type Module = GenModule UnitId ModuleName
 data ModuleName
 data UnitId
-moduleName :: Module -> ModuleName
-moduleUnitId :: Module -> UnitId
 unitIdString :: UnitId -> String

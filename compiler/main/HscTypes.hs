@@ -41,6 +41,7 @@ module HscTypes (
         -- * State relating to known packages
         ExternalPackageState(..), EpsStats(..), addEpsInStats,
         PackageTypeEnv, PackageIfaceTable, emptyPackageIfaceTable,
+        IndefiniteIfaceTable, emptyIndefiniteIfaceTable,
         lookupIfaceByModule, emptyModIface, lookupHptByModule,
 
         PackageInstEnv, PackageFamInstEnv, PackageRuleBase,
@@ -68,6 +69,7 @@ module HscTypes (
 
         -- * Interfaces
         ModIface(..), mkIfaceWarnCache, mkIfaceHashCache, mkIfaceFixCache,
+        TopModule(..), hsTopModule, mi_module, mi_semantic_module,
         emptyIfaceWarnCache, mi_boot,
         CgIface(..),
 
@@ -136,6 +138,7 @@ import ByteCodeAsm      ( CompiledByteCode )
 import InteractiveEvalTypes ( Resume )
 #endif
 
+import Shape
 import HsSyn
 import RdrName
 import Avail
@@ -192,6 +195,7 @@ import Data.IORef
 import Data.Time
 import Data.Word
 import Data.Typeable    ( Typeable )
+import Data.Map         ( Map )
 import Exception
 import System.FilePath
 
@@ -459,6 +463,15 @@ type HomePackageTable  = ModuleNameEnv HomeModInfo
 type PackageIfaceTable = ModuleEnv ModIface
         -- Domain = modules in the imported packages
 
+-- | "Base" interfaces from indefinite packages.  Invariant: 'Module'
+-- is of form pkgname(A -> HOLE:A, ...):M (all instantiations are HOLE.)
+-- Holes are mapped as pkgname(A -> HOLE:A, ...):A, *not* HOLE:A
+-- as those would cause conflicts; however, internally, they still
+-- claim to be HOLE:A.
+type IndefiniteIfaceTable = ModuleEnv (ModIface, FilePath)
+
+type ExternalShapeTable = Map ComponentName (Shape, UnitId)
+
 -- | Constructs an empty HomePackageTable
 emptyHomePackageTable :: HomePackageTable
 emptyHomePackageTable  = emptyUFM
@@ -466,6 +479,10 @@ emptyHomePackageTable  = emptyUFM
 -- | Constructs an empty PackageIfaceTable
 emptyPackageIfaceTable :: PackageIfaceTable
 emptyPackageIfaceTable = emptyModuleEnv
+
+-- | Constructs an empty PackageIfaceTable
+emptyIndefiniteIfaceTable :: IndefiniteIfaceTable
+emptyIndefiniteIfaceTable = emptyModuleEnv
 
 pprHPT :: HomePackageTable -> SDoc
 -- A bit aribitrary for now
@@ -707,6 +724,10 @@ data FindResult
       , fr_suggestions :: [ModuleSuggestion] -- Possible mis-spelled modules
       }
 
+instance Outputable FindResult where
+    ppr (Found loc mod) = text "Found" <+> ppr loc <+> ppr mod
+    ppr _ = text "TODO"
+
 {-
 ************************************************************************
 *                                                                      *
@@ -714,6 +735,40 @@ data FindResult
 *                                                                      *
 ************************************************************************
 -}
+
+-- | An 'TopModule' records both the *semantic* Module (the one
+-- used for Names and type-checking) and the *identification*
+-- Module (which uniquely identifies the Module and is used
+-- for dependency tracking).  They are related, in that the
+-- *canonicalized* identity module is the semantic module.
+--
+-- For normal hs files, @topModSemantic tm == topModIdentity tm@;
+-- they only differ for signatures.
+data TopModule = TopModule {
+        topModSemantic :: Module,
+        topModIdentity :: Module
+    }
+
+hsTopModule :: Module -> TopModule
+hsTopModule m = TopModule m m
+
+instance Outputable TopModule where
+    ppr (TopModule sem idm)
+        | sem == idm = ppr sem
+        | otherwise  = ppr idm <+> braces (ppr sem)
+
+instance Binary TopModule where
+    put_ bh (TopModule sem idm)
+        | sem == idm = putByte bh 0 >> put_ bh sem
+        | otherwise  = putByte bh 1 >> put_ bh sem >> put_ bh idm
+    get bh = do
+        h <- getByte bh
+        case h of
+            0 -> do mod <- get bh
+                    return (TopModule mod mod)
+            _ -> do sem <- get bh
+                    idm <- get bh
+                    return (TopModule sem idm)
 
 -- | A 'ModIface' plus a 'ModDetails' summarises everything we know
 -- about a compiled module.  The 'ModIface' is the stuff *before* linking,
@@ -734,8 +789,7 @@ data FindResult
 -- information).
 data ModIface
   = ModIface {
-        mi_module     :: !Module,             -- ^ Name of the module we are for
-        mi_sig_of     :: !(Maybe Module),     -- ^ Are we a sig of another mod?
+        mi_top_module :: !TopModule,        -- ^ Name of the module we are for
         mi_iface_hash :: !Fingerprint,        -- ^ Hash of the whole interface
         mi_mod_hash   :: !Fingerprint,        -- ^ Hash of the ABI only
         mi_flag_hash  :: !Fingerprint,        -- ^ Hash of the important flags
@@ -762,6 +816,12 @@ data ModIface
                 -- Kept sorted by (mod,occ), to make version comparisons easier
                 -- Records the modules that are the declaration points for things
                 -- exported by this module, and the 'OccName's of those things
+
+        mi_parents :: [(OccName, OccName)],
+                -- ^ Parent mappings (child, parent)
+                -- This is empty for non-HsBootMerge interfaces.
+                -- This records a mapping from an implicit binder to the
+                -- actual binder.
 
         mi_exp_hash :: !Fingerprint,
                 -- ^ Hash of export list
@@ -808,6 +868,8 @@ data ModIface
         mi_impl :: Maybe CgIface,
                 -- Code generation bits, only Just for a fat interface.
 
+        mi_impl_rdr_env :: !(Maybe GlobalRdrEnv),
+
                 -- Instance declarations and rules
         mi_insts       :: [IfaceClsInst],     -- ^ Sorted class instance
         mi_fam_insts   :: [IfaceFamInst],  -- ^ Sorted family instances
@@ -844,6 +906,12 @@ data ModIface
                 -- See Note [RnNames . Trust Own Package]
      }
 
+mi_module :: ModIface -> Module
+mi_module = topModIdentity . mi_top_module
+
+mi_semantic_module :: ModIface -> Module
+mi_semantic_module = topModSemantic . mi_top_module
+
 -- | Old-style accessor for whether or not the ModIface came from an hs-boot
 -- file.
 mi_boot :: ModIface -> Bool
@@ -851,8 +919,7 @@ mi_boot iface = mi_hsc_src iface == HsBootFile
 
 instance Binary ModIface where
    put_ bh (ModIface {
-                 mi_module    = mod,
-                 mi_sig_of    = sig_of,
+                 mi_top_module= top_mod,
                  mi_hsc_src   = hsc_src,
                  mi_iface_hash= iface_hash,
                  mi_mod_hash  = mod_hash,
@@ -862,6 +929,7 @@ instance Binary ModIface where
                  mi_deps      = deps,
                  mi_usages    = usages,
                  mi_exports   = exports,
+                 mi_parents   = parents,
                  mi_exp_hash  = exp_hash,
                  mi_used_th   = used_th,
                  mi_fixities  = fixities,
@@ -876,7 +944,7 @@ instance Binary ModIface where
                  mi_hpc       = hpc_info,
                  mi_trust     = trust,
                  mi_trust_pkg = trust_pkg }) = do
-        put_ bh mod
+        put_ bh top_mod
         put_ bh hsc_src
         put_ bh iface_hash
         put_ bh mod_hash
@@ -886,6 +954,7 @@ instance Binary ModIface where
         lazyPut bh deps
         lazyPut bh usages
         put_ bh exports
+        put_ bh parents
         put_ bh exp_hash
         put_ bh used_th
         put_ bh fixities
@@ -900,10 +969,9 @@ instance Binary ModIface where
         put_ bh hpc_info
         put_ bh trust
         put_ bh trust_pkg
-        put_ bh sig_of
 
    get bh = do
-        mod_name    <- get bh
+        top_mod     <- get bh
         hsc_src     <- get bh
         iface_hash  <- get bh
         mod_hash    <- get bh
@@ -913,6 +981,7 @@ instance Binary ModIface where
         deps        <- lazyGet bh
         usages      <- {-# SCC "bin_usages" #-} lazyGet bh
         exports     <- {-# SCC "bin_exports" #-} get bh
+        parents     <- get bh
         exp_hash    <- get bh
         used_th     <- get bh
         fixities    <- {-# SCC "bin_fixities" #-} get bh
@@ -927,10 +996,8 @@ instance Binary ModIface where
         hpc_info    <- get bh
         trust       <- get bh
         trust_pkg   <- get bh
-        sig_of      <- get bh
         return (ModIface {
-                 mi_module      = mod_name,
-                 mi_sig_of      = sig_of,
+                 mi_top_module  = top_mod,
                  mi_hsc_src     = hsc_src,
                  mi_iface_hash  = iface_hash,
                  mi_mod_hash    = mod_hash,
@@ -940,6 +1007,7 @@ instance Binary ModIface where
                  mi_deps        = deps,
                  mi_usages      = usages,
                  mi_exports     = exports,
+                 mi_parents     = parents,
                  mi_exp_hash    = exp_hash,
                  mi_used_th     = used_th,
                  mi_anns        = anns,
@@ -948,6 +1016,7 @@ instance Binary ModIface where
                  mi_decls       = decls,
                  mi_globals     = Nothing,
                  mi_impl        = Nothing,
+                 mi_impl_rdr_env = Nothing,
                  mi_insts       = insts,
                  mi_fam_insts   = fam_insts,
                  mi_rules       = rules,
@@ -965,10 +1034,9 @@ instance Binary ModIface where
 type IfaceExport = AvailInfo
 
 -- | Constructs an empty ModIface
-emptyModIface :: Module -> ModIface
-emptyModIface mod
-  = ModIface { mi_module      = mod,
-               mi_sig_of      = Nothing,
+emptyModIface :: TopModule -> ModIface
+emptyModIface top_mod
+  = ModIface { mi_top_module  = top_mod,
                mi_iface_hash  = fingerprint0,
                mi_mod_hash    = fingerprint0,
                mi_flag_hash   = fingerprint0,
@@ -978,6 +1046,7 @@ emptyModIface mod
                mi_deps        = noDependencies,
                mi_usages      = [],
                mi_exports     = [],
+               mi_parents     = [],
                mi_exp_hash    = fingerprint0,
                mi_used_th     = False,
                mi_fixities    = [],
@@ -989,6 +1058,7 @@ emptyModIface mod
                mi_decls       = [],
                mi_globals     = Nothing,
                mi_impl        = Nothing,
+               mi_impl_rdr_env = Nothing,
                mi_orphan_hash = fingerprint0,
                mi_vect_info   = noIfaceVectInfo,
                mi_warn_fn     = emptyIfaceWarnCache,
@@ -1057,7 +1127,7 @@ type ImportedModsVal = (ModuleName, Bool, SrcSpan, IsSafeImport)
 -- 'ModDetails' are extracted and the ModGuts is discarded.
 data ModGuts
   = ModGuts {
-        mg_module    :: !Module,         -- ^ Module being compiled
+        mg_top_module :: !TopModule,     -- ^ Module being compiled
         mg_hsc_src   :: HscSource,       -- ^ Whether it's an hs-boot module
         mg_loc       :: SrcSpan,         -- ^ For error messages from inner passes
         mg_exports   :: ![AvailInfo],    -- ^ What it exports
@@ -1210,7 +1280,7 @@ The details are a bit tricky though:
    extend the HPT.
 
  * The 'thisPackage' field of DynFlags is *not* set to 'interactive'.
-   It stays as 'main' (or whatever -this-package-key says), and is the
+   It stays as 'main' (or whatever -this-unit-key says), and is the
    package to which :load'ed modules are added to.
 
  * So how do we arrange that declarations at the command prompt get to
@@ -1219,7 +1289,7 @@ The details are a bit tricky though:
    call to initTc in initTcInteractive, which in turn get the module
    from it 'icInteractiveModule' field of the interactive context.
 
-   The 'thisPackage' field stays as 'main' (or whatever -this-package-key says.
+   The 'thisPackage' field stays as 'main' (or whatever -this-unit-key says.
 
  * The main trickiness is that the type environment (tcg_type_env) and
    fixity envt (tcg_fix_env), now contain entities from all the
@@ -1904,7 +1974,10 @@ lookupType dflags hpt pte name
        Just hm -> lookupNameEnv (md_types (hm_details hm)) name
        Nothing -> lookupNameEnv pte name
   where
-    mod = ASSERT2( isExternalName name, ppr name ) nameModule name
+    mod = ASSERT2( isExternalName name, ppr name )
+          if isHoleName name
+            then mkModule (thisPackage dflags) (moduleName (nameModule name))
+            else nameModule name
 
 -- | As 'lookupType', but with a marginally easier-to-use interface
 -- if you have a 'HscEnv'
@@ -2295,6 +2368,24 @@ data ExternalPackageState
                 --
                 -- * Deprecations and warnings
 
+        eps_shape :: !(NameEnv Name),
+                -- ^ NB: actually a ShNameSubst, same invariants.  This
+                -- specifies the substitution for ALL requirements.
+
+        eps_EST :: !ExternalShapeTable,
+                -- ^ Shapes of packages, for when we include them.
+
+        eps_IIT :: !IndefiniteIfaceTable,
+                -- ^ The unshaped, uninstantiated 'ModIface's for modules
+                -- from indefinite packages.  Unlike entries in the PIT,
+                -- these declarations have all of the fields of the interface
+                -- (it's effectively a cache of the result of parsing a
+                -- binary 'ModIface') and have NOT been loaded into the PTE.
+                -- It's indexed by 'Module', but every 'Module' key has the
+                -- invariant that each hole A is instantiated with HOLE:A
+                -- (this way, you should find @'generalizeHoleModule' mod@
+                -- in the IIT).
+
         eps_PTE :: !PackageTypeEnv,
                 -- ^ Result of typechecking all the external package
                 -- interface files we have sucked in. The domain of
@@ -2428,6 +2519,8 @@ data ModSummary
           -- ^ Non-source imports of the module from the module *text*
         ms_merge_imps   :: (Bool, [Module]),
           -- ^ Non-textual imports computed for HsBootMerge
+        ms_parsed_mod   :: Maybe HsParsedModule,
+          -- ^ The parsed, nonrenamed source, if we have it
         ms_hspp_file    :: FilePath,
           -- ^ Filename of preprocessed source file
         ms_hspp_opts    :: DynFlags,

@@ -1,0 +1,30 @@
+[1 of 1] Processing p
+  [1 of 3] Compiling H[boot]          ( p/H.hs-boot, nothing )
+  [2 of 3] Compiling H[merge]         ( p/H.hs-boot-merge, nothing )
+  [3 of 3] Compiling A                ( p/A.hs, nothing )
+Reading package info from "p.pkg" ... done.
+[1 of 1] Processing q
+  [1 of 2] Compiling H[merge]         ( q/H.hs-boot-merge, nothing )
+  [2 of 2] Compiling B                ( q/B.hs, nothing )
+Reading package info from "q.pkg" ... done.
+[1 of 1] Processing h
+  Instantiating h
+  [1 of 1] Compiling H                ( h/H.hs, h/h/h/H.o )
+Reading package info from "h.pkg" ... done.
+[1 of 1] Processing p
+  Instantiating p-1.0(h-1.0:H)
+  [1 of 3] Compiling H[boot]          ( p/H.hs-boot, p/p/p-6KeuBvYi0jvLWqVbkSAZMq/H.o-boot )
+  [2 of 3] Compiling H[merge]         ( p/H.hs-boot-merge, p/p/p-6KeuBvYi0jvLWqVbkSAZMq/H.o )
+  [3 of 3] Compiling A                ( p/A.hs, p/p/p-6KeuBvYi0jvLWqVbkSAZMq/A.o )
+Reading package info from "p-h.pkg" ... done.
+[1 of 1] Processing q
+  Instantiating q-1.0(h-1.0:H)
+  [1 of 1] Including p-1.0
+  [1 of 2] Compiling H[merge]         ( q/H.hs-boot-merge, q/q/q-6KeuBvYi0jvLWqVbkSAZMq/H.o )
+  [2 of 2] Compiling B                ( q/B.hs, q/q/q-6KeuBvYi0jvLWqVbkSAZMq/B.o )
+Reading package info from "q-h.pkg" ... done.
+[1 of 1] Processing r
+  Instantiating r
+  [1 of 2] Including h-1.0
+  [2 of 2] Including q-1.0
+  [1 of 1] Compiling C                ( r/C.hs, r/r/r/C.o )
