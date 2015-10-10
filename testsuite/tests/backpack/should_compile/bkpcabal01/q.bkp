@@ -1,0 +1,6 @@
+unit q where
+    include p
+    module B where
+        import A
+        import H
+        data B = B A T

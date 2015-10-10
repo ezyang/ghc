@@ -1,0 +1,7 @@
+id: p(H=h:H)
+name: p
+version: 1.0
+exposed: True
+exposed-modules: A
+depends: h
+import-dirs: ${pkgroot}/p/p

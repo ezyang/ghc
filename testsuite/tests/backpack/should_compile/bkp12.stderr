@@ -1,0 +1,27 @@
+[1 of 4] Processing p
+/--- Shape for p
+provides:
+requires: H -> x
+\---
+  [1 of 1] Compiling H[sig]           ( p/H.hsig, nothing )
+[2 of 4] Processing r
+/--- Shape for r
+provides: M -> main-r(hole:H):M
+               a
+requires: H -> x
+\---
+  [1 of 2] Compiling H[sig]           ( r/H.hsig, nothing )
+  [2 of 2] Compiling M                ( r/M.hs, nothing )
+[3 of 4] Processing h-impl
+  Instantiating main-h-impl
+  [1 of 1] Compiling H                ( h-impl/H.hs, bkp12-out/main-h-impl/main-h-impl/H.o )
+[4 of 4] Processing s
+  Instantiating main-s
+  [1 of 2] Including main-h-impl
+  [2 of 2] Including main-r
+    Instantiating main-r(main-h-impl:H)
+    [1 of 1] Including main-p
+      Instantiating main-p(main-h-impl:H)
+      [1 of 1] Compiling H[sig]           ( p/H.hsig, nothing )
+    [1 of 2] Compiling H[sig]           ( r/H.hsig, nothing )
+    [2 of 2] Compiling M                ( r/M.hs, bkp12-out/main-r/main-r-9ounnqs7oqA38IZEscm2tL/M.o )

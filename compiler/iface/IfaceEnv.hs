@@ -34,6 +34,7 @@ import FastString
 import UniqSupply
 import SrcLoc
 import Util
+import ShUnify
 
 import Outputable
 
@@ -300,7 +301,14 @@ extendIfaceTyVarEnv tyvars thing_inside
 lookupIfaceTop :: OccName -> IfL Name
 -- Look up a top-level name from the current Iface module
 lookupIfaceTop occ
-  = do  { env <- getLclEnv; lookupOrig (if_mod env) occ }
+  = do  { mod <- getIfModule
+        ; n <- lookupOrig mod occ
+        ; eps <- getEps
+        -- If this a name of the form hole:H.T, we are type
+        -- checking an indefinite package and there might
+        -- be a substitution from our local shape.
+        ; return (substName (eps_shape eps) n)
+        }
 
 newIfaceName :: OccName -> IfL Name
 newIfaceName occ

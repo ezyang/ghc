@@ -1,0 +1,7 @@
+unit p where
+    signature H where
+unit q where
+    module M where
+unit r where
+    include q (M as H)
+    include p

@@ -1,0 +1,6 @@
+id: h
+name: h
+version: 1.0
+exposed: True
+exposed-modules: H
+import-dirs: ${pkgroot}/h/h/h

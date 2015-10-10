@@ -1,0 +1,7 @@
+id: p(H=hole:H)
+name: p
+version: 1.0
+exposed: True
+exposed-modules: A
+indefinite: True
+import-dirs: ${pkgroot}/p/p

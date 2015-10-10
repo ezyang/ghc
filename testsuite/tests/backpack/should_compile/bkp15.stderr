@@ -1,0 +1,41 @@
+[1 of 5] Processing p
+/--- Shape for p
+provides:
+requires: T -> T{T}
+          H -> f
+\---
+  [1 of 2] Compiling T[sig]           ( p/T.hsig, nothing )
+  [2 of 2] Compiling H[sig]           ( p/H.hsig, nothing )
+[2 of 5] Processing timpl
+  Instantiating main-timpl
+  [1 of 1] Compiling TImpl            ( timpl/TImpl.hs, bkp15-out/main-timpl/main-timpl/TImpl.o )
+[3 of 5] Processing q
+/--- Shape for q
+provides: TImpl -> main-timpl:TImpl
+                   T{T, T}
+          A -> main-q(hole:T, hole:H):A
+               x
+requires: T -> main-timpl:TImpl.T{T}
+          H -> f
+\---
+  [1 of 3] Compiling T[sig]           ( q/T.hsig, nothing )
+  [2 of 3] Compiling H[sig]           ( q/H.hsig, nothing )
+  [3 of 3] Compiling A                ( q/A.hs, nothing )
+[4 of 5] Processing r-impl
+  Instantiating main-r-impl
+  [1 of 1] Including main-timpl
+  [1 of 2] Compiling H                ( r-impl/H.hs, bkp15-out/main-r-impl/main-r-impl/H.o )
+  [2 of 2] Compiling T                ( r-impl/T.hs, bkp15-out/main-r-impl/main-r-impl/T.o )
+[5 of 5] Processing r
+  Instantiating main-r
+  [1 of 2] Including main-r-impl
+  [2 of 2] Including main-q
+    Instantiating main-q(main-r-impl:T, main-r-impl:H)
+    [1 of 2] Including main-p
+      Instantiating main-p(main-r-impl:T, main-r-impl:H)
+      [1 of 2] Compiling T[sig]           ( p/T.hsig, nothing )
+      [2 of 2] Compiling H[sig]           ( p/H.hsig, nothing )
+    [2 of 2] Including main-timpl
+    [1 of 3] Compiling T[sig]           ( q/T.hsig, nothing )
+    [2 of 3] Compiling H[sig]           ( q/H.hsig, nothing )
+    [3 of 3] Compiling A                ( q/A.hs, bkp15-out/main-q/main-q-8YrnOrTaxoNBFe7Q0a5W2m/A.o )

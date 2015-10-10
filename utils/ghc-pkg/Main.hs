@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP, TypeSynonymInstances, FlexibleInstances #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 -----------------------------------------------------------------------------
 --
@@ -8,11 +9,13 @@
 --
 -----------------------------------------------------------------------------
 
+-- TODO: need to be a bit more careful distinguishing hashed uids and
+-- unhashed uids
+
 module Main (main) where
 
 import Version ( version, targetOS, targetARCH )
 import qualified GHC.PackageDb as GhcPkg
-import qualified Distribution.Simple.PackageIndex as PackageIndex
 import qualified Data.Graph as Graph
 import qualified Distribution.ModuleName as ModuleName
 import Distribution.ModuleName (ModuleName)
@@ -50,6 +53,8 @@ import System.IO
 import System.IO.Error
 import GHC.IO.Exception (IOErrorType(InappropriateType))
 import Data.List
+import Data.Map (Map)
+import qualified Data.Map as Map
 import Control.Concurrent
 
 import qualified Data.ByteString.Char8 as BS
@@ -443,8 +448,9 @@ runit verbosity cli nonopts = do
                         listPackages verbosity cli (Just pkgarg) Nothing
           Just m -> listPackages verbosity cli
                                  (Just (Substring pkgarg_str m)) Nothing
-    ["dot"] -> do
-        showPackageDot verbosity cli
+    ["dot"] -> return () --do
+        -- showPackageDot verbosity cli
+        -- TODO: reimplement me
     ["find-module", moduleName] -> do
         let match = maybe (==moduleName) id (substringCheck moduleName)
         listPackages verbosity cli Nothing (Just match)
@@ -1023,7 +1029,7 @@ updateInternalDB :: PackageDB -> [DBOp] -> PackageDB
 updateInternalDB db cmds = db{ packages = foldl do_cmd (packages db) cmds }
  where
   do_cmd pkgs (RemovePackage p) = 
-    filter ((/= installedComponentId p) . installedComponentId) pkgs
+    filter ((/= installedUnitId p) . installedUnitId) pkgs
   do_cmd pkgs (AddPackage p) = p : pkgs
   do_cmd pkgs (ModifyPackage p) = 
     do_cmd (do_cmd pkgs (RemovePackage p)) (AddPackage p)
@@ -1035,11 +1041,11 @@ changeDBDir verbosity cmds db = do
   updateDBCache verbosity db
  where
   do_cmd (RemovePackage p) = do
-    let file = location db </> display (installedComponentId p) <.> "conf"
+    let file = location db </> unGhcUnitId (hashInstalledUnitId p) <.> "conf"
     when (verbosity > Normal) $ infoLn ("removing " ++ file)
     removeFileSafe file
   do_cmd (AddPackage p) = do
-    let file = location db </> display (installedComponentId p) <.> "conf"
+    let file = location db </> unGhcUnitId (hashInstalledUnitId p) <.> "conf"
     when (verbosity > Normal) $ infoLn ("writing " ++ file)
     writeUTF8File file (showInstalledPackageInfo p)
   do_cmd (ModifyPackage p) = 
@@ -1072,22 +1078,61 @@ updateDBCache verbosity db = do
       hSeek handle AbsoluteSeek 0
       hPutChar handle c
 
+-- Don't use a string directly, because we have to apply a conversion step here.
+newtype GhcUnitId = GhcUnitId { unGhcUnitId :: String }
+    deriving (GhcPkg.BinaryStringRep, Ord, Eq, Show)
+
+-- Garden variety specialized writer monad
+newtype HashMonad a = HashMonad { runHashMonad :: (Map GhcUnitId IndefiniteUnitId, a) }
+
+instance Functor HashMonad where
+    fmap = liftM
+
+instance Applicative HashMonad where
+    pure a = HashMonad (Map.empty, a)
+    (<*>) = ap
+
+instance Monad HashMonad where
+    return = pure
+    HashMonad (w, a) >>= f
+        = HashMonad $ let HashMonad (w', b) = f a
+                      in (Map.union w w', b)
+
+type IndefiniteUnitId = GhcPkg.IndefiniteUnitId GhcUnitId ComponentId ModuleName
+
+addHash :: IndefiniteUnitId -> GhcUnitId -> HashMonad ()
+addHash uid uid' = HashMonad (Map.singleton uid' uid, ())
+
+hashUnitId :: UnitId -> HashMonad GhcUnitId
+hashUnitId (UnitId cid hmap) = do
+    hmap' <- mapM (\(k, Module uid m) -> do
+                        uid' <- hashUnitId uid
+                        return (k, GhcPkg.Module uid' m)) hmap
+    let uid' = GhcPkg.mkUnitId cid hmap'
+    addHash (GhcPkg.IndefiniteUnitId cid hmap') uid'
+    return uid'
+
+hashInstalledUnitId :: InstalledPackageInfo -> GhcUnitId
+hashInstalledUnitId = snd . runHashMonad . hashUnitId . installedUnitId
+
 type PackageCacheFormat = GhcPkg.InstalledPackageInfo
-                            String     -- installed package id
+                            ComponentId -- component id
                             String     -- src package id
                             String     -- package name
-                            String     -- unit id
+                            GhcUnitId  -- unit id
+                            String     -- component name
                             ModuleName -- module name
 
 convertPackageInfoToCacheFormat :: InstalledPackageInfo -> PackageCacheFormat
 convertPackageInfoToCacheFormat pkg =
     GhcPkg.InstalledPackageInfo {
-       GhcPkg.componentId = display (installedComponentId pkg),
+       GhcPkg.componentId        = installedComponentId pkg,
        GhcPkg.sourcePackageId    = display (sourcePackageId pkg),
        GhcPkg.packageName        = display (packageName pkg),
        GhcPkg.packageVersion     = packageVersion pkg,
-       GhcPkg.unitId            = display (installedComponentId pkg),
-       GhcPkg.depends            = map display (depends pkg),
+       GhcPkg.unitId             = pkgUnitId,
+       GhcPkg.componentName      = display (packageName pkg), -- TODO
+       GhcPkg.depends            = pkgDepends,
        GhcPkg.abiHash            = let AbiHash abi = abiHash pkg
                                    in abi,
        GhcPkg.importDirs         = importDirs pkg,
@@ -1103,21 +1148,36 @@ convertPackageInfoToCacheFormat pkg =
        GhcPkg.includeDirs        = includeDirs pkg,
        GhcPkg.haddockInterfaces  = haddockInterfaces pkg,
        GhcPkg.haddockHTMLs       = haddockHTMLs pkg,
-       GhcPkg.exposedModules     = map convertExposed (exposedModules pkg),
+       GhcPkg.exposedModules     = pkgExposedModules,
        GhcPkg.hiddenModules      = hiddenModules pkg,
-       GhcPkg.instantiatedWith   = map convertInst (instantiatedWith pkg),
+       GhcPkg.instantiatedDepends= pkgInstantiatedDepends,
+       GhcPkg.indefinite         = indefinite pkg,
+       GhcPkg.unitIdMap          = map (\(a,b) -> (a,b)) (Map.toList uid_map),
        GhcPkg.exposed            = exposed pkg,
        GhcPkg.trusted            = trusted pkg
     }
-  where convertExposed (ExposedModule n reexport sig) =
-            GhcPkg.ExposedModule n (fmap convertOriginal reexport)
-                                   (fmap convertOriginal sig)
-        convertOriginal (OriginalModule ipid m) =
-            GhcPkg.OriginalModule (display ipid) m
-        convertInst (m, o) = (m, convertOriginal o)
+  where (uid_map, (pkgUnitId, pkgDepends, pkgInstantiatedWith, pkgInstantiatedDepends, pkgExposedModules)) = runHashMonad $ do
+            pkgUnitId <- hashUnitId (installedUnitId pkg)
+            pkgDepends <- mapM hashUnitId (depends pkg)
+            pkgInstantiatedDepends <- mapM hashUnitId (instantiatedDepends pkg)
+            pkgExposedModules <- mapM convertExposed (exposedModules pkg)
+            return (pkgUnitId, pkgDepends, pkgInstantiatedWith, pkgInstantiatedDepends, pkgExposedModules)
+        convertExposed (ExposedModule n reexport) = do
+            m <- case reexport of
+                    Nothing -> do uid <- hashUnitId (installedUnitId pkg)
+                                  return (GhcPkg.Module uid n)
+                    Just m -> convertOriginal m
+            return (n, m)
+        convertOriginal (Module uid m) = do
+            uid' <- hashUnitId uid
+            return (GhcPkg.Module uid' m)
 
 instance GhcPkg.BinaryStringRep ModuleName where
   fromStringRep = ModuleName.fromString . fromUTF8 . BS.unpack
+  toStringRep   = BS.pack . toUTF8 . display
+
+instance GhcPkg.BinaryStringRep ComponentId where
+  fromStringRep = ComponentId . fromUTF8 . BS.unpack
   toStringRep   = BS.pack . toUTF8 . display
 
 instance GhcPkg.BinaryStringRep String where
@@ -1161,9 +1221,9 @@ modifyPackage fn pkgarg verbosity my_flags force = do
       db_name = location db
       pkgs    = packages db
 
-      pks = map installedComponentId ps
+      pks = map installedUnitId ps
 
-      cmds = [ fn pkg | pkg <- pkgs, installedComponentId pkg `elem` pks ]
+      cmds = [ fn pkg | pkg <- pkgs, installedUnitId pkg `elem` pks ]
       new_db = updateInternalDB db cmds
 
       -- ...but do consistency checks with regards to the full stack
@@ -1171,14 +1231,14 @@ modifyPackage fn pkgarg verbosity my_flags force = do
       rest_of_stack = filter ((/= db_name) . location) db_stack
       new_stack = new_db : rest_of_stack
       new_broken = brokenPackages (allPackagesInStack new_stack)
-      newly_broken = filter ((`notElem` map installedComponentId old_broken)
-                            . installedComponentId) new_broken
+      newly_broken = filter ((`notElem` map installedUnitId old_broken)
+                            . installedUnitId) new_broken
   --
   let displayQualPkgId pkg
         | [_] <- filter ((== pkgid) . sourcePackageId)
                         (allPackagesInStack db_stack)
             = display pkgid
-        | otherwise = display pkgid ++ "@" ++ display (installedComponentId pkg)
+        | otherwise = display pkgid ++ "@" ++ display (installedUnitId pkg)
         where pkgid = sourcePackageId pkg
   when (not (null newly_broken)) $
       dieOrForceAll force ("unregistering would break the following packages: "
@@ -1229,7 +1289,7 @@ listPackages verbosity my_flags mPackageName mModuleName = do
                         EQ -> case pkgVersion p1 `compare` pkgVersion p2 of
                                 LT -> LT
                                 GT -> GT
-                                EQ -> installedComponentId pkg1 `compare` installedComponentId pkg2
+                                EQ -> installedUnitId pkg1 `compare` installedUnitId pkg2
                    where (p1,p2) = (sourcePackageId pkg1, sourcePackageId pkg2)
 
       stack = reverse db_stack_sorted
@@ -1237,7 +1297,7 @@ listPackages verbosity my_flags mPackageName mModuleName = do
       match `exposedInPkg` pkg = any match (map display $ exposedModules pkg)
 
       pkg_map = allPackagesInStack db_stack
-      broken = map installedComponentId (brokenPackages pkg_map)
+      broken = map installedUnitId (brokenPackages pkg_map)
 
       show_normal PackageDB{ location = db_name, packages = pkg_confs } =
           do hPutStrLn stdout (db_name ++ ":")
@@ -1246,15 +1306,15 @@ listPackages verbosity my_flags mPackageName mModuleName = do
                  else hPutStrLn stdout $ unlines (map ("    " ++) pp_pkgs)
            where
                  -- Sort using instance Ord PackageId
-                 pp_pkgs = map pp_pkg . sortBy (comparing installedComponentId) $ pkg_confs
+                 pp_pkgs = map pp_pkg . sortBy (comparing installedUnitId) $ pkg_confs
                  pp_pkg p
-                   | installedComponentId p `elem` broken = printf "{%s}" doc
+                   | installedUnitId p `elem` broken = printf "{%s}" doc
                    | exposed p = doc
                    | otherwise = printf "(%s)" doc
-                   where doc | verbosity >= Verbose = printf "%s (%s)" pkg pk
+                   where doc | verbosity >= Verbose = printf "%s (%s)" pkg (unGhcUnitId uid)
                              | otherwise            = pkg
                           where
-                          ComponentId pk = installedComponentId p
+                          uid = hashInstalledUnitId p
                           pkg = display (sourcePackageId p)
 
       show_simple = simplePackageList my_flags . allPackagesInStack
@@ -1275,15 +1335,15 @@ listPackages verbosity my_flags mPackageName mModuleName = do
                   map (termText "   " <#>) (map pp_pkg (packages db)))
           where
                    pp_pkg p
-                     | installedComponentId p `elem` broken = withF Red  doc
+                     | installedUnitId p `elem` broken = withF Red  doc
                      | exposed p                       = doc
                      | otherwise                       = withF Blue doc
                      where doc | verbosity >= Verbose
-                               = termText (printf "%s (%s)" pkg pk)
+                               = termText (printf "%s (%s)" pkg (unGhcUnitId uid))
                                | otherwise
                                = termText pkg
                             where
-                            ComponentId pk = installedComponentId p
+                            uid = hashInstalledUnitId p
                             pkg = display (sourcePackageId p)
 
     is_tty <- hIsTerminalDevice stdout
@@ -1305,6 +1365,7 @@ simplePackageList my_flags pkgs = do
    when (not (null pkgs)) $
       hPutStrLn stdout $ concat $ intersperse " " strs
 
+{-
 showPackageDot :: Verbosity -> [Flag] -> IO ()
 showPackageDot verbosity myflags = do
   (_, _, flag_db_stack) <- 
@@ -1319,11 +1380,13 @@ showPackageDot verbosity myflags = do
   mapM_ putStrLn [ quote from ++ " -> " ++ quote to
                  | p <- all_pkgs,
                    let from = display (sourcePackageId p),
-                   key <- depends p,
-                   Just dep <- [PackageIndex.lookupComponentId ipix key],
+                   -- TODO: this is inaccurate
+                   UnitId cid _ <- depends p,
+                   Just dep <- [PackageIndex.lookupComponentId ipix cid],
                    let to = display (sourcePackageId dep)
                  ]
   putStrLn "}"
+-}
 
 -- -----------------------------------------------------------------------------
 -- Prints the highest (hidden or exposed) version of a package
@@ -1494,7 +1557,7 @@ closure pkgs db_stack = go pkgs db_stack
                  -> Bool
    depsAvailable pkgs_ok pkg = null dangling
         where dangling = filter (`notElem` pids) (depends pkg)
-              pids = map installedComponentId pkgs_ok
+              pids = map installedUnitId pkgs_ok
 
         -- we want mutually recursive groups of package to show up
         -- as broken. (#1750)
@@ -1583,7 +1646,7 @@ checkPackageConfig :: InstalledPackageInfo
 checkPackageConfig pkg verbosity db_stack
                    multi_instance update = do
   checkPackageId pkg
-  checkComponentId pkg db_stack update
+  checkUnitId pkg db_stack update
   checkDuplicates db_stack pkg multi_instance update
   mapM_ (checkDep db_stack) (depends pkg)
   checkDuplicateDepends (depends pkg)
@@ -1613,17 +1676,17 @@ checkPackageId ipi =
     []  -> verror CannotForce ("invalid package identifier: " ++ str)
     _   -> verror CannotForce ("ambiguous package identifier: " ++ str)
 
-checkComponentId :: InstalledPackageInfo -> PackageDBStack -> Bool
+checkUnitId :: InstalledPackageInfo -> PackageDBStack -> Bool
                 -> Validate ()
-checkComponentId ipi db_stack update = do
-  let pk@(ComponentId str) = installedComponentId ipi
-  when (null str) $ verror CannotForce "missing id field"
+checkUnitId ipi db_stack update = do
+  let uid = installedUnitId ipi
+  when (uid == UnitId (ComponentId "") []) $ verror CannotForce "missing id field"
   let dups = [ p | p <- allPackagesInStack db_stack,
-                   installedComponentId p == pk ]
+                   installedUnitId p == uid ]
   when (not update && not (null dups)) $
     verror CannotForce $
         "package(s) with this id already exist: " ++
-         unwords (map (display.installedComponentId) dups)
+         unwords (map (display.installedUnitId) dups)
 
 checkDuplicates :: PackageDBStack -> InstalledPackageInfo
                 -> Bool -> Bool-> Validate ()
@@ -1682,16 +1745,16 @@ checkPath url_ok is_dir warn_only thisfield d
           then vwarn msg
           else verror ForceFiles msg
 
-checkDep :: PackageDBStack -> ComponentId -> Validate ()
+checkDep :: PackageDBStack -> UnitId -> Validate ()
 checkDep db_stack pkgid
   | pkgid `elem` pkgids = return ()
   | otherwise = verror ForceAll ("dependency \"" ++ display pkgid
                                  ++ "\" doesn't exist")
   where
         all_pkgs = allPackagesInStack db_stack
-        pkgids = map installedComponentId all_pkgs
+        pkgids = map installedUnitId all_pkgs
 
-checkDuplicateDepends :: [ComponentId] -> Validate ()
+checkDuplicateDepends :: [UnitId] -> Validate ()
 checkDuplicateDepends deps
   | null dups = return ()
   | otherwise = verror ForceAll ("package has duplicate dependencies: " ++
@@ -1728,9 +1791,9 @@ checkExposedModules :: PackageDBStack -> InstalledPackageInfo -> Validate ()
 checkExposedModules db_stack pkg =
   mapM_ checkExposedModule (exposedModules pkg)
   where
-    checkExposedModule (ExposedModule modl reexport _sig) = do
+    checkExposedModule (ExposedModule modl reexport) = do
       let checkOriginal = checkModuleFile pkg modl
-          checkReexport = checkOriginalModule "module reexport" db_stack pkg
+          checkReexport = checkModule "module reexport" db_stack pkg
       maybe checkOriginal checkReexport reexport
 
 -- | Validates the existence of an appropriate @hi@ file associated with
@@ -1768,16 +1831,21 @@ checkDuplicateModules pkg
 -- implementation, then we should also check that the original module in
 -- question is NOT a signature (however, if it is a reexport, then it's fine
 -- for the original module to be a signature.)
-checkOriginalModule :: String
-                    -> PackageDBStack
-                    -> InstalledPackageInfo
-                    -> OriginalModule
-                    -> Validate ()
-checkOriginalModule field_name db_stack pkg
-    (OriginalModule definingPkgId definingModule) =
-  let mpkg = if definingPkgId == installedComponentId pkg
+checkModule :: String
+            -> PackageDBStack
+            -> InstalledPackageInfo
+            -> Module
+            -> Validate ()
+checkModule field_name db_stack pkg
+    -- TODO: also disabled for now
+    (Module definingPkgId definingModule) = return ()
+  {-
+  let mpkg = if definingPkgId == installedUnitId pkg
               then Just pkg
-              else PackageIndex.lookupComponentId ipix definingPkgId
+              -- TODO OBVIOUSLY BOGUS
+              -- This won't get you the right original module!
+              else PackageIndex.lookupComponentId ipix definingComponentId
+      definingComponentId = unitIdComponentId definingPkgId
   in case mpkg of
       Nothing
            -> verror ForceAll (field_name ++ " refers to a non-existent " ++
@@ -1785,7 +1853,7 @@ checkOriginalModule field_name db_stack pkg
                                        display definingPkgId)
 
       Just definingPkg
-        | not (isIndirectDependency definingPkgId)
+        | not (isIndirectDependency definingComponentId)
            -> verror ForceAll (field_name ++ " refers to a defining " ++
                                "package that is not a direct (or indirect) " ++
                                "dependency of this package: " ++
@@ -1816,6 +1884,7 @@ checkOriginalModule field_name db_stack pkg
       return (Graph.path depgraph thispkg otherpkg)
     (depgraph, _, graphVertex) =
       PackageIndex.dependencyGraph (PackageIndex.insert pkg ipix)
+      -}
 
 
 -- ---------------------------------------------------------------------------

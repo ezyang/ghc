@@ -1,0 +1,7 @@
+unit r where
+    include h
+    include q
+    module C where
+        import A
+        import B
+        import H

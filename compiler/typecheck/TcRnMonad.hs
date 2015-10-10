@@ -31,6 +31,7 @@ import TcType
 import InstEnv
 import FamInstEnv
 import PrelNames
+import ShUnitId
 
 import Id
 import VarSet
@@ -50,6 +51,7 @@ import Panic
 import Util
 import Annotations
 import BasicTypes( TopLevelFlag )
+import Maybes
 
 import Control.Exception
 import Data.IORef
@@ -94,6 +96,9 @@ initTc hsc_env hsc_src keep_rn_syntax mod loc do_this
 
         dependent_files_var <- newIORef [] ;
         static_wc_var       <- newIORef emptyWC ;
+
+        let { dflags = hsc_dflags hsc_env } ;
+        semantic_mod <- canonicalizeModule dflags mod ;
 #ifdef GHCI
         th_topdecls_var      <- newIORef [] ;
         th_topnames_var      <- newIORef emptyNameSet ;
@@ -101,8 +106,6 @@ initTc hsc_env hsc_src keep_rn_syntax mod loc do_this
         th_state_var         <- newIORef Map.empty ;
 #endif /* GHCI */
         let {
-             dflags = hsc_dflags hsc_env ;
-
              maybe_rn_syntax :: forall a. a -> Maybe a ;
              maybe_rn_syntax empty_val
                 | keep_rn_syntax = Just empty_val
@@ -117,8 +120,8 @@ initTc hsc_env hsc_src keep_rn_syntax mod loc do_this
 #endif /* GHCI */
 
                 tcg_mod            = mod,
+                tcg_semantic_mod   = semantic_mod,
                 tcg_src            = hsc_src,
-                tcg_sig_of         = getSigOf dflags (moduleName mod),
                 tcg_impl_rdr_env   = Nothing,
                 tcg_rdr_env        = emptyGlobalRdrEnv,
                 tcg_fix_env        = emptyNameEnv,
@@ -163,6 +166,8 @@ initTc hsc_env hsc_src keep_rn_syntax mod loc do_this
                 tcg_self_boot      = NoSelfBoot,
                 tcg_safeInfer      = infer_var,
                 tcg_dependent_files = dependent_files_var,
+                tcg_ifaces         = emptyUFM,
+                tcg_shaping        = False,
                 tcg_tc_plugins     = [],
                 tcg_static_wc      = static_wc_var
              } ;
@@ -314,6 +319,10 @@ goptM flag = do { dflags <- getDynFlags; return (gopt flag dflags) }
 woptM :: WarningFlag -> TcRnIf gbl lcl Bool
 woptM flag = do { dflags <- getDynFlags; return (wopt flag dflags) }
 
+setThisPackageM :: UnitId -> TcRnIf gbl lcl a -> TcRnIf gbl lcl a
+setThisPackageM pk = updEnv (\ env@(Env { env_top = top }) ->
+                          env { env_top = top { hsc_dflags = (hsc_dflags top) { thisPackage = pk} }} )
+
 setXOptM :: ExtensionFlag -> TcRnIf gbl lcl a -> TcRnIf gbl lcl a
 setXOptM flag = updEnv (\ env@(Env { env_top = top }) ->
                           env { env_top = top { hsc_dflags = xopt_set (hsc_dflags top) flag}} )
@@ -388,6 +397,14 @@ getHpt = do { env <- getTopEnv; return (hsc_HPT env) }
 getEpsAndHpt :: TcRnIf gbl lcl (ExternalPackageState, HomePackageTable)
 getEpsAndHpt = do { env <- getTopEnv; eps <- readMutVar (hsc_EPS env)
                   ; return (eps, hsc_HPT env) }
+
+withException :: TcRnIf gbl lcl (MaybeErr MsgDoc a) -> TcRnIf gbl lcl a
+withException do_this = do
+    r <- do_this
+    dflags <- getDynFlags
+    case r of
+        Failed err -> liftIO $ throwGhcExceptionIO (ProgramError (showSDoc dflags err))
+        Succeeded result -> return result
 
 {-
 ************************************************************************
@@ -595,7 +612,11 @@ traceOptIf flag doc
 -}
 
 setModule :: Module -> TcRn a -> TcRn a
-setModule mod thing_inside = updGblEnv (\env -> env { tcg_mod = mod }) thing_inside
+setModule mod thing_inside = do
+    dflags <- getDynFlags
+    semantic_mod <- liftIO $ canonicalizeModule dflags mod
+    updGblEnv (\env -> env { tcg_mod = mod
+                           , tcg_semantic_mod = semantic_mod }) thing_inside
 
 getIsGHCi :: TcRn Bool
 getIsGHCi = do { mod <- getModule
@@ -1370,8 +1391,15 @@ mkIfLclEnv mod loc = IfLclEnv { if_mod     = mod,
 initIfaceTcRn :: IfG a -> TcRn a
 initIfaceTcRn thing_inside
   = do  { tcg_env <- getGblEnv
+        ; let mod = tcg_mod tcg_env
         ; let { if_env = IfGblEnv {
-                            if_rec_types = Just (tcg_mod tcg_env, get_type_env)
+                            if_doc = text "initIfaceTcRn",
+                            -- NB: use tcg_mod to identify the recursive
+                            -- loop, not tcg_semantic_mod!  If semantic is
+                            -- used, then we may try to locally provide the
+                            -- types for a module, even though the true type env
+                            -- is from some other interface.
+                            if_rec_types = Just (mod, get_type_env)
                          }
               ; get_type_env = readTcRef (tcg_type_env_var tcg_env) }
         ; setEnvs (if_env, ()) thing_inside }
@@ -1383,7 +1411,8 @@ initIfaceCheck hsc_env do_this
  = do let rec_types = case hsc_type_env_var hsc_env of
                          Just (mod,var) -> Just (mod, readTcRef var)
                          Nothing        -> Nothing
-          gbl_env = IfGblEnv { if_rec_types = rec_types }
+          gbl_env = IfGblEnv { if_doc = text "initIfaceCheck"
+                             , if_rec_types = rec_types }
       initTcRnIf 'i' hsc_env gbl_env () do_this
 
 initIfaceTc :: ModIface
@@ -1392,16 +1421,18 @@ initIfaceTc :: ModIface
 -- No type envt from the current module, but we do know the module dependencies
 initIfaceTc iface do_this
  = do   { tc_env_var <- newTcRef emptyTypeEnv
-        ; let { gbl_env = IfGblEnv {
+        ; dflags <- getDynFlags
+        -- NB use semantic module here!
+        ; mod <- liftIO $ canonicalizeModule dflags (mi_module iface)
+        ; let { doc = ptext (sLit "The interface for") <+> quotes (ppr mod)
+              ; gbl_env = IfGblEnv {
+                            if_doc = text "initIfaceTc",
                             if_rec_types = Just (mod, readTcRef tc_env_var)
                           } ;
               ; if_lenv = mkIfLclEnv mod doc
            }
         ; setEnvs (gbl_env, if_lenv) (do_this tc_env_var)
     }
-  where
-    mod = mi_module iface
-    doc = ptext (sLit "The interface for") <+> quotes (ppr mod)
 
 initIfaceLcl :: Module -> SDoc -> IfL a -> IfM lcl a
 initIfaceLcl mod loc_doc thing_inside

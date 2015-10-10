@@ -317,7 +317,7 @@ generate directory distdir dll0Modules config_args
              let installedPkgInfo = inplaceInstalledPackageInfo cwd distdir
                                         pd (Installed.AbiHash "") lib lbi clbi
                  final_ipi = mangleIPI directory distdir lbi $ installedPkgInfo {
-                                 Installed.installedComponentId = ipid,
+                                 Installed.installedUnitId = Installed.UnitId ipid [],
                                  Installed.compatPackageKey = ipid,
                                  Installed.haddockHTMLs = []
                              }

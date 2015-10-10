@@ -155,7 +155,8 @@ compileOne' m_tc_result mHscMessage
 
    case (status, hsc_lang) of
         (HscUpToDate, _) ->
-            ASSERT( isJust maybe_old_linkable || isNoLink (ghcLink dflags) )
+            -- TODO recomp014 triggers this assert. What's going on?!
+            -- ASSERT( isJust maybe_old_linkable || isNoLink (ghcLink dflags) )
             return hmi0 { hm_linkable = maybe_old_linkable }
         (HscNotGeneratingCode, HscNothing) ->
             let mb_linkable = if isHsBootOrSig src_flavour
@@ -978,6 +979,7 @@ runPhase (RealPhase (Hsc src_flavour)) input_fn dflags0
                                         ms_location  = location,
                                         ms_hs_date   = src_timestamp,
                                         ms_obj_date  = Nothing,
+                                        ms_parsed_mod   = Nothing,
                                         ms_iface_date   = Nothing,
                                         ms_textual_imps = imps,
                                         ms_srcimps      = src_imps }

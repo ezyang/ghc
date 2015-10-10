@@ -1,0 +1,8 @@
+unit p where
+    signature H where
+        data T
+        x :: Bool
+    module A where
+        import H
+        data A = MkA T
+        y = x

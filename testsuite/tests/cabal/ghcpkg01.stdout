@@ -20,6 +20,7 @@ exposed-modules:
     A
 hidden-modules: B C.D
 abi: 
+indefinite: False
 trusted: False
 import-dirs: /usr/local/lib/testpkg "c:/Program Files/testpkg"
 library-dirs: /usr/local/lib/testpkg "c:/Program Files/testpkg"
@@ -46,6 +47,7 @@ exposed-modules:
     A
 hidden-modules: B C.D
 abi: 
+indefinite: False
 trusted: False
 import-dirs: /usr/local/lib/testpkg "c:/Program Files/testpkg"
 library-dirs: /usr/local/lib/testpkg "c:/Program Files/testpkg"
@@ -78,6 +80,7 @@ exposed-modules:
     A
 hidden-modules: B C.D C.E
 abi: 
+indefinite: False
 trusted: False
 import-dirs: /usr/local/lib/testpkg "c:/Program Files/testpkg"
 library-dirs: /usr/local/lib/testpkg "c:/Program Files/testpkg"
@@ -104,6 +107,7 @@ exposed-modules:
     A
 hidden-modules: B C.D C.E
 abi: 
+indefinite: False
 trusted: False
 import-dirs: /usr/local/lib/testpkg "c:/Program Files/testpkg"
 library-dirs: /usr/local/lib/testpkg "c:/Program Files/testpkg"
@@ -130,6 +134,7 @@ exposed-modules:
     A
 hidden-modules: B C.D
 abi: 
+indefinite: False
 trusted: False
 import-dirs: /usr/local/lib/testpkg "c:/Program Files/testpkg"
 library-dirs: /usr/local/lib/testpkg "c:/Program Files/testpkg"
@@ -163,6 +168,7 @@ exposed-modules:
     A
 hidden-modules: B C.D
 abi: 
+indefinite: False
 trusted: False
 import-dirs: /usr/local/lib/testpkg "c:/Program Files/testpkg"
 library-dirs: /usr/local/lib/testpkg "c:/Program Files/testpkg"

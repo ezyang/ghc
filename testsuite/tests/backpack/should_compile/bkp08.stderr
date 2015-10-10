@@ -1,0 +1,16 @@
+[1 of 3] Processing q
+  Instantiating main-q
+  [1 of 1] Compiling H                ( q/H.hs, bkp08-out/main-q/main-q/H.o )
+[2 of 3] Processing r
+/--- Shape for r
+provides:
+requires: H -> T{T}
+\---
+  [1 of 1] Compiling H[sig]           ( r/H.hsig, nothing )
+[3 of 3] Processing p
+  Instantiating main-p
+  [1 of 2] Including main-q
+  [2 of 2] Including main-r
+    Instantiating main-r(main-q:H)
+    [1 of 1] Compiling H[sig]           ( r/H.hsig, nothing )
+  [1 of 1] Compiling M                ( p/M.hs, bkp08-out/main-p/main-p/M.o )

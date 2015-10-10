@@ -11,6 +11,8 @@ the keys.
 
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances #-}
 
 module Module
     (
@@ -49,7 +51,11 @@ module Module
         wiredInUnitIds,
 
         -- * The Module type
-        Module(Module),
+        Module,
+        -- NB: Without pattern synonyms (e.g. 'pattern Module'), there
+        -- is no way to export the Module constructor without also
+        -- exporting the GenModule type name.
+        GenModule(Module),
         moduleUnitId, moduleName,
         pprModule,
         mkModule,
@@ -86,8 +92,8 @@ import UniqFM
 import FastString
 import Binary
 import Util
-import {-# SOURCE #-} Packages
-import GHC.PackageDb (BinaryStringRep(..))
+import {-# SOURCE #-} ShUnitId
+import GHC.PackageDb (BinaryStringRep(..), GenModule(..) )
 
 import Data.Data
 import Data.Map (Map)
@@ -245,15 +251,15 @@ moduleNameColons = dots_to_colons . moduleNameString
 -}
 
 -- | A Module is a pair of a 'UnitId' and a 'ModuleName'.
-data Module = Module {
-   moduleUnitId :: !UnitId,  -- pkg-1.0
-   moduleName      :: !ModuleName  -- A.B.C
-  }
-  deriving (Eq, Ord, Typeable)
+-- (GenModule is defined in GHC.PackageDb, because we store
+-- Modules in the binary package database.)
+type Module = GenModule UnitId ModuleName
 
 instance Uniquable Module where
   getUnique (Module p n) = getUnique (unitIdFS p `appendFS` moduleNameFS n)
 
+-- This is /slightly/ awkward because sometimes you will need
+-- FlexibleContexts or explicit type annotation.
 instance Outputable Module where
   ppr = pprModule
 
@@ -335,14 +341,7 @@ stableUnitIdCmp :: UnitId -> UnitId -> Ordering
 stableUnitIdCmp p1 p2 = unitIdFS p1 `compare` unitIdFS p2
 
 instance Outputable UnitId where
-   ppr pk = getPprStyle $ \sty -> sdocWithDynFlags $ \dflags ->
-    case unitIdPackageIdString dflags pk of
-      Nothing -> ftext (unitIdFS pk)
-      Just pkg -> text pkg
-           -- Don't bother qualifying if it's wired in!
-           <> (if qualPackage sty pk && not (pk `elem` wiredInUnitIds)
-                then char '@' <> ftext (unitIdFS pk)
-                else empty)
+   ppr pk = pprUnitId pk
 
 instance Binary UnitId where
   put_ bh pid = put_ bh (unitIdFS pid)

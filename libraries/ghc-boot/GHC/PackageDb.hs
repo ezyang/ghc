@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE StandaloneDeriving #-}
 -- This module deliberately defines orphan instances for now (Binary Version).
 {-# OPTIONS_GHC -fno-warn-orphans -fno-warn-name-shadowing #-}
 -----------------------------------------------------------------------------
@@ -37,44 +38,111 @@
 --
 module GHC.PackageDb (
        InstalledPackageInfo(..),
-       ExposedModule(..),
-       OriginalModule(..),
+       -- IndefiniteUnitInfo(..),
+       IndefiniteUnitId(..),
+       GenModule(..),
        BinaryStringRep(..),
+       mkUnitId,
        emptyInstalledPackageInfo,
        readPackageDbForGhc,
        readPackageDbForGhcPkg,
        writePackageDb
   ) where
 
+import Data.Typeable
 import Data.Version (Version(..))
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS.Char8
 import qualified Data.ByteString.Lazy as BS.Lazy
 import qualified Data.ByteString.Lazy.Internal as BS.Lazy (defaultChunkSize)
+import qualified Data.ByteString.Unsafe as BS
 import Data.Binary as Bin
 import Data.Binary.Put as Bin
 import Data.Binary.Get as Bin
+import qualified Data.Char as Char
+import Numeric
 import Control.Exception as Exception
 import Control.Monad (when)
+import Foreign.Ptr (castPtr)
 import System.FilePath
 import System.IO
 import System.IO.Error
+import System.IO.Unsafe (unsafePerformIO)
 import GHC.IO.Exception (IOErrorType(InappropriateType))
+import GHC.Fingerprint
 import System.Directory
 
+--------------------------------------------------------------------------
+-- Base 62
+
+-- The base-62 code is based off of 'locators'
+-- ((c) Operational Dynamics Consulting, BSD3 licensed)
+
+-- | Size of a 64-bit word when written as a base-62 string
+word64Base62Len :: Int
+word64Base62Len = 11
+
+-- | Converts a 64-bit word into a base-62 string
+toBase62Padded :: Word64 -> String
+toBase62Padded w = pad ++ str
+  where
+    pad = replicate len '0'
+    len = word64Base62Len - length str -- 11 == ceil(64 / lg 62)
+    str = toBase62 w
+
+toBase62 :: Word64 -> String
+toBase62 w = showIntAtBase 62 represent w ""
+  where
+    represent :: Int -> Char
+    represent x
+        | x < 10 = Char.chr (48 + x)
+        | x < 36 = Char.chr (65 + x - 10)
+        | x < 62 = Char.chr (97 + x - 36)
+        | otherwise = error "represent (base 62): impossible!"
+
+mkUnitId :: (BinaryStringRep compid, BinaryStringRep modulename, BinaryStringRep unitid)
+         => compid -> [(modulename, GenModule unitid modulename)] -> unitid
+mkUnitId cid sorted_holes
+    -- Including empty
+  | all (\(m, mod) -> BS.Char8.pack "hole" == toStringRep (moduleUnitId mod)
+                   && toStringRep m == toStringRep (moduleName mod)) sorted_holes =
+    fromStringRep (toStringRep cid)
+  | otherwise =
+    fingerprintUnitId (toStringRep cid)
+  . fingerprintByteString
+  . BS.concat $ do
+        (m, b) <- sorted_holes
+        [ toStringRep m,                BS.Char8.singleton ' ',
+          toStringRep (moduleUnitId b), BS.Char8.singleton ':',
+          toStringRep (moduleName b),   BS.Char8.singleton '\n']
+
+fingerprintByteString :: BS.ByteString -> Fingerprint
+fingerprintByteString bs = unsafePerformIO
+                         . BS.unsafeUseAsCStringLen bs
+                         $ \(p,l) -> fingerprintData (castPtr p) l
+
+fingerprintUnitId :: BinaryStringRep unitid => BS.ByteString -> Fingerprint -> unitid
+fingerprintUnitId prefix (Fingerprint a b)
+    = fromStringRep
+    . BS.concat
+    $ [ prefix
+      , BS.Char8.singleton '-'
+      , BS.Char8.pack (toBase62Padded a)
+      , BS.Char8.pack (toBase62Padded b) ]
 
 -- | This is a subset of Cabal's 'InstalledPackageInfo', with just the bits
 -- that GHC is interested in.
 --
-data InstalledPackageInfo instpkgid srcpkgid srcpkgname pkgkey modulename
+data InstalledPackageInfo compid srcpkgid srcpkgname unitid compname modulename
    = InstalledPackageInfo {
-       componentId :: instpkgid,
+       componentId        :: compid,
        sourcePackageId    :: srcpkgid,
        packageName        :: srcpkgname,
        packageVersion     :: Version,
-       unitId         :: pkgkey,
+       unitId             :: unitid,
+       componentName      :: compname,
        abiHash            :: String,
-       depends            :: [pkgkey],
+       depends            :: [unitid],
        importDirs         :: [FilePath],
        hsLibraries        :: [String],
        extraLibraries     :: [String],
@@ -88,70 +156,55 @@ data InstalledPackageInfo instpkgid srcpkgid srcpkgname pkgkey modulename
        includeDirs        :: [FilePath],
        haddockInterfaces  :: [FilePath],
        haddockHTMLs       :: [FilePath],
-       exposedModules     :: [ExposedModule pkgkey modulename],
+       exposedModules     :: [(modulename,GenModule unitid modulename)],
        hiddenModules      :: [modulename],
-       instantiatedWith   :: [(modulename,OriginalModule pkgkey modulename)],
+       instantiatedDepends:: [unitid],
+       unitIdMap          :: [(unitid,IndefiniteUnitId unitid compid modulename)],
+       indefinite         :: Bool,
        exposed            :: Bool,
        trusted            :: Bool
      }
   deriving (Eq, Show)
 
--- | An original module is a fully-qualified module name (installed package ID
--- plus module name) representing where a module was *originally* defined
--- (i.e., the 'exposedReexport' field of the original ExposedModule entry should
--- be 'Nothing').  Invariant: an OriginalModule never points to a reexport.
-data OriginalModule pkgkey modulename
-   = OriginalModule {
-       originalPackageId :: pkgkey,
-       originalModuleName :: modulename
-     }
-  deriving (Eq, Show)
+-- | A Module is a pair of a 'UnitId' and a 'ModuleName'.
+data GenModule unitid modname = Module {
+   moduleUnitId :: !unitid,  -- pkg-1.0
+   moduleName   :: !modname  -- A.B.C
+  }
+  deriving (Eq, Ord, Typeable)
+deriving instance (Show unitid, Show modname)
+                => Show (GenModule unitid modname)
 
--- | Represents a module name which is exported by a package, stored in the
--- 'exposedModules' field.  A module export may be a reexport (in which
--- case 'exposedReexport' is filled in with the original source of the module),
--- and may be a signature (in which case 'exposedSignature is filled in with
--- what the signature was compiled against).  Thus:
---
---  * @ExposedModule n Nothing Nothing@ represents an exposed module @n@ which
---    was defined in this package.
---
---  * @ExposedModule n (Just o) Nothing@ represents a reexported module @n@
---    which was originally defined in @o@.
---
---  * @ExposedModule n Nothing (Just s)@ represents an exposed signature @n@
---    which was compiled against the implementation @s@.
---
---  * @ExposedModule n (Just o) (Just s)@ represents a reexported signature
---    which was originally defined in @o@ and was compiled against the
---    implementation @s@.
---
--- We use two 'Maybe' data types instead of an ADT with four branches or
--- four fields because this representation allows us to treat
--- reexports/signatures uniformly.
-data ExposedModule pkgkey modulename
-   = ExposedModule {
-       exposedName      :: modulename,
-       exposedReexport  :: Maybe (OriginalModule pkgkey modulename),
-       exposedSignature :: Maybe (OriginalModule pkgkey modulename)
+-- | An indefinite unit unitid is like an unit unitid, but with the full
+-- information (e.g. what was instantiated) so that GHC can substitute
+-- over it.
+data IndefiniteUnitId unitid compid modulename
+   = IndefiniteUnitId {
+       indefUnitIdComponentId :: compid,
+       indefUnitIdInsts :: [(modulename,
+                             GenModule unitid modulename)]
      }
-  deriving (Eq, Show)
+  deriving (Eq)
+deriving instance (Show unitid, Show compid, Show modulename)
+                => Show (IndefiniteUnitId unitid compid modulename)
 
 class BinaryStringRep a where
   fromStringRep :: BS.ByteString -> a
   toStringRep   :: a -> BS.ByteString
 
 emptyInstalledPackageInfo :: (BinaryStringRep a, BinaryStringRep b,
-                              BinaryStringRep c, BinaryStringRep d)
-                          => InstalledPackageInfo a b c d e
+                              BinaryStringRep c, BinaryStringRep d,
+                              BinaryStringRep e)
+                          => InstalledPackageInfo a b c d e f
 emptyInstalledPackageInfo =
   InstalledPackageInfo {
        componentId = fromStringRep BS.empty,
        sourcePackageId    = fromStringRep BS.empty,
        packageName        = fromStringRep BS.empty,
        packageVersion     = Version [] [],
-       unitId         = fromStringRep BS.empty,
        abiHash            = "",
+       unitId             = fromStringRep BS.empty,
+       componentName      = fromStringRep BS.empty,
        depends            = [],
        importDirs         = [],
        hsLibraries        = [],
@@ -168,7 +221,9 @@ emptyInstalledPackageInfo =
        haddockHTMLs       = [],
        exposedModules     = [],
        hiddenModules      = [],
-       instantiatedWith   = [],
+       instantiatedDepends= [],
+       unitIdMap          = [],
+       indefinite         = False,
        exposed            = False,
        trusted            = False
   }
@@ -176,8 +231,8 @@ emptyInstalledPackageInfo =
 -- | Read the part of the package DB that GHC is interested in.
 --
 readPackageDbForGhc :: (BinaryStringRep a, BinaryStringRep b, BinaryStringRep c,
-                        BinaryStringRep d, BinaryStringRep e) =>
-                       FilePath -> IO [InstalledPackageInfo a b c d e]
+                        BinaryStringRep d, BinaryStringRep e, BinaryStringRep f) =>
+                       FilePath -> IO [InstalledPackageInfo a b c d e f]
 readPackageDbForGhc file =
     decodeFromFile file getDbForGhc
   where
@@ -210,8 +265,9 @@ readPackageDbForGhcPkg file =
 -- | Write the whole of the package DB, both parts.
 --
 writePackageDb :: (Binary pkgs, BinaryStringRep a, BinaryStringRep b,
-                   BinaryStringRep c, BinaryStringRep d, BinaryStringRep e) =>
-                  FilePath -> [InstalledPackageInfo a b c d e] -> pkgs -> IO ()
+                   BinaryStringRep c, BinaryStringRep d, BinaryStringRep e,
+                   BinaryStringRep f) =>
+                  FilePath -> [InstalledPackageInfo a b c d e f] -> pkgs -> IO ()
 writePackageDb file ghcPkgs ghcPkgPart =
     writeFileAtomic file (runPut putDbForGhcPkg)
   where
@@ -298,24 +354,26 @@ writeFileAtomic targetPath content = do
         renameFile tmpPath targetPath)
 
 instance (BinaryStringRep a, BinaryStringRep b, BinaryStringRep c,
-          BinaryStringRep d, BinaryStringRep e) =>
-         Binary (InstalledPackageInfo a b c d e) where
+          BinaryStringRep d, BinaryStringRep e, BinaryStringRep f) =>
+         Binary (InstalledPackageInfo a b c d e f) where
   put (InstalledPackageInfo
          componentId sourcePackageId
-         packageName packageVersion unitId
+         packageName packageVersion unitId componentName
          abiHash depends importDirs
          hsLibraries extraLibraries extraGHCiLibraries libraryDirs
          frameworks frameworkDirs
          ldOptions ccOptions
          includes includeDirs
          haddockInterfaces haddockHTMLs
-         exposedModules hiddenModules instantiatedWith
+         exposedModules hiddenModules
+         instantiatedDepends unitIdMap indefinite
          exposed trusted) = do
     put (toStringRep componentId)
     put (toStringRep sourcePackageId)
     put (toStringRep packageName)
     put packageVersion
     put (toStringRep unitId)
+    put (toStringRep componentName)
     put abiHash
     put (map toStringRep depends)
     put importDirs
@@ -331,9 +389,11 @@ instance (BinaryStringRep a, BinaryStringRep b, BinaryStringRep c,
     put includeDirs
     put haddockInterfaces
     put haddockHTMLs
-    put exposedModules
+    put (map (\(k,v) -> (toStringRep k, v)) exposedModules)
     put (map toStringRep hiddenModules)
-    put (map (\(k,v) -> (toStringRep k, v)) instantiatedWith)
+    put (map toStringRep instantiatedDepends)
+    put (map (\(k,v) -> (toStringRep k, v)) unitIdMap)
+    put indefinite
     put exposed
     put trusted
 
@@ -342,7 +402,8 @@ instance (BinaryStringRep a, BinaryStringRep b, BinaryStringRep c,
     sourcePackageId    <- get
     packageName        <- get
     packageVersion     <- get
-    unitId         <- get
+    unitId             <- get
+    componentName      <- get
     abiHash            <- get
     depends            <- get
     importDirs         <- get
@@ -360,7 +421,9 @@ instance (BinaryStringRep a, BinaryStringRep b, BinaryStringRep c,
     haddockHTMLs       <- get
     exposedModules     <- get
     hiddenModules      <- get
-    instantiatedWith   <- get
+    instantiatedDepends<- get
+    unitIdMap          <- get
+    indefinite         <- get
     exposed            <- get
     trusted            <- get
     return (InstalledPackageInfo
@@ -368,6 +431,7 @@ instance (BinaryStringRep a, BinaryStringRep b, BinaryStringRep c,
               (fromStringRep sourcePackageId)
               (fromStringRep packageName) packageVersion
               (fromStringRep unitId)
+              (fromStringRep componentName)
               abiHash
               (map fromStringRep depends)
               importDirs
@@ -376,9 +440,11 @@ instance (BinaryStringRep a, BinaryStringRep b, BinaryStringRep c,
               ldOptions ccOptions
               includes includeDirs
               haddockInterfaces haddockHTMLs
-              exposedModules
+              (map (\(k,v) -> (fromStringRep k, v)) exposedModules)
               (map fromStringRep hiddenModules)
-              (map (\(k,v) -> (fromStringRep k, v)) instantiatedWith)
+              (map fromStringRep instantiatedDepends)
+              (map (\(k,v) -> (fromStringRep k, v)) unitIdMap)
+              indefinite
               exposed trusted)
 
 instance Binary Version where
@@ -390,27 +456,23 @@ instance Binary Version where
     b <- get
     return (Version a b)
 
-instance (BinaryStringRep a, BinaryStringRep b) =>
-         Binary (OriginalModule a b) where
-  put (OriginalModule originalPackageId originalModuleName) = do
-    put (toStringRep originalPackageId)
-    put (toStringRep originalModuleName)
+instance (BinaryStringRep a, BinaryStringRep b, BinaryStringRep c) =>
+         Binary (IndefiniteUnitId a b c) where
+  put (IndefiniteUnitId compid insts) = do
+    put (toStringRep compid)
+    put (map (\(k,v) -> (toStringRep k, v)) insts)
   get = do
-    originalPackageId <- get
-    originalModuleName <- get
-    return (OriginalModule (fromStringRep originalPackageId)
-                           (fromStringRep originalModuleName))
+    a <- get
+    b <- get
+    return (IndefiniteUnitId (fromStringRep a) (map (\(k,v) -> (fromStringRep k, v)) b))
 
 instance (BinaryStringRep a, BinaryStringRep b) =>
-         Binary (ExposedModule a b) where
-  put (ExposedModule exposedName exposedReexport exposedSignature) = do
-    put (toStringRep exposedName)
-    put exposedReexport
-    put exposedSignature
+         Binary (GenModule a b) where
+  put (Module moduleUnitId moduleName) = do
+    put (toStringRep moduleUnitId)
+    put (toStringRep moduleName)
   get = do
-    exposedName <- get
-    exposedReexport <- get
-    exposedSignature <- get
-    return (ExposedModule (fromStringRep exposedName)
-                          exposedReexport
-                          exposedSignature)
+    moduleUnitId <- get
+    moduleName <- get
+    return (Module (fromStringRep moduleUnitId)
+                   (fromStringRep moduleName))

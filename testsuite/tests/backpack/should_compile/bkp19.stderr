@@ -1,0 +1,19 @@
+[1 of 3] Processing r
+/--- Shape for r
+provides: M -> main-r(hole:H):M
+               d
+requires: H -> Foo{Foo, Foo}
+\---
+  [1 of 2] Compiling H[sig]           ( r/H.hsig, nothing )
+  [2 of 2] Compiling M                ( r/M.hs, nothing )
+[2 of 3] Processing h-impl
+  Instantiating main-h-impl
+  [1 of 2] Compiling A                ( h-impl/A.hs, bkp19-out/main-h-impl/main-h-impl/A.o )
+  [2 of 2] Compiling H                ( h-impl/H.hs, bkp19-out/main-h-impl/main-h-impl/H.o )
+[3 of 3] Processing s
+  Instantiating main-s
+  [1 of 2] Including main-h-impl
+  [2 of 2] Including main-r
+    Instantiating main-r(main-h-impl:H)
+    [1 of 2] Compiling H[sig]           ( r/H.hsig, nothing )
+    [2 of 2] Compiling M                ( r/M.hs, bkp19-out/main-r/main-r-9ounnqs7oqA38IZEscm2tL/M.o )
