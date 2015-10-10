@@ -1,0 +1,9 @@
+{-# LANGUAGE MagicHash #-}
+unit p where
+    include ghc-prim
+    signature Int where
+        import GHC.Prim
+        data Int = I# Int#
+unit q where
+    include base (GHC.Exts as Int)
+    include p

@@ -1,0 +1,29 @@
+[1 of 3] Processing p
+/--- Shape for p
+provides:
+requires: A -> A{A, A, foo}
+\---
+  [1 of 1] Compiling A[sig]           ( p/A.hsig, nothing )
+[2 of 3] Processing q
+/--- Shape for q
+provides:
+requires: A -> A{A, A, bar}
+\---
+  [1 of 1] Compiling A[sig]           ( q/A.hsig, nothing )
+[3 of 3] Processing r
+/--- Shape for r
+provides: M -> r(hole:A):M
+               x, y
+requires: A -> A{A, A, bar, foo}
+\---
+  [1 of 2] Compiling A[sig]           ( r/A.hsig, nothing )
+
+bkpfail04.bkp:7:9: error:
+    Type constructor ‘A’ has conflicting definitions
+    when merging p(hole:A):A into the local requirements,
+    Requirement so far: data A = A {bar :: Bool}
+      from q(hole:A):A
+    New requirement: data A = A {hole:A.foo :: Int}
+    The constructors do not match:
+      The record label lists for ‘A’ differ
+      The types for ‘A’ differ

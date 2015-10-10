@@ -1005,6 +1005,21 @@ def compile( name, way, extra_hc_opts ):
 def compile_fail( name, way, extra_hc_opts ):
     return do_compile( name, way, 1, '', [], extra_hc_opts )
 
+def backpack_typecheck( name, way, extra_hc_opts ):
+    return do_compile( name, way, 0, '', [], "-fno-code -fwrite-interface " + extra_hc_opts, backpack=1 )
+
+def backpack_typecheck_fail( name, way, extra_hc_opts ):
+    return do_compile( name, way, 1, '', [], "-fno-code -fwrite-interface " + extra_hc_opts, backpack=1 )
+
+def backpack_compile( name, way, extra_hc_opts ):
+    return do_compile( name, way, 0, '', [], extra_hc_opts, backpack=1 )
+
+def backpack_compile_fail( name, way, extra_hc_opts ):
+    return do_compile( name, way, 1, '', [], extra_hc_opts, backpack=1 )
+
+def backpack_run( name, way, extra_hc_opts ):
+    return compile_and_run__( name, way, '', [], extra_hc_opts, backpack=1 )
+
 def multimod_compile( name, way, top_mod, extra_hc_opts ):
     return do_compile( name, way, 0, top_mod, [], extra_hc_opts )
 
@@ -1017,7 +1032,7 @@ def multi_compile( name, way, top_mod, extra_mods, extra_hc_opts ):
 def multi_compile_fail( name, way, top_mod, extra_mods, extra_hc_opts ):
     return do_compile( name, way, 1, top_mod, extra_mods, extra_hc_opts)
 
-def do_compile( name, way, should_fail, top_mod, extra_mods, extra_hc_opts, override_flags = None ):
+def do_compile( name, way, should_fail, top_mod, extra_mods, extra_hc_opts, override_flags = None, **kwargs ):
     # print 'Compile only, extra args = ', extra_hc_opts
     pretest_cleanup(name)
 
@@ -1029,7 +1044,7 @@ def do_compile( name, way, should_fail, top_mod, extra_mods, extra_hc_opts, over
     force = 0
     if extra_mods:
        force = 1
-    result = simple_build( name, way, extra_hc_opts, should_fail, top_mod, 0, 1, force, override_flags )
+    result = simple_build( name, way, extra_hc_opts, should_fail, top_mod, 0, 1, force, override_flags, **kwargs )
 
     if badResult(result):
         return result
@@ -1077,7 +1092,7 @@ def compile_cmp_asm( name, way, extra_hc_opts ):
 # -----------------------------------------------------------------------------
 # Compile-and-run tests
 
-def compile_and_run__( name, way, top_mod, extra_mods, extra_hc_opts ):
+def compile_and_run__( name, way, top_mod, extra_mods, extra_hc_opts, backpack=0 ):
     # print 'Compile and run, extra args = ', extra_hc_opts
     pretest_cleanup(name)
 
@@ -1093,7 +1108,7 @@ def compile_and_run__( name, way, top_mod, extra_mods, extra_hc_opts ):
         if extra_mods:
            force = 1
 
-        result = simple_build( name, way, extra_hc_opts, 0, top_mod, 1, 1, force)
+        result = simple_build( name, way, extra_hc_opts, 0, top_mod, 1, 1, force, backpack = backpack)
         if badResult(result):
             return result
 
@@ -1185,7 +1200,7 @@ def extras_build( way, extra_mods, extra_hc_opts ):
     return {'passFail' : 'pass', 'hc_opts' : extra_hc_opts}
 
 
-def simple_build( name, way, extra_hc_opts, should_fail, top_mod, link, addsuf, noforce, override_flags = None ):
+def simple_build( name, way, extra_hc_opts, should_fail, top_mod, link, addsuf, noforce, override_flags = None, backpack = False ):
     opts = getTestOpts()
     errname = add_suffix(name, 'comp.stderr')
     rm_no_fail( qualify(errname, '') )
@@ -1197,7 +1212,10 @@ def simple_build( name, way, extra_hc_opts, should_fail, top_mod, link, addsuf, 
         rm_no_fail( qualify(base, '') )
         rm_no_fail( qualify(base, 'exe') )
     elif addsuf:
-        srcname = add_hs_lhs_suffix(name)
+        if backpack:
+            srcname = add_suffix(name, 'bkp')
+        else:
+            srcname = add_hs_lhs_suffix(name)
         rm_no_fail( qualify(name, '') )
     else:
         srcname = name
@@ -1210,6 +1228,10 @@ def simple_build( name, way, extra_hc_opts, should_fail, top_mod, link, addsuf, 
         to_do = '--make '
         if link:
             to_do = to_do + '-o ' + name
+    elif backpack:
+        if link:
+            to_do = '-o ' + name
+        to_do = to_do + ' --backpack '
     elif link:
         to_do = '-o ' + name
     elif opts.compile_to_hc:
@@ -1220,6 +1242,8 @@ def simple_build( name, way, extra_hc_opts, should_fail, top_mod, link, addsuf, 
     stats_file = name + '.comp.stats'
     if len(opts.compiler_stats_range_fields) > 0:
         extra_hc_opts += ' +RTS -V0 -t' + stats_file + ' --machine-readable -RTS'
+    if backpack:
+        extra_hc_opts += ' -outputdir ' + name + '-out'
 
     # Required by GHC 7.3+, harmless for earlier versions:
     if (getTestOpts().c_src or

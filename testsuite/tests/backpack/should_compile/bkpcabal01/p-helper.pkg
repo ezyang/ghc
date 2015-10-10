@@ -1,0 +1,7 @@
+id: p-helper(H=hole:H)
+component-name: helper
+name: p
+version: 1.0
+exposed: False
+exposed-modules: B
+import-dirs: ${pkgroot}/p/p-helper

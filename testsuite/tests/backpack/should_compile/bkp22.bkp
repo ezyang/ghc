@@ -1,0 +1,26 @@
+unit ab-sigs where
+    signature A where
+        data A
+    signature B where
+        data B
+
+unit ab where
+    include ab-sigs
+    module A where
+        import B
+        data A = A B
+
+unit ba where
+    include ab-sigs
+    module B where
+        import A
+        data B = B A
+
+unit ab-rec where
+    include ab
+    include ba
+    module C where
+        import A
+        import B
+        a :: A
+        a = A (B a)

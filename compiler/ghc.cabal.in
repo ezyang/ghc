@@ -131,6 +131,7 @@ Library
         cbits/genSym.c
 
     hs-source-dirs:
+        backpack
         basicTypes
         cmm
         codeGen
@@ -157,6 +158,13 @@ Library
         vectorise
 
     Exposed-Modules:
+        Backpack
+        BackpackSyn
+        Shaping
+        Shape
+        ShUnitId
+        ShUnify
+        UnionFind
         Avail
         BasicTypes
         ConLike
@@ -305,6 +313,7 @@ Library
         IfaceSyn
         IfaceType
         LoadIface
+        MergeIface
         MkIface
         TcIface
         FlagChecker

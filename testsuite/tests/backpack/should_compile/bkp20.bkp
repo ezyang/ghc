@@ -1,0 +1,23 @@
+{-# LANGUAGE TypeFamilies #-}
+
+unit p where
+    signature H where
+        type family Elem c
+
+unit q where
+    signature H where
+        type family Elem c
+
+unit r where
+    include p
+    include q
+    module M where
+        import H
+        type instance Elem Bool = Int
+
+unit h-impl where
+    module H where
+        type family Elem c
+unit s where
+    include h-impl
+    include r

@@ -1,6 +1,6 @@
 -- (c) The University of Glasgow, 2006
 
-{-# LANGUAGE CPP, ScopedTypeVariables #-}
+{-# LANGUAGE CPP, ScopedTypeVariables, FlexibleContexts #-}
 
 -- | Package manipulation
 module Packages (
@@ -18,6 +18,8 @@ module Packages (
 
         -- * Querying the package config
         lookupPackage,
+        lookupPackageName,
+        lookupComponentId,
         searchPackageId,
         getPackageDetails,
         listVisibleModuleNames,
@@ -41,7 +43,6 @@ module Packages (
         packageHsLibs,
 
         -- * Utils
-        unitIdPackageIdString,
         pprFlag,
         pprPackages,
         pprPackagesSimple,
@@ -255,6 +256,10 @@ data PackageState = PackageState {
   -- may have the 'exposed' flag be 'False'.)
   pkgIdMap              :: PackageConfigMap,
 
+  -- | A mapping of 'PackageName' to 'ComponentId'.  This is used when
+  -- users refer to packages in Backpack includes.
+  packageNameMap            :: Map PackageName ComponentId,
+
   -- | The packages we're going to link in eagerly.  This list
   -- should be in reverse dependency order; that is, a package
   -- is always mentioned before the packages it depends on.
@@ -276,6 +281,7 @@ data PackageState = PackageState {
 emptyPackageState :: PackageState
 emptyPackageState = PackageState {
     pkgIdMap = emptyUFM,
+    packageNameMap = Map.empty,
     preloadPackages = [],
     explicitPackages = [],
     moduleToPkgConfAll = Map.empty,
@@ -294,6 +300,16 @@ lookupPackage dflags = lookupPackage' (pkgIdMap (pkgState dflags))
 
 lookupPackage' :: PackageConfigMap -> UnitId -> Maybe PackageConfig
 lookupPackage' = lookupUFM
+
+-- The way this works is just by fiat'ing that every indefinite package's
+-- unit key is precisely its component ID; and that they share uniques.
+lookupComponentId :: DynFlags -> ComponentId -> Maybe PackageConfig
+lookupComponentId dflags (ComponentId cid_fs) = lookupUFM (pkgIdMap (pkgState dflags)) cid_fs
+
+-- | Find the package we know about with the given package name (e.g. @foo@), if any
+-- (NB: there might be a locally defined unit name which overrides this)
+lookupPackageName :: DynFlags -> PackageName -> Maybe ComponentId
+lookupPackageName dflags n = Map.lookup n (packageNameMap (pkgState dflags))
 
 -- | Search for packages with a given package ID (e.g. \"foo-0.1\")
 searchPackageId :: DynFlags -> SourcePackageId -> [PackageConfig]
@@ -343,11 +359,10 @@ initPackages dflags = do
         Nothing -> readPackageConfigs dflags
         Just db -> return $ map (\(p, pkgs)
                                     -> (p, setBatchPackageFlags dflags pkgs)) db
-  (pkg_state, preload, this_pkg)
+  (pkg_state, preload)
         <- mkPackageState dflags pkg_db []
   return (dflags{ pkgDatabase = Just pkg_db,
-                  pkgState = pkg_state,
-                  thisPackage = this_pkg },
+                  pkgState = pkg_state },
           preload)
 
 -- -----------------------------------------------------------------------------
@@ -763,7 +778,8 @@ findWiredInPackages dflags pkgs vis_map = do
           where upd_pkg pkg
                   | unitId pkg `elem` wired_in_ids
                   = pkg {
-                      unitId = stringToUnitId (packageNameString pkg)
+                      unitId = let PackageName fs = packageName pkg
+                               in fsToUnitId fs
                     }
                   | otherwise
                   = pkg
@@ -873,14 +889,21 @@ mkPackageState
     -> [(FilePath, [PackageConfig])]     -- initial databases
     -> [UnitId]              -- preloaded packages
     -> IO (PackageState,
-           [UnitId],         -- new packages to preload
-           UnitId) -- this package, might be modified if the current
-                      -- package is a wired-in package.
+           [UnitId])         -- new packages to preload
 
 mkPackageState dflags0 dbs preload0 = do
   dflags <- interpretPackageEnv dflags0
 
-  -- Compute the unit id
+  -- Register all unit IDs
+  {-
+  forM_ dbs $ \(_, ps) ->
+    forM_ ps $ \p ->
+      forM_ (unitIdMap p) $ \(uid, IndefiniteUnitId cid insts) -> do
+        new_uid <- newUnitId dflags cid insts
+        ASSERT2( uid == new_uid, ppr uid <+> ppr new_uid ) return ()
+        -}
+
+  -- Compute the unit ID
   let this_package = thisPackage dflags
 
 {-
@@ -1087,6 +1110,9 @@ mkPackageState dflags0 dbs preload0 = do
       get_exposed _                 = []
 
   let pkg_db = extendPackageConfigMap emptyPackageConfigMap pkgs2
+      pkgname_map = foldl add Map.empty pkgs2
+        where add pn_map p
+                = Map.insert (packageName p) (unitIdComponentId (packageConfigId p)) pn_map
 
   let preload2 = preload1
 
@@ -1115,9 +1141,10 @@ mkPackageState dflags0 dbs preload0 = do
                                 else xs) [] pkg_db,
     pkgIdMap            = pkg_db,
     moduleToPkgConfAll  = mkModuleToPkgConfAll dflags pkg_db vis_map,
-    pluginModuleToPkgConfAll = mkModuleToPkgConfAll dflags pkg_db plugin_vis_map
+    pluginModuleToPkgConfAll = mkModuleToPkgConfAll dflags pkg_db plugin_vis_map,
+    packageNameMap          = pkgname_map
     }
-  return (pstate, new_dep_preload, this_package)
+  return (pstate, new_dep_preload)
 
 
 -- -----------------------------------------------------------------------------
@@ -1166,6 +1193,23 @@ mkModuleToPkgConfAll dflags pkg_db vis_map =
            Just (Module pk' m') ->
             let pkg' = pkg_lookup pk'
             in (pk', m', pkg', fromReexportedModules e pkg')
+{-
+||||||| merged common ancestors
+     ExposedModule m exposedReexport _exposedSignature <- exposed_mods
+     let (pk', m', pkg', origin') =
+          case exposedReexport of
+           Nothing -> (pk, m, pkg, fromExposedModules e)
+           Just (OriginalModule pk' m') ->
+            let pkg' = pkg_lookup pk'
+            in (pk', m', pkg', fromReexportedModules e pkg')
+=======
+     (m, (Module pk' m')) <- exposed_mods
+     let pkg' = if pk' == pk then pkg else pkg_lookup pk'
+         origin' = if pk' == pk && m == m'
+                    then fromExposedModules e
+                    else fromReexportedModules e pkg'
+>>>>>>> WIP: Backpack!
+-}
      return (m, sing pk' m' pkg' origin')
 
     esmap :: UniqFM (Map Module ModuleOrigin)
@@ -1347,7 +1391,7 @@ lookupModuleWithSuggestions' dflags mod_map m mb_pn
             | originVisible origin   -> (hidden_pkg,   hidden_mod,   x:exposed)
             | otherwise              -> (x:hidden_pkg, hidden_mod,   exposed)
 
-    pkg_lookup = expectJust "lookupModuleWithSuggestions" . lookupPackage dflags
+    pkg_lookup p = lookupPackage dflags p `orElse` pprPanic "lookupModuleWithSuggestions" (ppr p <+> ppr m)
     mod_pkg = pkg_lookup . moduleUnitId
 
     -- Filters out origins which are not associated with the given package
@@ -1453,11 +1497,6 @@ missingDependencyMsg (Just parent)
 
 -- -----------------------------------------------------------------------------
 
-unitIdPackageIdString :: DynFlags -> UnitId -> Maybe String
-unitIdPackageIdString dflags pkg_key
-    | pkg_key == mainUnitId = Just "main"
-    | otherwise = fmap sourcePackageIdString (lookupPackage dflags pkg_key)
-
 -- | Will the 'Name' come from a dynamically linked library?
 isDllName :: DynFlags -> UnitId -> Module -> Name -> Bool
 -- Despite the "dll", I think this function just means that
@@ -1519,6 +1558,7 @@ pprModuleMap dflags =
   vcat (map pprLine (Map.toList (moduleToPkgConfAll (pkgState dflags))))
     where
       pprLine (m,e) = ppr m $$ nest 50 (vcat (map (pprEntry m) (Map.toList e)))
+      pprEntry :: Outputable a => ModuleName -> (Module, a) -> SDoc
       pprEntry m (m',o)
         | m == moduleName m' = ppr (moduleUnitId m') <+> parens (ppr o)
         | otherwise = ppr m' <+> parens (ppr o)
