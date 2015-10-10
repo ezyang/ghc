@@ -1,0 +1,40 @@
+[1 of 5] Processing p
+unit p(hole:A, hole:B)
+  [1 of 3] Compiling A[sig]           ( p/A.hsig, nothing )
+  [2 of 3] Compiling B[sig]           ( p/B.hsig, nothing )
+  [3 of 3] Compiling P                ( p/P.hs, nothing )
+[2 of 5] Processing a
+  Instantiating a
+unit a
+  [1 of 1] Compiling A                ( a/A.hs, bkp24-out/a/A.o )
+[3 of 5] Processing b
+  Instantiating b
+unit b
+  [1 of 1] Compiling B                ( b/B.hs, bkp24-out/b/B.o )
+[4 of 5] Processing q
+unit q(hole:B)
+- include a [(A, a:A)]
+- include p(a:A, hole:B) [(P, p(a:A, hole:B):P)]
+  [1 of 2] Compiling B[sig]           ( q/B.hsig, nothing )
+  [2 of 2] Compiling Q                ( q/Q.hs, nothing )
+[5 of 5] Processing r
+  Instantiating r
+unit r
+- include b [(B, b:B)]
+- include q(b:B) [(Q, q(b:B):Q)]
+  [1 of 2] Including b
+  [2 of 2] Including q
+    Instantiating q(b:B)
+unit q(b:B)
+- include a [(A, a:A)]
+- include p(a:A, hole:B) [(P, p(a:A, hole:B):P)]
+    [1 of 2] Including a
+    [2 of 2] Including p
+      Instantiating p(a:A, b:B)
+unit p(a:A, b:B)
+      [1 of 3] Compiling A[sig]           ( p/A.hsig, nothing )
+      [2 of 3] Compiling B[sig]           ( p/B.hsig, nothing )
+      [3 of 3] Compiling P                ( p/P.hs, bkp24-out/p/p-BVwzUlgOVR6H8V9umpUZ2h/P.o )
+    [1 of 2] Compiling B[sig]           ( q/B.hsig, nothing )
+    [2 of 2] Compiling Q                ( q/Q.hs, bkp24-out/q/q-3IeW1YRs0cYLmV4oNjoWji/Q.o )
+  [1 of 1] Compiling R                ( r/R.hs, bkp24-out/r/R.o )

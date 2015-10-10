@@ -254,6 +254,8 @@ instance ContainsModule gbl => ContainsModule (Env gbl lcl) where
 
 data IfGblEnv
   = IfGblEnv {
+        -- Useful to know where this environment came from for debugging
+        if_doc :: SDoc,
         -- The type environment for the module being compiled,
         -- in case the interface refers back to it via a reference that
         -- was originally a hi-boot file.
@@ -374,6 +376,29 @@ data DsMetaVal
 data FrontendResult
         = FrontendTypecheck TcGblEnv
 
+-- Note [Identity versus semantic module]
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- When typechecking an hsig file, it is convenient to keep track
+-- of two different "this module" identifiers:
+--
+--      - The IDENTITY module is simply thisPackage + the module
+--        name; i.e. it uniquely *identifies* the interface file
+--        we're compiling.
+--
+--      - The SEMANTIC module, which is the actual module that
+--        this signature is intended to represent (e.g. if
+--        -sig-of "A is base:Data.IORef", then the semantic
+--        module is base:Data.IORef; similarly, it could
+--        also be hole:A)
+--
+-- Which one should you use?  The general rule is that if you are
+-- working with 'Name's, you should use the semantic module (a
+-- name ALWAYS is based off of the semantic module), but otherwise
+-- use the identity module.
+--
+-- You can get a semantic module from an identity module using
+-- 'canonicalizeModule'.
+
 -- | 'TcGblEnv' describes the top-level of the module at the
 -- point at which the typechecker is finished work.
 -- It is this structure that is handed on to the desugarer
@@ -382,10 +407,10 @@ data FrontendResult
 data TcGblEnv
   = TcGblEnv {
         tcg_mod     :: Module,         -- ^ Module being compiled
+        tcg_semantic_mod :: Module,    -- ^ If a signature, the backing module
+            -- See also Note [Identity versus semantic module]
         tcg_src     :: HscSource,
           -- ^ What kind of module (regular Haskell, hs-boot, hsig)
-        tcg_sig_of  :: Maybe Module,
-          -- ^ Are we being compiled as a signature of an implementation?
         tcg_impl_rdr_env :: Maybe GlobalRdrEnv,
           -- ^ Environment used only during -sig-of for resolving top level
           -- bindings.  See Note [Signature parameters in TcGblEnv and DynFlags]
@@ -542,6 +567,15 @@ data TcGblEnv
         -- See Note [Safe Haskell Overlapping Instances Implementation],
         -- although this is used for more than just that failure case.
 
+        -- | Used during shaping, this can be used to override the default
+        -- interface lookup behavior by overriding a import of some module
+        -- name with a different interface.
+        tcg_ifaces :: ModuleNameEnv ModIface,
+
+        -- | True if we're shaping
+        tcg_shaping :: !Bool,
+
+        -- | A list of user-defined plugins for the constraint solver.
         tcg_tc_plugins :: [TcPluginSolver],
         -- ^ A list of user-defined plugins for the constraint solver.
 
@@ -549,59 +583,85 @@ data TcGblEnv
           -- ^ Wanted constraints of static forms.
     }
 
+-- NB: topModIdentity, not topModSemantic!
+-- Definition sites of orphan identities will be identity modules, not semantic
+-- modules.
 tcVisibleOrphanMods :: TcGblEnv -> ModuleSet
 tcVisibleOrphanMods tcg_env
     = mkModuleSet (tcg_mod tcg_env : imp_orphs (tcg_imports tcg_env))
 
--- Note [Signature parameters in TcGblEnv and DynFlags]
--- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
--- When compiling signature files, we need to know which implementation
--- we've actually linked against the signature.  There are three seemingly
--- redundant places where this information is stored: in DynFlags, there
--- is sigOf, and in TcGblEnv, there is tcg_sig_of and tcg_impl_rdr_env.
--- Here's the difference between each of them:
---
--- * DynFlags.sigOf is global per invocation of GHC.  If we are compiling
---   with --make, there may be multiple signature files being compiled; in
---   which case this parameter is a map from local module name to implementing
---   Module.
---
--- * HscEnv.tcg_sig_of is global per the compilation of a single file, so
---   it is simply the result of looking up tcg_mod in the DynFlags.sigOf
---   parameter.  It's setup in TcRnMonad.initTc.  This prevents us
---   from having to repeatedly do a lookup in DynFlags.sigOf.
---
--- * HscEnv.tcg_impl_rdr_env is a RdrEnv that lets us look up names
---   according to the sig-of module.  It's setup in TcRnDriver.tcRnSignature.
---   Here is an example showing why we need this map:
+-- Note [tcg_impl_rdr_env versus tcg_rdr_env]
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Consider the following modules:
 --
 --  module A where
 --      a = True
---
---  module ASig where
+--  module B where
+--      b = False
+--  signature A where
 --      import B
 --      a :: Bool
 --
---  module B where
---      b = False
+-- When we compile the signature A, here are how the 'GlobalRdrEnv's compare:
 --
--- When we compile ASig --sig-of main:A, the default
--- global RdrEnv (tcg_rdr_env) has an entry for b, but not for a
--- (we never imported A).  So we have to look in a different environment
--- to actually get the original name.
+--  * tcg_rdr_env contains just an entry for OccName @b@ from @import B@
 --
--- By the way, why do we need to do the lookup; can't we just use A:a
--- as the name directly?  Well, if A is reexporting the entity from another
--- module, then the original name needs to be the real original name:
+--  * tcg_impl_rdr_env contains just an entry for OccName @a@ (which is
+--    exported by module A)
+--
+-- Notice the distinction between the 'GlobalRdrEnv' formed from looking
+-- at the imports of @A@, and the 'GlobalRdrEnv' of the actual backing
+-- module.  To determine the true 'Name' of @a@, we must consult
+-- 'tcg_impl_rdr_env', not 'tcg_rdr_env'.
+--
+-- By the way, A could reexport @a@ from another module:
 --
 --  module C where
 --      a = True
---
 --  module A(a) where
 --      import C
+--
+-- So the only way to figure out 'tcg_impl_rdr_env' is by reading in the
+-- 'ModIface' for @A@.
+
+-- Note [Separate compilation of Backpack]
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Separate compilation of Backpack is tricky business.  There are a
+-- number of axes of complexity you have to deal with: typechecking
+-- versus compilation, and --make versus -c.
+--
+-- Here are some important points:
+--
+--  * Backpack needs to be able to understand any unit IDs which
+--    pass into the system, to (1) give good error messages and (2)
+--    compute canonicalized modules, e.g. when compiling signatures.
+--    Right now, there are two ways a unit IDs can pass into
+--    GHC:
+--
+--      - It can be in the installed package database,
+--
+--      - 'thisPackage' can be computed based on @-package-name@,
+--        @-version-hash@ and @-sig-of@. (NB: also doesn't work right now)
+--
+--  * --make style separate compilation probably won't work with packages
+--    like:
+--
+--      package p where
+--          signature H
+--          ...
+--      package q where
+--          module H
+--          include p
+--          ...
+--
+--  * For the most part, shaping is not necessary for compilation (except
+--    to generate the separate compilation plan); separate type-checking
+--    is considerably more tricky.
+--
+--  * Unclear how to deal with inline modules/signatures.
 
 instance ContainsModule TcGblEnv where
-    extractModule env = tcg_mod env
+    extractModule env = tcg_semantic_mod env
 
 type RecFieldEnv = NameEnv [FieldLabel]
         -- Maps a constructor name *in this module*

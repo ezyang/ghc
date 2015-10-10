@@ -1,0 +1,9 @@
+id: p(H=hole:H)
+name: p
+version: 1.0
+exposed: True
+exposed-modules: A
+depends: p-helper(H=hole:H)
+instantiated-depends: p-helper(H=hole:H)
+indefinite: True
+import-dirs: ${pkgroot}/p

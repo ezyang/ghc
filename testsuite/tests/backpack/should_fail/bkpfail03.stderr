@@ -1,0 +1,6 @@
+[1 of 3] Processing q
+  [1 of 2] Compiling M1               ( q/M1.hs, nothing )
+  [2 of 2] Compiling M2[sig]          ( q/M2.hsig, nothing )
+
+bkpfail03.bkp:4:5: error:
+    Explicit exports not supported in hsig files

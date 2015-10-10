@@ -1075,6 +1075,7 @@ updateDBCache verbosity db = do
       hPutChar handle c
 
 type PackageCacheFormat = GhcPkg.InstalledPackageInfo
+                            ComponentId
                             PackageIdentifier
                             PackageName
                             UnitId
@@ -1111,6 +1112,10 @@ convertPackageInfoToCacheFormat pkg =
     }
   where convertExposed (ExposedModule n reexport) = (n, reexport)
 
+instance GhcPkg.BinaryStringRep ComponentId where
+  fromStringRep = ComponentId . fromStringRep
+  toStringRep   = toStringRep . display
+
 instance GhcPkg.BinaryStringRep PackageName where
   fromStringRep = PackageName . fromStringRep
   toStringRep   = toStringRep . display
@@ -1132,9 +1137,15 @@ instance GhcPkg.BinaryStringRep String where
   fromStringRep = fromUTF8 . BS.unpack
   toStringRep   = BS.pack . toUTF8
 
-instance GhcPkg.DbModuleRep UnitId ModuleName OriginalModule where
+instance GhcPkg.DbUnitIdModuleRep ComponentId UnitId ModuleName OriginalModule where
   fromDbModule (GhcPkg.DbModule uid mod_name) = OriginalModule uid mod_name
   toDbModule (OriginalModule uid mod_name) = GhcPkg.DbModule uid mod_name
+  fromDbUnitId (GhcPkg.DbUnitId cid []) = SimpleUnitId cid
+  fromDbUnitId (GhcPkg.DbUnitId _ _) = error "unsupported"
+  fromDbUnitId (GhcPkg.DbUnitIdVar _) = error "unsupported"
+  -- fromDbUnitId (GhcPkg.DbDefiniteUnitId bs) = SimpleUnitId (ComponentId (fromStringRep bs))
+  toDbUnitId (SimpleUnitId cid) = GhcPkg.DbUnitId cid []
+  -- toDbUnitId (SimpleUnitId (ComponentId cid_str)) = GhcPkg.DbDefiniteUnitId (toStringRep cid_str)
 
 -- -----------------------------------------------------------------------------
 -- Exposing, Hiding, Trusting, Distrusting, Unregistering are all similar

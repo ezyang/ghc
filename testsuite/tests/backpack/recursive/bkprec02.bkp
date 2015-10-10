@@ -1,0 +1,23 @@
+unit q where
+    signature X where
+        data X = X
+    module T(T(..),X(..)) where
+        import X
+        data T = T X
+    signature H(T(..), f) where
+        import T(T(..))
+        f :: a -> a
+
+unit p where
+    include q
+    module XImpl where
+        data X = X
+    signature X(X(X)) where
+        import XImpl
+    signature H(T) where
+        import T(X) -- thread it through
+        data T = T X
+    module A(T) where
+        import X(X(X))
+        import H(T(T),f)
+        x = f (T X) :: T
