@@ -154,6 +154,12 @@ Library
         vectorise
 
     Exposed-Modules:
+        Backpack
+        BackpackSyn
+        Shaping
+        Shape
+        ShUnitId
+        ShUnify
         Avail
         BasicTypes
         ConLike
@@ -302,6 +308,7 @@ Library
         IfaceSyn
         IfaceType
         LoadIface
+        MergeIface
         MkIface
         TcIface
         FlagChecker

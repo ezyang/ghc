@@ -1,0 +1,28 @@
+unit p where
+    signature T where
+        data T
+    signature H where
+        import T
+        f :: T -> T
+unit timpl where
+    module TImpl where
+        data T = T
+unit q where
+    include timpl
+    signature T(T) where
+        import TImpl
+    include p
+    module A where
+        import H
+        import TImpl
+        x = f T
+unit r-impl where
+    include timpl
+    module H where
+        import TImpl
+        f T = T
+    module T(T) where
+        import TImpl
+unit r where
+    include r-impl
+    include q

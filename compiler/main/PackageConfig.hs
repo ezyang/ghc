@@ -1,4 +1,4 @@
-{-# LANGUAGE CPP, RecordWildCards #-}
+{-# LANGUAGE CPP, RecordWildCards, FlexibleInstances, MultiParamTypeClasses #-}
 
 -- |
 -- Package configuration information: essentially the interface to Cabal, with
@@ -18,12 +18,20 @@ module PackageConfig (
         ComponentId(..),
         SourcePackageId(..),
         PackageName(..),
+        ComponentName(..),
         Version(..),
         defaultPackageConfig,
+        componentNameString,
+        componentId,
         componentIdString,
         sourcePackageIdString,
         packageNameString,
         pprPackageConfig,
+
+        packageComponentId,
+
+        -- * Hack.
+        addComponentName,
     ) where
 
 #include "HsVersions.h"
@@ -45,19 +53,17 @@ type PackageConfig = InstalledPackageInfo
                        SourcePackageId
                        PackageName
                        Module.UnitId
+                       ComponentName
                        Module.ModuleName
+                       Module
 
 -- TODO: there's no need for these to be FastString, as we don't need the uniq
 --       feature, but ghc doesn't currently have convenient support for any
 --       other compact string types, e.g. plain ByteString or Text.
 
-newtype ComponentId = ComponentId FastString deriving (Eq, Ord)
 newtype SourcePackageId    = SourcePackageId    FastString deriving (Eq, Ord)
 newtype PackageName        = PackageName        FastString deriving (Eq, Ord)
-
-instance BinaryStringRep ComponentId where
-  fromStringRep = ComponentId . mkFastStringByteString
-  toStringRep (ComponentId s) = fastStringToByteString s
+newtype ComponentName      = ComponentName      FastString deriving (Eq, Ord)
 
 instance BinaryStringRep SourcePackageId where
   fromStringRep = SourcePackageId . mkFastStringByteString
@@ -67,8 +73,9 @@ instance BinaryStringRep PackageName where
   fromStringRep = PackageName . mkFastStringByteString
   toStringRep (PackageName s) = fastStringToByteString s
 
-instance Uniquable ComponentId where
-  getUnique (ComponentId n) = getUnique n
+instance BinaryStringRep ComponentName where
+  fromStringRep = ComponentName . mkFastStringByteString
+  toStringRep (ComponentName s) = fastStringToByteString s
 
 instance Uniquable SourcePackageId where
   getUnique (SourcePackageId n) = getUnique n
@@ -76,8 +83,8 @@ instance Uniquable SourcePackageId where
 instance Uniquable PackageName where
   getUnique (PackageName n) = getUnique n
 
-instance Outputable ComponentId where
-  ppr (ComponentId str) = ftext str
+instance Outputable ComponentName where
+  ppr (ComponentName str) = ftext str
 
 instance Outputable SourcePackageId where
   ppr (SourcePackageId str) = ftext str
@@ -85,37 +92,26 @@ instance Outputable SourcePackageId where
 instance Outputable PackageName where
   ppr (PackageName str) = ftext str
 
--- | Pretty-print an 'ExposedModule' in the same format used by the textual
--- installed package database.
-pprExposedModule :: (Outputable a, Outputable b) => ExposedModule a b -> SDoc
-pprExposedModule (ExposedModule exposedName exposedReexport exposedSignature) =
-    sep [ ppr exposedName
-        , case exposedReexport of
-            Just m -> sep [text "from", pprOriginalModule m]
-            Nothing -> empty
-        , case exposedSignature of
-            Just m -> sep [text "is", pprOriginalModule m]
-            Nothing -> empty
-        ]
-
--- | Pretty-print an 'OriginalModule' in the same format used by the textual
--- installed package database.
-pprOriginalModule :: (Outputable a, Outputable b) => OriginalModule a b -> SDoc
-pprOriginalModule (OriginalModule originalPackageId originalModuleName) =
-    ppr originalPackageId <> char ':' <> ppr originalModuleName
-
 defaultPackageConfig :: PackageConfig
 defaultPackageConfig = emptyInstalledPackageInfo
-
-componentIdString :: PackageConfig -> String
-componentIdString pkg = unpackFS str
-  where
-    ComponentId str = componentId pkg
 
 sourcePackageIdString :: PackageConfig -> String
 sourcePackageIdString pkg = unpackFS str
   where
     SourcePackageId str = sourcePackageId pkg
+
+componentNameString :: PackageConfig -> String
+componentNameString pkg = unpackFS str
+  where
+    ComponentName str = componentName pkg
+
+componentId :: PackageConfig -> ComponentId
+componentId pkg = unitIdComponentId (unitId pkg)
+
+componentIdString :: PackageConfig -> String
+componentIdString pkg = unpackFS str
+  where
+    ComponentId str = componentId pkg
 
 packageNameString :: PackageConfig -> String
 packageNameString pkg = unpackFS str
@@ -127,12 +123,10 @@ pprPackageConfig InstalledPackageInfo {..} =
     vcat [
       field "name"                 (ppr packageName),
       field "version"              (text (showVersion packageVersion)),
-      field "id"                   (ppr componentId),
+      field "id"                   (ppr unitId), -- TODO: not good
+      field "component-name"       (ppr componentName),
       field "exposed"              (ppr exposed),
-      field "exposed-modules"
-        (if all isExposedModule exposedModules
-           then fsep (map pprExposedModule exposedModules)
-           else pprWithCommas pprExposedModule exposedModules),
+      field "exposed-modules"      (ppr exposedModules),
       field "hidden-modules"       (fsep (map ppr hiddenModules)),
       field "trusted"              (ppr trusted),
       field "import-dirs"          (fsep (map text importDirs)),
@@ -152,9 +146,6 @@ pprPackageConfig InstalledPackageInfo {..} =
     ]
   where
     field name body = text name <> colon <+> nest 4 body
-    isExposedModule (ExposedModule _ Nothing Nothing) = True
-    isExposedModule _ = False
-
 
 -- -----------------------------------------------------------------------------
 -- UnitId (package names, versions and dep hash)
@@ -170,3 +161,21 @@ pprPackageConfig InstalledPackageInfo {..} =
 -- | Get the GHC 'UnitId' right out of a Cabalish 'PackageConfig'
 packageConfigId :: PackageConfig -> UnitId
 packageConfigId = unitId
+
+-- | Returns the 'ComponentId' of a package.
+packageComponentId :: PackageConfig -> ComponentId
+packageComponentId pkg = componentId pkg
+
+{-
+************************************************************************
+*                                                                      *
+                        Indefinite package
+*                                                                      *
+************************************************************************
+-}
+
+-- | Given a 'ComponentId', create a new 'ComponentId' for a private
+-- subcomponent named 'ComponentName' contained within it.
+addComponentName :: ComponentId -> ComponentName -> ComponentId
+addComponentName (ComponentId cid) (ComponentName n) =
+    ComponentId (concatFS [cid, fsLit "-", n])

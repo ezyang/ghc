@@ -20,6 +20,9 @@ module IfaceSyn (
         IfaceAxBranch(..),
         IfaceTyConParent(..),
 
+        -- Merging
+        mergeIfaceDecl,
+
         -- Misc
         ifaceDeclImplicitBndrs, visibleIfConDecls,
         ifaceConDeclFields,
@@ -60,9 +63,10 @@ import BooleanFormula ( BooleanFormula, pprBooleanFormula, isTrue )
 import HsBinds
 import TyCon ( Role (..), Injectivity(..) )
 import StaticFlags (opt_PprStyle_Debug)
-import Util( filterOut, filterByList )
+import Util
 import DataCon (SrcStrictness(..), SrcUnpackedness(..))
 import Lexeme (isLexSym)
+import Maybes
 
 import Control.Monad
 import System.IO.Unsafe
@@ -128,7 +132,7 @@ data IfaceDecl
                  ifTyVars  :: [IfaceTvBndr],            -- Type variables
                  ifRoles   :: [Role],                   -- Roles
                  ifKind    :: IfaceType,                -- Kind of TyCon
-                 ifFDs     :: [FunDep FastString],      -- Functional dependencies
+                 ifFDs     :: [FunDep IfLclName],       -- Functional dependencies
                  ifATs     :: [IfaceAT],                -- Associated type families
                  ifSigs    :: [IfaceClassOp],           -- Method signatures
                  ifMinDef  :: BooleanFormula IfLclName, -- Minimal complete definition
@@ -2012,3 +2016,246 @@ instance Binary IfaceTyConParent where
                 pr <- get bh
                 ty <- get bh
                 return $ IfDataInstance ax pr ty
+
+{-
+************************************************************************
+*                                                                      *
+                Merging IfaceDecls
+*                                                                      *
+************************************************************************
+-}
+
+noIfaceIdInfo :: IfaceIdInfo -> Bool
+noIfaceIdInfo NoInfo = True
+noIfaceIdInfo _ = False
+
+-- | Merging is always between two ABSTRACT declarations.
+mergeIfaceDecl :: IfaceDecl -> IfaceDecl -> MaybeErr SDoc IfaceDecl
+mergeIfaceDecl d1@IfaceId{} d2@IfaceId{}
+    | not (eqIfaceType emptyIfRnEnv2 (ifType d1) (ifType d2))
+    = failME (text "The two types are different")
+    | otherwise
+    = ASSERT( ifName d1 == ifName d2 )
+      -- TODO This assert suspended for now
+      -- ASSERT( ifIdDetails d1 == ifIdDetails d2 )
+      ASSERT( noIfaceIdInfo (ifIdInfo d1) )
+      ASSERT( noIfaceIdInfo (ifIdInfo d2) )
+      return d1
+
+mergeIfaceDecl d1@IfaceData{} d2@IfaceData{}
+    | Just env <- eqIfaceTvBndrs emptyIfRnEnv2 (ifTyVars d1) (ifTyVars d2)
+    = ASSERT ( ifName d1 == ifName d2 )
+      do check (ifRoles d1 == ifRoles d2) roles_msg
+         check (eqListBy (eqIfaceType env) (ifCtxt d1) (ifCtxt d2))
+               (text "The datatype contexts do not match")
+         check (eqIfaceTyConParent env (ifParent d1) (ifParent d2))
+               (text "The parents do not match") -- TODO: improve
+         ctype <- case (ifCType d1, ifCType d2) of
+                    (Nothing, Nothing) -> return Nothing
+                    (r@Just{}, Nothing) -> return r
+                    (Nothing, r@Just{}) -> return r
+                    (r@(Just c1), Just c2) -> do
+                        check (c1 == c2) (text "The C types do not match")
+                        return r
+         cons <- case (ifCons d1, ifCons d2) of
+                    (IfAbstractTyCon b1, IfAbstractTyCon b2) ->
+                        return (IfAbstractTyCon (b1 || b2))
+                    (IfAbstractTyCon{}, r)             -> return r
+                    (r, IfAbstractTyCon{})             -> return r
+                    (r@(IfDataTyCon cs1 b1 fs1), IfDataTyCon cs2 b2 fs2) -> do
+                        zipWithM_ (checkEqCon env) cs1 cs2
+                        check (b1 == b2) (text "DuplicateRecordFields flag does not match")
+                        zipWithM_ (\f1 f2 -> check (f1 == f2) (text "Field name does not match")) fs1 fs2
+                        return r
+                    (r@(IfNewTyCon c1 b1 fs1), IfNewTyCon c2 b2 fs2) -> do
+                        checkEqCon env c1 c2
+                        check (b1 == b2) (text "DuplicateRecordFields flag does not match")
+                        zipWithM_ (\f1 f2 -> check (f1 == f2) (text "Field name does not match")) fs1 fs2
+                        return r
+                    _ -> failME
+                          (text "Cannot match a" <+> quotes (text "data") <+>
+                           text "definition with a" <+> quotes (text "newtype") <+>
+                           text "definition")
+
+         return d1 { ifCType = ctype
+                   , ifCons  = cons
+                   , ifRec        = mergeRecFlag (ifRec d1) (ifRec d2)
+                   , ifPromotable = ifPromotable d1 || ifPromotable d2
+                   , ifGadtSyntax = ifGadtSyntax d1 || ifGadtSyntax d2
+                   }
+
+mergeIfaceDecl d1@IfaceSynonym{} d2@IfaceSynonym{}
+    | Just env <- eqIfaceTvBndrs emptyIfRnEnv2 (ifTyVars d1) (ifTyVars d2)
+    = ASSERT( ifName d1 == ifName d2 )
+      do check (ifRoles d1 == ifRoles d2) roles_msg
+         check (eqIfaceType env (ifSynRhs d1) (ifSynRhs d2))
+               (text "Right-hand sides are not equal")
+         return d1
+
+mergeIfaceDecl d1@IfaceFamily{} d2@IfaceFamily{}
+    | Just env <- eqIfaceTvBndrs emptyIfRnEnv2 (ifTyVars d1) (ifTyVars d2)
+    = ASSERT ( ifName d1 == ifName d2 )
+      do check (eqIfaceType env (ifFamKind d1) (ifFamKind d2))
+               (text "Kind of family not equal")
+         fam_flav <- case (ifFamFlav d1, ifFamFlav d2) of
+             (r@IfaceOpenSynFamilyTyCon,
+                IfaceOpenSynFamilyTyCon)            -> return r
+             (  IfaceAbstractClosedSynFamilyTyCon,
+              r@IfaceClosedSynFamilyTyCon{})        -> return r
+             (r@IfaceClosedSynFamilyTyCon{},
+                IfaceAbstractClosedSynFamilyTyCon)  -> return r
+             (r@(IfaceClosedSynFamilyTyCon ax1),
+                 IfaceClosedSynFamilyTyCon ax2)     ->
+                check (eqClosedFamilyAx ax1 ax2)
+                      (text "Axiom not equal")
+                                                    >> return r
+             (r@IfaceBuiltInSynFamTyCon,
+                IfaceBuiltInSynFamTyCon)            -> return r
+             _ -> failME (text "Type families not the same")
+         return d1 { ifFamFlav = fam_flav }
+
+mergeIfaceDecl d1@IfaceClass{} d2@IfaceClass{}
+    | Just env <- eqIfaceTvBndrs emptyIfRnEnv2 (ifTyVars d1) (ifTyVars d2)
+    = ASSERT( ifName d1 == ifName d2 )
+      do check (ifRoles d1 == ifRoles d2) roles_msg
+         let eqFD (as1,bs1) (as2,bs2) =
+                eqListBy (eqIfaceType env) (map IfaceTyVar as1)
+                                            (map IfaceTyVar as2) &&
+                eqListBy (eqIfaceType env) (map IfaceTyVar bs1)
+                                            (map IfaceTyVar bs2)
+         check (eqListBy eqFD (ifFDs d1) (ifFDs d2))
+               (text "The functional dependencies do not match")
+         let isAbstract d = null (ifCtxt d) && null (ifATs d) && null (ifSigs d)
+             eqATDef Nothing Nothing = True
+             eqATDef (Just ty1) (Just ty2) = eqIfaceType env ty1 ty2
+             eqATDef _ _ = False
+             checkSig (IfaceClassOp n1 ty1 def1) (IfaceClassOp n2 ty2 def2) = do
+                check (n1 == n2)
+                      (text "The names" <+> pname1 <+> text "and" <+> pname2 <+>
+                       text "are different")
+                check (eqIfaceType env ty1 ty2)
+                      (text "The types of" <+> pname1 <+>
+                       text "are different")
+                case (def1, def2) of
+                    (Just (GenericDM ty1), Just (GenericDM ty2))
+                        -> check (eqIfaceType env ty1 ty2)
+                              (text "The default methods associated with" <+> pname1 <+>
+                               text "are different")
+                    (Just _, Nothing)
+                        -> failME (text "One has default method but other does not")
+                    (Nothing, Just _)
+                        -> failME (text "One has default method but other does not")
+                    (Nothing, Nothing) -> return ()
+               where pname1 = quotes (ppr n1)
+                     pname2 = quotes (ppr n2)
+             mergeAT (IfaceAT tc1 def_ats1) (IfaceAT tc2 def_ats2) = do
+                -- TODO: This needs to push a context, it's confusing otherwise.
+                tc <- mergeIfaceDecl tc1 tc2
+                check (eqATDef def_ats1 def_ats2)
+                      (text "The associated type defaults differ")
+                return (IfaceAT tc def_ats1)
+         case () of
+          _ | isAbstract d1 -> return d2
+            | isAbstract d2 -> return d1
+            | otherwise -> do
+                check (eqListBy (eqIfaceType env) (ifCtxt d1) (ifCtxt d2))
+                      (text "The class constraints do not match")
+                ats <- zipWithM mergeAT (ifATs d1) (ifATs d2)
+                zipWithM_ checkSig (ifSigs d1) (ifSigs d2)
+                check (ifMinDef d1 == ifMinDef d2)
+                      (text "The minimal complete definitions differ")
+                return d1 { ifATs = ats
+                          , ifRec = mergeRecFlag (ifRec d1) (ifRec d2) }
+    | otherwise = failME (text "Class binders look different")
+
+
+mergeIfaceDecl d1@IfaceAxiom{} d2@IfaceAxiom{}
+  = ASSERT ( ifName d1 == ifName d2 )
+    do panic "mergeIfaceDecl IfaceAxiom"
+
+mergeIfaceDecl d1@IfacePatSyn{} d2@IfacePatSyn{}
+  = ASSERT ( ifName d1 == ifName d2 )
+    do panic "mergeIfaceDecl IfacePatSyn"
+
+mergeIfaceDecl _ _ = failME (text "Declarations are obviously different")
+
+mergeRecFlag :: RecFlag -> RecFlag -> RecFlag
+mergeRecFlag NonRecursive NonRecursive = NonRecursive
+mergeRecFlag Recursive _ = Recursive
+mergeRecFlag _ Recursive = Recursive
+
+eqClosedFamilyAx :: Eq a
+                 => Maybe (a, [IfaceAxBranch])
+                 -> Maybe (a, [IfaceAxBranch])
+                 -> Bool
+eqClosedFamilyAx Nothing Nothing = True
+eqClosedFamilyAx (Just (n1, branches1)) (Just (n2, branches2)) =
+    n1 == n2 && and (zipWith eqIfaceAxBranch branches1 branches2)
+eqClosedFamilyAx _ _ = False
+
+-- Like eqClosedFamilyBranch
+eqIfaceAxBranch :: IfaceAxBranch -> IfaceAxBranch -> Bool
+eqIfaceAxBranch i1 i2
+  | Just env <- eqIfaceTvBndrs emptyIfRnEnv2 (ifaxbTyVars i1) (ifaxbTyVars i2)
+  = eqIfaceTcArgs env (ifaxbLHS i1) (ifaxbLHS i2) &&
+    eqIfaceType env (ifaxbRHS i1) (ifaxbRHS i2)
+  | otherwise = False
+
+roles_msg :: SDoc
+roles_msg =
+  text "The roles do not match." $$
+  (text "Roles on abstract types default to" <+>
+   quotes (text "representational") <+> text "in hs-boot/hsig files.")
+
+check :: Bool -> SDoc -> MaybeErr SDoc ()
+check b err = if b then return () else failME err
+
+checkEqCon :: IfRnEnv2 -> IfaceConDecl -> IfaceConDecl -> MaybeErr SDoc ()
+checkEqCon env c1 c2 = do
+    check (name1 == name2)
+          (text "The names" <+> pname1 <+> text "and" <+> pname2 <+>
+           text "differ")
+    check (ifConInfix c1 == ifConInfix c2)
+          (text "The fixities of" <+> pname1 <+>
+           text "differ")
+    check (eqListBy eqIfaceBang
+                    (ifConStricts c1) (ifConStricts c2))
+          (text "The strictness annotations for" <+> pname1 <+>
+           text "differ")
+    check (ifConFields c1 == ifConFields c2)
+          (text "The record label lists for" <+> pname1 <+>
+           text "differ")
+    -- Should be consistent with the kind of tycon...
+    MASSERT( ifConWrapper c1 == ifConWrapper c2 )
+    -- TODO: Figure out if we can just make an IfaceType and compare that
+    case eqIfaceTvBndrs env (ifConExTvs c1) (ifConExTvs c2) of
+        Nothing -> failME types_differ_msg
+        Just env -> do
+            check (eqIfaceTypes env (ifConCtxt c1) (ifConCtxt c2))
+                  types_differ_msg
+            check (eqIfaceTypes env (ifConArgTys c1) (ifConArgTys c2))
+                  types_differ_msg
+            -- TODO is IfaceEqSpec ordering  stable?
+            let (ns1, tys1) = unzip (ifConEqSpec c1)
+                (ns2, tys2) = unzip (ifConEqSpec c2)
+            check (ns1 == ns2) types_differ_msg
+            check (eqIfaceTypes env tys1 tys2) types_differ_msg
+  where name1 = ifConOcc c1
+        name2 = ifConOcc c2
+        pname1 = quotes (ppr name1)
+        pname2 = quotes (ppr name2)
+        types_differ_msg = text "The types for" <+> pname1 <+> text "differ"
+
+eqIfaceTyConParent :: IfRnEnv2 -> IfaceTyConParent -> IfaceTyConParent -> Bool
+eqIfaceTyConParent _ IfNoParent IfNoParent = True
+eqIfaceTyConParent env (IfDataInstance n1 tc1 tys1) (IfDataInstance n2 tc2 tys2)
+    = n1 == n2 && tc1 == tc2 && eqIfaceTcArgs env tys1 tys2
+eqIfaceTyConParent _ _ _ = False
+
+eqIfaceBang :: IfaceBang -> IfaceBang -> Bool
+eqIfaceBang IfNoBang IfNoBang = True
+eqIfaceBang IfStrict IfStrict = True
+eqIfaceBang IfUnpack IfUnpack = True
+eqIfaceBang (IfUnpackCo co1) (IfUnpackCo co2)
+    = eqIfaceCoercion emptyIfRnEnv2 co1 co2
+eqIfaceBang _ _ = False

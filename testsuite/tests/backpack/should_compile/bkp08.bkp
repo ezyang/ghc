@@ -1,0 +1,12 @@
+unit q where
+    module H where
+        data T = T { x :: Bool }
+unit r where
+    signature H where
+        data T
+unit p where
+    include q
+    include r
+    module M where
+        import H
+        f = T True

@@ -10,6 +10,7 @@ https://ghc.haskell.org/trac/ghc/wiki/Commentary/Compiler/TypeChecker
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NondecreasingIndentation #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module TcRnDriver (
 #ifdef GHCI
@@ -25,6 +26,10 @@ module TcRnDriver (
         tcRnGetInfo,
         tcRnModule, tcRnModuleTcRnM,
         tcTopSrcDecls,
+        tcRnSignature,
+        rnTopSrcDecls,
+        checkBootDecl, checkHiBootIface',
+        checkHsigIface',
     ) where
 
 #ifdef GHCI
@@ -100,7 +105,9 @@ import Class
 import BasicTypes hiding( SuccessFlag(..) )
 import CoAxiom
 import Annotations
+import MergeIface
 import Data.List ( sortBy )
+import qualified Data.Map as Map
 import Data.Ord
 import FastString
 import Maybes
@@ -155,44 +162,73 @@ tcRnModule hsc_env hsc_src save_rn_syntax
       = (mAIN, srcLocSpan (srcSpanStart loc))
 
 
--- To be called at the beginning of renaming hsig files.
--- If we're processing a signature, load up the RdrEnv
--- specified by sig-of so that
--- when we process top-level bindings, we pull in the right
--- original names.  We also need to add in dependencies from
+-- We also need to add in dependencies from
 -- the implementation (orphans, family instances, packages),
 -- similar to how rnImportDecl handles things.
 -- ToDo: Handle SafeHaskell
-tcRnSignature :: DynFlags -> HscSource -> TcRn TcGblEnv
-tcRnSignature dflags hsc_src
- = do { tcg_env <- getGblEnv ;
-        case tcg_sig_of tcg_env of {
-          Just sof
-           | hsc_src /= HsigFile -> do
-                { addErr (ptext (sLit "Illegal -sig-of specified for non hsig"))
-                ; return tcg_env
-                }
-           | otherwise -> do
-            { sig_iface <- initIfaceTcRn $ loadSysInterface (text "sig-of") sof
+
+-- Normally when we typecheck an hs-boot file M.hs-boot in a package p,
+-- which is being used to deal with a recursive import, a top-level
+-- declaration (like 'data A = A') defines a type of the name p:M.A
+-- (Remember: an hs file must directly define every declaration exported
+-- by the hs-boot file).
+--
+-- However, if we have M.hsig: the situation is different:
+--
+--      1. The module that implements the interface described here
+--      may be something completely different, e.g. q:M from a different
+--      package.  (Furthermore, q:M may implement various things by
+--      reexporting them.)
+--
+--          We say that the identity module is p(M -> q:M):M,
+--          but that the semantic module is q:M
+--
+--      2. We are not breaking a recursive module loop, so in fact
+--      q:M is GUARANTEED to have already been compiled.  The reason
+--      we are type-checking is to make sure our interface is actually
+--      implemented by the instantiating module.  (This is not true
+--      when we have cross-package loops; but we should be able to
+--      get an interface from the type-checking phase.)
+--
+-- So, whenever, we encounter an (exported) top-level declaration, we
+-- don't want to blindly give it a name, but instead give it the name
+-- that is exported by the implementing module (q:M).  This function
+-- sets up @tcg_impl_rdr_env@ with the GlobalRdrEnv corresponding to
+-- the real implementation, and we'll use it to pick names.
+--
+-- TODO: This code won't work for cross package mutual recursion, the
+-- only way to fill out tcg_impl_rdr_env is from the shape.  In this
+-- world, we should check the SHAPE before trying to load the interface
+-- which might be bogus).
+tcRnSignature :: HscSource -> TcRn TcGblEnv
+tcRnSignature hsc_src
+ = do { tcg_env <- getGblEnv
+      ; let inner_mod = tcg_semantic_mod tcg_env
+            outer_mod = tcg_mod tcg_env
+      ; case () of
+            _ | inner_mod /= outer_mod
+              -- A signature may not be instantiated; e.g.  p(A ->
+              -- HOLE:A):A.  In this case, there's no interface to load
+              -- to find the real names.  So don't try to load it.
+              , not (isHoleModule inner_mod) -> do
+            { MASSERT( hsc_src == HsigFile )
+            ; sig_iface <- initIfaceTcRn $ loadSysInterface (text "sig-of") inner_mod
+            ; dflags <- getDynFlags
             ; let { gr = mkGlobalRdrEnv
                               (gresFromAvails Nothing (mi_exports sig_iface))
                   ; avails = calculateAvails dflags
-                                    sig_iface False{- safe -} False{- boot -} }
+                               sig_iface False{- safe -} False{- boot -}}
             ; return (tcg_env
                 { tcg_impl_rdr_env = Just gr
-                , tcg_imports = tcg_imports tcg_env `plusImportAvails` avails
-                })
+                -- NOTE: we need this because otherwise instance visibility
+                -- won't say the instances of the backing module are visible.
+                -- TODO: But maybe they shouldn't be!  The signature file is
+                -- what "makes them visible."  But this is a bit hard to
+                -- arrange.  (Also, not adding this to the imports would be
+                -- wrong as far as orphan calculation goes.)
+                , tcg_imports = tcg_imports tcg_env `plusImportAvails` avails})
             } ;
-          Nothing
-             | HsigFile <- hsc_src
-             , HscNothing <- hscTarget dflags -> do
-                { return tcg_env
-                }
-             | HsigFile <- hsc_src -> do
-                { addErr (ptext (sLit "Missing -sig-of for hsig"))
-                ; failM }
-             | otherwise -> return tcg_env
-        }
+            _ -> return tcg_env
       }
 
 checkHsigIface :: HscEnv -> TcGblEnv -> TcRn ()
@@ -222,12 +258,10 @@ checkHsigIface' gr
       | name `elem` dfun_names = return ()
       | otherwise = do
         { -- Lookup local environment only (don't want to accidentally pick
-          -- up the backing copy.)  We consult tcg_type_env because we want
-          -- to pick up wired in names too (which get dropped by the iface
-          -- creation process); it's OK for a signature file to mention
-          -- a wired in name.
-          env <- getGblEnv
-        ; case lookupNameEnv (tcg_type_env env) name of
+          -- up the backing copy.)
+          --
+          -- TODO: need to special case wired in names
+        ; case lookupNameEnv sig_type_env name of
             Nothing
                 -- All this means is no local definition is available: but we
                 -- could have created the export this way:
@@ -268,7 +302,11 @@ checkHsigIface' gr
     check_inst sig_inst
         = do eps <- getEps
              when (not (memberInstEnv (eps_inst_env eps) sig_inst)) $
-               addErrTc (instMisMatch False sig_inst)
+                addErrTc (instMisMatch False sig_inst)
+             -- NB: This doesn't work because it consults the HPT,
+             -- and instances we added from typechecking the hsig
+             -- show up there.
+             -- tcLookupInstance (is_cls sig_inst) (is_tys sig_inst)
 
 tcRnModuleTcRnM :: HscEnv
                 -> HscSource
@@ -287,10 +325,9 @@ tcRnModuleTcRnM hsc_env hsc_src
                 })
                 (this_mod, prel_imp_loc)
  = setSrcSpan loc $
-   do { let { dflags = hsc_dflags hsc_env
-            ; explicit_mod_hdr = isJust maybe_mod } ;
+   do { let { explicit_mod_hdr = isJust maybe_mod } ;
 
-        tcg_env <- tcRnSignature dflags hsc_src ;
+        tcg_env <- tcRnSignature hsc_src ;
         setGblEnv tcg_env $ do {
 
                 -- Load the hi-boot interface for this module, if any
@@ -350,10 +387,14 @@ tcRnModuleTcRnM hsc_env hsc_src
         -- Compare the hsig tcg_env with the real thing
         checkHsigIface hsc_env tcg_env ;
 
+        -- Read in any requirements from packages we depend on
+        -- and merge them into this one
+        tcg_env <- mergeRequirements hsc_env tcg_env ;
+
         -- Nub out type class instances now that we've checked them,
         -- if we're compiling an hsig with sig-of.
         -- See Note [Signature files and type class instances]
-        tcg_env <- (case tcg_sig_of tcg_env of
+        tcg_env <- (case tcg_impl_rdr_env tcg_env of
             Just _ -> return tcg_env {
                         tcg_inst_env = emptyInstEnv,
                         tcg_fam_inst_env = emptyFamInstEnv,
@@ -839,7 +880,70 @@ checkHiBootIface'
           boot_dfun_ty   = idType boot_dfun
           boot_dfun_name = idName boot_dfun
 
--- This has to compare the TyThing from the .hi-boot file to the TyThing
+mergeRequirements :: HscEnv -> TcGblEnv -> TcM TcGblEnv
+mergeRequirements hsc_env tcg_env
+    | HsigFile <- tcg_src tcg_env = do
+        let dflags = hsc_dflags hsc_env
+            req_map = requirementsMap dflags
+            reqs = case Map.lookup (moduleName (tcg_mod tcg_env)) req_map of
+                    Nothing -> []
+                    Just rs -> rs
+        -- pprTrace "rs" (ppr reqs) $ return ()
+        let go (tcg_env, merged) req = setGblEnv tcg_env $ do
+            (iface, _) <- withException (computeInterface (text "merge") False req)
+            tc_iface <- typecheckIface iface
+            -- update the rdr env as we go along so we get better error
+            -- messages
+            let rdr_env = mkGlobalRdrEnv (gresFromAvails Nothing (mi_exports iface))
+            tcg_env <- return tcg_env {
+                    tcg_rdr_env = tcg_rdr_env tcg_env `plusGlobalRdrEnv` rdr_env
+                }
+            tcg_env <- mergeRequirement merged (mi_module iface) tcg_env tc_iface
+            -- TODO: update depends with a new field specifically for sig-of
+            -- merge dependency
+            return (tcg_env, mi_module iface:merged)
+        (tcg_env, _) <- foldM go (tcg_env, []) reqs
+        -- Try to make sure we can find it?!
+        --setGlobalTypeEnv tcg_env (tcg_type_env tcg_env)
+        return tcg_env
+    | otherwise = return tcg_env
+
+mergeRequirement :: [Module] -> Module -> TcGblEnv -> ModDetails -> TcM TcGblEnv
+mergeRequirement merged id_mod tcg_env
+        (ModDetails { md_insts = sig_insts, md_fam_insts = sig_fam_insts,
+                      md_types = sig_type_env, md_exports = sig_exports })
+  = do  { traceTc "mergeRequirement" $ vcat
+             [ ppr sig_type_env, ppr sig_insts, ppr sig_exports]
+
+        -- This is a bit subtle.  We must merge in EVERYTHING from the type
+        -- environment, not just exported entities.  Why?  The fix for #9858
+        -- mandates that if you define a data type A, you also define a $tcA
+        -- for a (hypothetical) Typeable instance.  We must properly merge these
+        -- instances into our signature file, so that uses of Typeable instances
+        -- work correctly, even though they are (never) exported.
+        -- (Fortunately, these never occur in types, so we don't have to worry
+        -- about renaming these!)
+        ; tcg_env <- foldM merge_ty tcg_env (typeEnvElts sig_type_env)
+
+        -- instances, and exports
+
+        ; failIfErrsM
+
+        ; return tcg_env { tcg_exports = mergeAvails (tcg_exports tcg_env) sig_exports } }
+  where
+    merge_ty tcg_env@TcGblEnv{ tcg_type_env = local_type_env } sig_thing
+        | isImplicitTyThing sig_thing
+        -- Skip it!  We'll check it's compatibility when we check the parent.
+        = return tcg_env
+        | otherwise
+        = do thing <- case lookupTypeEnv local_type_env (getName sig_thing) of
+                        Just local_thing -> mergeSigDeclM merged id_mod sig_thing local_thing
+                        Nothing -> return sig_thing
+             -- pprTrace "thing" (ppr thing) $ return ()
+             setGblEnv tcg_env $ tcExtendGlobalEnv [thing] $ getGblEnv
+
+-- In general, to perform these checks we have to
+-- compare the TyThing from the .hi-boot file to the TyThing
 -- in the current source file.  We must be careful to allow alpha-renaming
 -- where appropriate, and also the boot declaration is allowed to omit
 -- constructors and class methods.
@@ -851,7 +955,7 @@ checkHiBootIface'
 checkBootDeclM :: Bool  -- ^ True <=> an hs-boot file (could also be a sig)
                -> TyThing -> TyThing -> TcM ()
 checkBootDeclM is_boot boot_thing real_thing
-  = whenIsJust (checkBootDecl boot_thing real_thing) $ \ err ->
+  = whenIsJust (checkBootDecl is_boot boot_thing real_thing) $ \ err ->
        addErrAt (nameSrcSpan (getName boot_thing))
                 (bootMisMatch is_boot err real_thing boot_thing)
 
@@ -859,73 +963,109 @@ checkBootDeclM is_boot boot_thing real_thing
 -- code. Returns @Nothing@ on success or @Just "some helpful info for user"@
 -- failure. If the difference will be apparent to the user, @Just empty@ is
 -- perfectly suitable.
-checkBootDecl :: TyThing -> TyThing -> Maybe SDoc
+checkBootDecl :: Bool -> TyThing -> TyThing -> Maybe SDoc
+checkBootDecl is_boot boot_thing real_thing
+  = case runLogErr (mergeSigDecl is_boot boot_thing real_thing) of
+     Failed err -> Just err
+     Succeeded _ -> Nothing
 
-checkBootDecl (AnId id1) (AnId id2)
+-- | Merges two things together, reporting an error if they don't match up.
+mergeSigDeclM :: [Module] -> Module -> TyThing -> TyThing -> TcM TyThing
+mergeSigDeclM merged id_mod thing1 thing2 =
+    case runLogErr (mergeSigDecl False {- not boot -} thing1 thing2) of
+        Failed err -> failAt (nameSrcSpan (getName thing1))
+                               -- TODO: this error message is probably bad
+                               (mergeFailure id_mod merged err thing1 thing2)
+        Succeeded t -> return t
+
+mergeFailure :: Module -> [Module] -> SDoc -> TyThing -> TyThing -> SDoc
+mergeFailure id_mod merged extra_info sig_thing real_thing
+  = vcat [ppr real_thing <+> text "has conflicting definitions",
+          text "when merging" <+> ppr id_mod <+> text "into the local requirements,",
+          text "Requirement so far:" <+> PprTyThing.pprTyThing real_thing,
+          nest 2 (hang (text "from") 6 (vcat (map ppr merged))),
+          text "New requirement:" <+> PprTyThing.pprTyThing sig_thing,
+          extra_info]
+
+-- | Merges two things together, collecting error messages if they are not
+-- equivalent.
+mergeSigDecl :: Bool -> TyThing -> TyThing -> LogErr TyThing
+mergeSigDecl _ (AnId id1) thing2@(AnId id2)
   = ASSERT(id1 == id2)
     check (idType id1 `eqType` idType id2)
-          (text "The two types are different")
+          (text "The two types are different") `andThenCheck`
+    pure thing2
 
-checkBootDecl (ATyCon tc1) (ATyCon tc2)
-  = checkBootTyCon tc1 tc2
+mergeSigDecl is_boot (ATyCon tc1) (ATyCon tc2)
+  = fmap ATyCon (mergeSigTyCon is_boot tc1 tc2)
 
-checkBootDecl (AConLike (RealDataCon dc1)) (AConLike (RealDataCon _))
-  = pprPanic "checkBootDecl" (ppr dc1)
+mergeSigDecl _ (AConLike (RealDataCon dc1)) (AConLike (RealDataCon _))
+  = pprPanic "mergeSigDecl" (ppr dc1)
 
-checkBootDecl _ _ = Just empty -- probably shouldn't happen
+mergeSigDecl _ _ _ = failLE (text "I don't know how to merge this")
 
 -- | Combines two potential error messages
-andThenCheck :: Maybe SDoc -> Maybe SDoc -> Maybe SDoc
-Nothing `andThenCheck` msg     = msg
-msg     `andThenCheck` Nothing = msg
-Just d1 `andThenCheck` Just d2 = Just (d1 $$ d2)
+andThenCheck :: LogErr a -> LogErr b -> LogErr b
+andThenCheck = (*>)
 infixr 0 `andThenCheck`
-
--- | If the test in the first parameter is True, succeed with @Nothing@;
--- otherwise, return the provided check
-checkUnless :: Bool -> Maybe SDoc -> Maybe SDoc
-checkUnless True  _ = Nothing
-checkUnless False k = k
 
 -- | Run the check provided for every pair of elements in the lists.
 -- The provided SDoc should name the element type, in the plural.
-checkListBy :: (a -> a -> Maybe SDoc) -> [a] -> [a] -> SDoc
-            -> Maybe SDoc
-checkListBy check_fun as bs whats = go [] as bs
+checkListBy :: (a -> a -> LogErr b) -> [a] -> [a] -> SDoc
+            -> LogErr [b]
+checkListBy check_fun as bs whats = go [] as bs []
   where
     herald = text "The" <+> whats <+> text "do not match"
 
-    go []   [] [] = Nothing
-    go docs [] [] = Just (hang (herald <> colon) 2 (vcat $ reverse docs))
-    go docs (x:xs) (y:ys) = case check_fun x y of
-      Just doc -> go (doc:docs) xs ys
-      Nothing  -> go docs       xs ys
-    go _    _  _ = Just (hang (herald <> colon)
+    go []   [] [] rs = pure (reverse rs)
+    go docs [] [] _ = failLE (hang (herald <> colon) 2 (vcat $ reverse docs))
+    go docs (x:xs) (y:ys) rs = case runLogErr (check_fun x y) of
+      Failed doc   -> go (doc:docs) xs ys rs
+      Succeeded r  -> go docs       xs ys (r:rs)
+    go _    _  _ _ = failLE (hang (herald <> colon)
                             2 (text "There are different numbers of" <+> whats))
 
 -- | If the test in the first parameter is True, succeed with @Nothing@;
 -- otherwise, fail with the given SDoc.
-check :: Bool -> SDoc -> Maybe SDoc
-check True  _   = Nothing
-check False doc = Just doc
+check :: Bool -> SDoc -> LogErr ()
+check True  _   = pure ()
+check False doc = failLE doc
 
--- | A more perspicuous name for @Nothing@, for @checkBootDecl@ and friends.
-checkSuccess :: Maybe SDoc
-checkSuccess = Nothing
+-- | An error logging applicative functor, which we purposely have
+-- omitted a 'Monad' instance to ensure that we can accumulate errors
+-- from failures, rather than only take the first error.
+newtype LogErr a = LogErr { runLogErr :: MaybeErr SDoc a }
+    deriving (Functor)
 
-----------------
-checkBootTyCon :: TyCon -> TyCon -> Maybe SDoc
-checkBootTyCon tc1 tc2
+instance Applicative LogErr where
+    pure = LogErr . pure
+    LogErr (Failed err1) <*> LogErr (Failed err2) = LogErr (Failed (err1 $$ err2))
+    LogErr f <*> LogErr x = LogErr (f <*> x)
+
+-- NB: We can't assume AMP in the bootstrapping compiler (yet),
+-- so functions like unless and when can't be assumed to be
+-- generalized for Applicative (yet!)
+
+-- | Fail with an error message in a 'LogErr' computation.
+failLE :: SDoc -> LogErr a
+failLE = LogErr . failME
+
+-- | This function either:
+--      1. Checks if tc2 implements tc1 (when is_boot == True), always returning tc2
+--      2. Merges tc1 and tc2 together (when is_boot == False)
+mergeSigTyCon :: Bool -> TyCon -> TyCon -> LogErr TyCon
+mergeSigTyCon is_boot tc1 tc2
   | not (eqType (tyConKind tc1) (tyConKind tc2))
-  = Just $ text "The types have different kinds"    -- First off, check the kind
+  = failLE $ text "The types have different kinds"    -- First off, check the kind
 
   | Just c1 <- tyConClass_maybe tc1
   , Just c2 <- tyConClass_maybe tc2
-  , let (clas_tvs1, clas_fds1, sc_theta1, _, ats1, op_stuff1)
+  , let (clas_tvs1, clas_fds1, sc_theta1, _sc_sels1, ats1, op_stuff1)
           = classExtraBigSig c1
-        (clas_tvs2, clas_fds2, sc_theta2, _, ats2, op_stuff2)
+        (clas_tvs2, clas_fds2, sc_theta2, sc_sels2, ats2, op_stuff2)
           = classExtraBigSig c2
   , Just env <- eqVarBndrs emptyRnEnv2 clas_tvs1 clas_tvs2
+  , Just rep_name2 <- tyConRepName_maybe tc2
   = let
        eqSig (id1, def_meth1) (id2, def_meth2)
          = check (name1 == name2)
@@ -947,10 +1087,11 @@ checkBootTyCon tc1 tc2
           (_, rho_ty2) = splitForAllTys (idType id2)
           op_ty2 = funResultTy rho_ty2
 
-       eqAT (ATI tc1 def_ats1) (ATI tc2 def_ats2)
-         = checkBootTyCon tc1 tc2 `andThenCheck`
-           check (eqATDef def_ats1 def_ats2)
-                 (text "The associated type defaults differ")
+       mergeAT (ATI tc1 def_ats1) (ATI tc2 def_ats2)
+         = ATI <$> mergeSigTyCon is_boot tc1 tc2
+               <*> (check (eqATDef def_ats1 def_ats2)
+                          (text "The associated type defaults differ") `andThenCheck`
+                    pure def_ats2)
 
        eqDM (_, VanillaDM)    (_, VanillaDM)    = True
        eqDM (_, GenericDM t1) (_, GenericDM t2) = eqTypeX env t1 t2
@@ -964,24 +1105,49 @@ checkBootTyCon tc1 tc2
        eqFD (as1,bs1) (as2,bs2) =
          eqListBy (eqTypeX env) (mkTyVarTys as1) (mkTyVarTys as2) &&
          eqListBy (eqTypeX env) (mkTyVarTys bs1) (mkTyVarTys bs2)
+
+                -- TODO: why isn't sc_sels, mindef and tycon checked?
+                -- TODO: Ick!  Maybe expose a way to override ATs in a TyCon
+       setClassTyConATS ats =
+         mkClassTyCon (tyConName tc2)
+                      (tyConKind tc2)
+                      (tyConTyVars tc2)
+                      (tyConRoles tc2)
+                      (algTyConRhs tc2)
+                      (mkClass clas_tvs2 clas_fds2 sc_theta2
+                               sc_sels2 ats op_stuff2
+                               (classMinimalDef c2) (classTyCon c2))
+                      (if isRecursiveTyCon tc2
+                         then Recursive
+                         else NonRecursive)
+                      rep_name2
+
     in
     check (roles1 == roles2) roles_msg `andThenCheck`
-          -- Checks kind of class
     check (eqListBy eqFD clas_fds1 clas_fds2)
-          (text "The functional dependencies do not match") `andThenCheck`
-    checkUnless (null sc_theta1 && null op_stuff1 && null ats1) $
-                     -- Above tests for an "abstract" class
-    check (eqListBy (eqTypeX env) sc_theta1 sc_theta2)
-          (text "The class constraints do not match") `andThenCheck`
-    checkListBy eqSig op_stuff1 op_stuff2 (text "methods") `andThenCheck`
-    checkListBy eqAT ats1 ats2 (text "associated types")
+                (text "The functional dependencies do not match") `andThenCheck`
+    -- Handle "abstract" classes:
+    case () of
+        _ | (null sc_theta1 && null op_stuff1 && null ats1)
+          -> pure tc2
+          -- Careful! Can't use this for normal boot stuff, as it would imply
+          -- that a type class could be implemented using a completely empty
+          -- class.
+          | (null sc_theta2 && null op_stuff2 && null ats2) && not is_boot
+          -> pure tc1
+          | otherwise
+          -> check (eqListBy (eqTypeX env) sc_theta1 sc_theta2)
+                   (text "The class constraints do not match") `andThenCheck`
+             checkListBy eqSig op_stuff1 op_stuff2 (text "methods") `andThenCheck`
+             setClassTyConATS <$> checkListBy mergeAT ats1 ats2 (text "associated types")
 
   | Just syn_rhs1 <- synTyConRhs_maybe tc1
   , Just syn_rhs2 <- synTyConRhs_maybe tc2
   , Just env <- eqVarBndrs emptyRnEnv2 (tyConTyVars tc1) (tyConTyVars tc2)
   = ASSERT(tc1 == tc2)
     check (roles1 == roles2) roles_msg `andThenCheck`
-    check (eqTypeX env syn_rhs1 syn_rhs2) empty   -- nothing interesting to say
+    check (eqTypeX env syn_rhs1 syn_rhs2) empty `andThenCheck`
+    pure tc2
 
   | Just fam_flav1 <- famTyConFlav_maybe tc1
   , Just fam_flav2 <- famTyConFlav_maybe tc2
@@ -1000,18 +1166,19 @@ checkBootTyCon tc1 tc2
     -- check equality of roles, family flavours and injectivity annotations
     check (roles1 == roles2) roles_msg `andThenCheck`
     check (eqFamFlav fam_flav1 fam_flav2) empty `andThenCheck`
-    check (injInfo1 == injInfo2) empty
+    check (injInfo1 == injInfo2) empty `andThenCheck`
+    pure tc2
 
   | isAlgTyCon tc1 && isAlgTyCon tc2
   , Just env <- eqVarBndrs emptyRnEnv2 (tyConTyVars tc1) (tyConTyVars tc2)
   = ASSERT(tc1 == tc2)
     check (roles1 == roles2) roles_msg `andThenCheck`
     check (eqListBy (eqTypeX env)
-                     (tyConStupidTheta tc1) (tyConStupidTheta tc2))
+                    (tyConStupidTheta tc1) (tyConStupidTheta tc2))
           (text "The datatype contexts do not match") `andThenCheck`
-    eqAlgRhs tc1 (algTyConRhs tc1) (algTyConRhs tc2)
+    mergeAlgRhs (algTyConRhs tc1) (algTyConRhs tc2)
 
-  | otherwise = Just empty   -- two very different types -- should be obvious
+  | otherwise = failLE empty   -- two very different types -- should be obvious
   where
     roles1 = tyConRoles tc1
     roles2 = tyConRoles tc2
@@ -1019,16 +1186,29 @@ checkBootTyCon tc1 tc2
                 (text "Roles on abstract types default to" <+>
                  quotes (text "representational") <+> text "in boot files.")
 
-    eqAlgRhs tc (AbstractTyCon dis1) rhs2
-      | dis1      = check (isGenInjAlgRhs rhs2)   --Check compatibility
-                          (text "The natures of the declarations for" <+>
-                           quotes (ppr tc) <+> text "are different")
-      | otherwise = checkSuccess
-    eqAlgRhs _  tc1@DataTyCon{} tc2@DataTyCon{} =
-        checkListBy eqCon (data_cons tc1) (data_cons tc2) (text "constructors")
-    eqAlgRhs _  tc1@NewTyCon{} tc2@NewTyCon{} =
-        eqCon (data_con tc1) (data_con tc2)
-    eqAlgRhs _ _ _ = Just (text "Cannot match a" <+> quotes (text "data") <+>
+    mergeAlgRhs :: AlgTyConRhs -> AlgTyConRhs -> LogErr TyCon
+    mergeAlgRhs (AbstractTyCon dis1) rhs2
+      | dis1      = check (isGenInjAlgRhs rhs2)
+                        (text "The natures of the declarations for" <+>
+                         quotes (ppr tc1) <+> text "are different") `andThenCheck`
+                    pure tc2
+      | otherwise = pure tc2
+    -- This check is benign for hs-boot, because the AbstractTyCons
+    -- can only occur in hs-boot files.  Keep it so we don't give
+    -- a confusing error message if something really goes wrong.
+    mergeAlgRhs rhs1 (AbstractTyCon dis2)
+      | dis2      = check (isGenInjAlgRhs rhs1)
+                        (text "The natures of the declarations for" <+>
+                         quotes (ppr tc1) <+> text "are different") `andThenCheck`
+                    pure tc1
+      | otherwise = pure tc1
+    mergeAlgRhs rhs1@DataTyCon{} rhs2@DataTyCon{} =
+      checkListBy eqCon (data_cons rhs1) (data_cons rhs2) (text "constructors") `andThenCheck`
+      pure tc2
+    mergeAlgRhs rhs1@NewTyCon{} rhs2@NewTyCon{} =
+      eqCon (data_con rhs1) (data_con rhs2) `andThenCheck`
+      pure tc2
+    mergeAlgRhs _ _ = failLE (text "Cannot match a" <+> quotes (text "data") <+>
                            text "definition with a" <+> quotes (text "newtype") <+>
                            text "definition")
 

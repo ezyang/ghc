@@ -1,0 +1,55 @@
+
+bkp09.bkp:1:26: warning:
+    -XDatatypeContexts is deprecated: It was widely considered a misfeature, and has been removed from the Haskell language.
+[1 of 5] Processing p
+/--- Shape for p
+provides:
+requires: H -> Bloop{Bloop, GMap, xa, y}, Elem{Elem}, X{X}, F{F, F}, Foo{Foo, Foo}, S{S, R}, T{T, T, S}, x
+\---
+  [1 of 2] Compiling H[boot]          ( p/H.hs-boot, nothing )
+  [2 of 2] Compiling H[merge]         ( p/H.hs-boot-merge, nothing )
+[2 of 5] Processing q
+/--- Shape for q
+provides:
+requires: H -> Bloop{Bloop, GMap, xa, y}, Elem{Elem}, X{X}, F{F, F}, Foo{Foo, Foo}, S{S, R}, T{T, T, S}, x
+\---
+  [1 of 2] Compiling H[boot]          ( q/H.hs-boot, nothing )
+  [2 of 2] Compiling H[merge]         ( q/H.hs-boot-merge, nothing )
+[3 of 5] Processing r
+/--- Shape for r
+provides: M -> main-r(hole:H):M
+               hole:H.GMap{GMapBool}, a, b, c, d
+requires: H -> Bloop{Bloop, GMap, xa, y}, Elem{Elem}, X{X}, F{F, F}, Foo{Foo, Foo}, S{S, R}, T{T, S, T}, x
+\---
+  [1 of 2] Compiling H[merge]         ( r/H.hs-boot-merge, nothing )
+  [2 of 2] Compiling M                ( r/M.hs, nothing )
+[4 of 5] Processing h-impl
+/--- Shape for h-impl
+provides: H -> main-h-impl:H
+               Bloop{Bloop, GMap, xa, y}, Elem{Elem}, X{X}, F{F, F}, Foo{Foo, Foo}, S{S, R}, T{T, T, S}, x
+requires:
+\---
+  [1 of 1] Compiling H                ( h-impl/H.hs, nothing )
+  Instantiating main-h-impl
+  [1 of 1] Compiling H                ( h-impl/H.hs, nothing )
+[5 of 5] Processing s
+/--- Shape for s
+provides: H -> main-h-impl:H
+               x, Bloop{Bloop, GMap, xa, y}, Elem{Elem}, F{F, F}, Foo{Foo, Foo}, S{S, R}, T{T, S, T}, X{X}
+          M -> main-r(main-h-impl:H):M
+               a, b, c, d, GMap{GMapBool}
+requires:
+\---
+  Instantiating main-s
+  [2 of 2] Including main-r
+    Instantiating main-r(main-h-impl:H)
+    [1 of 2] Including main-q
+      Instantiating main-q(main-h-impl:H)
+      [1 of 2] Compiling H[boot]          ( q/H.hs-boot, nothing )
+      [2 of 2] Compiling H[merge]         ( q/H.hs-boot-merge, nothing )
+    [2 of 2] Including main-p
+      Instantiating main-p(main-h-impl:H)
+      [1 of 2] Compiling H[boot]          ( p/H.hs-boot, nothing )
+      [2 of 2] Compiling H[merge]         ( p/H.hs-boot-merge, nothing )
+    [1 of 2] Compiling H[merge]         ( r/H.hs-boot-merge, nothing )
+    [2 of 2] Compiling M                ( r/M.hs, nothing )

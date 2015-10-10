@@ -573,7 +573,7 @@ addLocalInst (home_ie, my_insts) ispec
                -- implementing!)  NB: we still count local duplicate instances
                -- as errors.
                -- See Note [Signature files and type class instances]
-               global_ie | isJust (tcg_sig_of tcg_env) = emptyInstEnv
+               global_ie | isJust (tcg_impl_rdr_env tcg_env) = emptyInstEnv
                          | otherwise = eps_inst_env eps
                inst_envs = InstEnvs { ie_global  = global_ie
                                     , ie_local   = home_ie'

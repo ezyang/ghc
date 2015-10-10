@@ -263,7 +263,8 @@ deSugar :: HscEnv -> ModLocation -> TcGblEnv -> IO (Messages, Maybe ModGuts)
 
 deSugar hsc_env
         mod_loc
-        tcg_env@(TcGblEnv { tcg_mod          = mod,
+        tcg_env@(TcGblEnv { tcg_mod          = id_mod,
+                            tcg_semantic_mod = mod,
                             tcg_src          = hsc_src,
                             tcg_type_env     = type_env,
                             tcg_imports      = imports,
@@ -361,6 +362,9 @@ deSugar hsc_env
         ; dep_files <- readIORef dependent_files
         ; safe_mode <- finalSafeMode dflags tcg_env
         ; usages <- mkUsageInfo hsc_env mod (imp_mods imports) used_names dep_files
+        -- id_mod /= mod when we are processing an hsig, but hsigs
+        -- never desugared and compiled (there's no code!)
+        ; MASSERT ( id_mod == mod )
 
         ; let mod_guts = ModGuts {
                 mg_module       = mod,

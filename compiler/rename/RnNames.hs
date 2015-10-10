@@ -12,6 +12,7 @@ module RnNames (
         gresFromAvails,
         calculateAvails,
         reportUnusedNames,
+        plusAvail,
         checkConName
     ) where
 
@@ -153,7 +154,10 @@ with yes we have gone with no for now.
 rnImports :: [LImportDecl RdrName]
           -> RnM ([LImportDecl Name], GlobalRdrEnv, ImportAvails, AnyHpcUsage)
 rnImports imports = do
-    this_mod <- getModule
+    tcg_env <- getGblEnv
+    -- NB: want an identity module here, because it's OK for a signature
+    -- module to import from its implementor
+    let this_mod = tcg_mod tcg_env
     let (source, ordinary) = partition is_source_import imports
         is_source_import d = ideclSource (unLoc d)
     stuff1 <- mapAndReportM (rnImportDecl this_mod) ordinary
@@ -792,7 +796,8 @@ filterImports iface decl_spec (Just (want_hiding, L l import_items))
         --    T(T,T1,T2,T3) and C(C,T)  to give   (T, T(T,T1,T2,T3), Just C)
         combine (name1, a1@(AvailTC p1 _ []), mp1)
                 (name2, a2@(AvailTC p2 _ []), mp2)
-          = ASSERT( name1 == name2 && isNothing mp1 && isNothing mp2 )
+          = ASSERT2( name1 == name2 && isNothing mp1 && isNothing mp2
+                   , ppr name1 <+> ppr name2 <+> ppr mp1 <+> ppr mp2)
             if p1 == name1 then (name1, a1, Just p2)
                            else (name1, a2, Just p1)
         combine x y = pprPanic "filterImports/combine" (ppr x $$ ppr y)

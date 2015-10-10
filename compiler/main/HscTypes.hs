@@ -70,7 +70,7 @@ module HscTypes (
 
         -- * Interfaces
         ModIface(..), mkIfaceWarnCache, mkIfaceHashCache, mkIfaceFixCache,
-        emptyIfaceWarnCache, mi_boot,
+        emptyIfaceWarnCache, mi_boot, mi_semantic_module,
 
         -- * Fixity
         FixityEnv, FixItem(..), lookupFixity, emptyFixityEnv,
@@ -859,6 +859,12 @@ data ModIface
 mi_boot :: ModIface -> Bool
 mi_boot iface = mi_hsc_src iface == HsBootFile
 
+-- | Accessor for the semantic module.
+mi_semantic_module :: ModIface -> Module
+mi_semantic_module iface = case mi_sig_of iface of
+                            Nothing -> mi_module iface
+                            Just mod -> mod
+
 instance Binary ModIface where
    put_ bh (ModIface {
                  mi_module    = mod,
@@ -887,6 +893,7 @@ instance Binary ModIface where
                  mi_trust     = trust,
                  mi_trust_pkg = trust_pkg }) = do
         put_ bh mod
+        put_ bh sig_of
         put_ bh hsc_src
         put_ bh iface_hash
         put_ bh mod_hash
@@ -910,10 +917,10 @@ instance Binary ModIface where
         put_ bh hpc_info
         put_ bh trust
         put_ bh trust_pkg
-        put_ bh sig_of
 
    get bh = do
-        mod_name    <- get bh
+        mod         <- get bh
+        sig_of      <- get bh
         hsc_src     <- get bh
         iface_hash  <- get bh
         mod_hash    <- get bh
@@ -937,9 +944,8 @@ instance Binary ModIface where
         hpc_info    <- get bh
         trust       <- get bh
         trust_pkg   <- get bh
-        sig_of      <- get bh
         return (ModIface {
-                 mi_module      = mod_name,
+                 mi_module      = mod,
                  mi_sig_of      = sig_of,
                  mi_hsc_src     = hsc_src,
                  mi_iface_hash  = iface_hash,
@@ -1923,7 +1929,10 @@ lookupType dflags hpt pte name
        Just hm -> lookupNameEnv (md_types (hm_details hm)) name
        Nothing -> lookupNameEnv pte name
   where
-    mod = ASSERT2( isExternalName name, ppr name ) nameModule name
+    mod = ASSERT2( isExternalName name, ppr name )
+          if isHoleName name
+            then mkModule (thisPackage dflags) (moduleName (nameModule name))
+            else nameModule name
 
 -- | As 'lookupType', but with a marginally easier-to-use interface
 -- if you have a 'HscEnv'
@@ -2314,6 +2323,13 @@ data ExternalPackageState
                 --
                 -- * Deprecations and warnings
 
+        eps_shape :: !(NameEnv Name),
+                -- ^ This is the unit-wide name substitution computed by
+                -- the shaping pass.  It's only applicable when type-checking
+                -- an indefinite package, and resolves names of the
+                -- form hole:H.T to a more precise name computed by
+                -- shaping.
+
         eps_PTE :: !PackageTypeEnv,
                 -- ^ Result of typechecking all the external package
                 -- interface files we have sucked in. The domain of
@@ -2445,6 +2461,9 @@ data ModSummary
           -- ^ Source imports of the module
         ms_textual_imps :: [(Maybe FastString, Located ModuleName)],
           -- ^ Non-source imports of the module from the module *text*
+        ms_parsed_mod   :: Maybe HsParsedModule,
+          -- ^ The parsed, nonrenamed source, if we have it.  This is also
+          -- used to support "inline module syntax" in Backpack files.
         ms_hspp_file    :: FilePath,
           -- ^ Filename of preprocessed source file
         ms_hspp_opts    :: DynFlags,
@@ -2516,10 +2535,13 @@ showModMsg dflags target recomp mod_summary
 hscSourceString' :: DynFlags -> ModuleName -> HscSource -> String
 hscSourceString' _ _ HsSrcFile   = ""
 hscSourceString' _ _ HsBootFile  = "[boot]"
-hscSourceString' dflags mod HsigFile =
+-- TODO: print more info or make this more sophisticated
+hscSourceString' dflags mod HsigFile = "[sig]"
+     {-
      "[" ++ (maybe "abstract sig"
                (("sig of "++).showPpr dflags)
                (getSigOf dflags mod)) ++ "]"
+               -}
     -- NB: -sig-of could be missing if we're just typechecking
 
 {-

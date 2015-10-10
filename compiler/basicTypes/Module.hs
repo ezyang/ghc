@@ -11,6 +11,7 @@ the keys.
 
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 
 module Module
     (
@@ -21,14 +22,24 @@ module Module
         moduleNameString,
         moduleNameSlashes, moduleNameColons,
         moduleStableString,
+        moduleFreeHoles,
+        moduleIsDefinite,
         mkModuleName,
         mkModuleNameFS,
         stableModuleNameCmp,
 
         -- * The UnitId type
+        ComponentId(..),
+        ShFreeHoles,
         UnitId,
-        fsToUnitId,
+        unsafeNewUnitId,
+        pprUnitId,
+        mapUnitIdInsts,
         unitIdFS,
+        unitIdComponentId,
+        unitIdInsts,
+        unitIdFreeHoles,
+        fsToUnitId,
         stringToUnitId,
         unitIdString,
         stableUnitIdCmp,
@@ -86,8 +97,9 @@ import UniqFM
 import FastString
 import Binary
 import Util
+import UniqSet
 import {-# SOURCE #-} Packages
-import GHC.PackageDb (BinaryStringRep(..))
+import GHC.PackageDb (BinaryStringRep(..), hashUnitId, UnitIdModuleRep(..), GenModule(..), IndefiniteUnitId(..))
 
 import Data.Data
 import Data.Map (Map)
@@ -251,6 +263,16 @@ data Module = Module {
   }
   deriving (Eq, Ord, Typeable)
 
+-- | Calculate the free holes of a 'Module'.
+moduleFreeHoles :: Module -> ShFreeHoles
+moduleFreeHoles m
+    | moduleUnitId m == holeUnitId = unitUniqSet (moduleName m)
+    | otherwise = unitIdFreeHoles (moduleUnitId m)
+
+-- | A 'Module' is definite if it has no free holes.
+moduleIsDefinite :: Module -> Bool
+moduleIsDefinite = isEmptyUniqSet . moduleFreeHoles
+
 instance Uniquable Module where
   getUnique (Module p n) = getUnique (unitIdFS p `appendFS` moduleNameFS n)
 
@@ -309,15 +331,96 @@ class HasModule m where
 ************************************************************************
 -}
 
+-- | A 'ComponentId' consists of the package name, package version, component
+-- ID, the transitive dependencies of the component, and other information to
+-- uniquely identify the source code and build configuration of a component.
+--
+-- This used to be known as an 'InstalledPackageId', but a package can contain
+-- multiple components and a 'ComponentId' uniquely identifies a component
+-- within a package.  When a package only has one component, the 'ComponentId'
+-- coincides with the 'InstalledPackageId'
+newtype ComponentId        = ComponentId        FastString deriving (Eq, Ord)
+
+instance BinaryStringRep ComponentId where
+  fromStringRep = ComponentId . mkFastStringByteString
+  toStringRep (ComponentId s) = fastStringToByteString s
+
+instance Uniquable ComponentId where
+  getUnique (ComponentId n) = getUnique n
+
+instance Outputable ComponentId where
+  ppr cid@(ComponentId str) =
+    sdocWithDynFlags $ \dflags ->
+        case lookupComponentIdString dflags cid of
+            Nothing -> ftext str
+            Just spid -> text spid <> ifPprDebug (braces (ftext str))
+
+-- | Given a Name or Module, the 'ShFreeHoles' contains the set
+-- of free variables, i.e. HOLE:A modules, which may be substituted.
+-- If this set is empty no substitutions are possible.
+type ShFreeHoles = UniqSet ModuleName
+
 -- | A string which uniquely identifies a package.  For wired-in packages,
 -- it is just the package name, but for user compiled packages, it is a hash.
 -- ToDo: when the key is a hash, we can do more clever things than store
 -- the hex representation and hash-cons those strings.
-newtype UnitId = PId FastString deriving( Eq, Typeable )
-    -- here to avoid module loops with PackageConfig
+data UnitId = UnitId {
+        unitIdComponentId :: !ComponentId,
+        unitIdInsts :: ![(ModuleName, Module)],
+        unitIdFreeHoles :: ShFreeHoles,
+        unitIdFS :: FastString,
+        unitIdKey :: Unique -- cached unique of unitIdFS
+    } deriving (Typeable)
+
+-- | Unsafe because it doesn't check if the instantiation makes sense
+-- for the 'ComponentId'.
+unsafeNewUnitId :: ComponentId -> [(ModuleName, Module)] -> UnitId
+unsafeNewUnitId cid insts =
+    let fs = mkFastStringByteString (hashUnitId cid insts)
+    in mkUnitId cid insts fs
+
+instance UnitIdModuleRep ComponentId UnitId ModuleName Module where
+    fromDbModule (GenModule uid modname) = mkModule uid modname
+    toDbModule mod = GenModule (moduleUnitId mod) (moduleName mod)
+    fromDbUnitId (IndefiniteUnitId cid insts)
+        = unsafeNewUnitId cid insts
+    toDbUnitId UnitId{ unitIdComponentId = cid, unitIdInsts = insts }
+        = IndefiniteUnitId cid insts
+    unitIdHash uid = fastStringToByteString (unitIdFS uid)
+
+mkUnitId :: ComponentId -> [(ModuleName, Module)] -> FastString -> UnitId
+mkUnitId cid insts fs =
+    -- ASSERT( sortBy stableModuleNameCmp (map fst insts) == map fst insts )
+    UnitId {
+        unitIdComponentId = cid,
+        unitIdInsts = insts,
+        unitIdFreeHoles = unionManyUniqSets (map (moduleFreeHoles.snd) insts),
+        unitIdFS = fs,
+        unitIdKey = getUnique fs
+    }
+
+mapUnitIdInsts :: ((ModuleName, Module) -> Module) -> UnitId -> UnitId
+mapUnitIdInsts f UnitId{ unitIdComponentId = cid, unitIdInsts = insts0 } =
+    unsafeNewUnitId cid (zip (map fst insts0) (map f insts0))
+
+pprUnitId :: UnitId -> SDoc
+pprUnitId uid =
+    ppr (unitIdComponentId uid) <>
+        (if not (null (unitIdInsts uid)) -- pprIf
+          then
+            parens (hsep
+                (punctuate comma [ ppUnless (moduleName m == modname)
+                                            (ppr modname <+> text "->")
+                                   <+> ppr m
+                                 | (modname, m) <- unitIdInsts uid]))
+          else empty)
+        <> ifPprDebug (braces (ftext (unitIdFS uid)))
+
+instance Eq UnitId where
+  uid1 == uid2 = unitIdKey uid1 == unitIdKey uid2
 
 instance Uniquable UnitId where
- getUnique pid = getUnique (unitIdFS pid)
+  getUnique = unitIdKey
 
 -- Note: *not* a stable lexicographic ordering, a faster unique-based
 -- ordering.
@@ -335,28 +438,30 @@ stableUnitIdCmp :: UnitId -> UnitId -> Ordering
 stableUnitIdCmp p1 p2 = unitIdFS p1 `compare` unitIdFS p2
 
 instance Outputable UnitId where
-   ppr pk = getPprStyle $ \sty -> sdocWithDynFlags $ \dflags ->
-    case unitIdPackageIdString dflags pk of
-      Nothing -> ftext (unitIdFS pk)
-      Just pkg -> text pkg
-           -- Don't bother qualifying if it's wired in!
-           <> (if qualPackage sty pk && not (pk `elem` wiredInUnitIds)
-                then char '@' <> ftext (unitIdFS pk)
-                else empty)
+   ppr pk = pprUnitId pk
 
+-- Performance: would prefer to have a NameCache like thing
 instance Binary UnitId where
-  put_ bh pid = put_ bh (unitIdFS pid)
-  get bh = do { fs <- get bh; return (fsToUnitId fs) }
+  put_ bh UnitId{ unitIdComponentId = cid, unitIdInsts = insts } = do
+    put_ bh cid
+    put_ bh insts
+  get bh = do cid <- get bh
+              insts <- get bh
+              return (unsafeNewUnitId cid insts)
 
-instance BinaryStringRep UnitId where
-  fromStringRep = fsToUnitId . mkFastStringByteString
-  toStringRep   = fastStringToByteString . unitIdFS
+instance Binary ComponentId where
+  put_ bh (ComponentId fs) = put_ bh fs
+  get bh = do { fs <- get bh; return (ComponentId fs) }
 
+-- NB: use me sparingly
 fsToUnitId :: FastString -> UnitId
-fsToUnitId = PId
-
-unitIdFS :: UnitId -> FastString
-unitIdFS (PId fs) = fs
+fsToUnitId fs = UnitId {
+    unitIdComponentId = ComponentId fs,
+    unitIdInsts = [],
+    unitIdFreeHoles = emptyUniqSet,
+    unitIdFS = fs,
+    unitIdKey = getUnique fs
+    }
 
 stringToUnitId :: String -> UnitId
 stringToUnitId = fsToUnitId . mkFastString

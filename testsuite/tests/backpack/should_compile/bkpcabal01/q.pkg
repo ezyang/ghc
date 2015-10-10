@@ -1,0 +1,9 @@
+id: q(H=hole:H)
+name: q
+version: 1.0
+exposed: True
+depends: p(H=hole:H)
+instantiated-depends: p(H=hole:H)
+indefinite: True
+exposed-modules: B
+import-dirs: ${pkgroot}/q

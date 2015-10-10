@@ -1,0 +1,8 @@
+id: p-helper(H=h:H)
+component-name: helper
+name: p
+version: 1.0
+exposed: False
+exposed-modules: B
+depends: h
+import-dirs: ${pkgroot}/p/p-helper/p-helper-6KeuBvYi0jvLWqVbkSAZMq
