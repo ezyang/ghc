@@ -60,7 +60,7 @@ module Module
         -- * The ModuleLocation type
         ModLocation(..),
         addBootSuffix, addBootSuffix_maybe, addBootSuffixLocn,
-        addFatSuffix, addFatSuffix_maybe,
+        addFatSuffix, addFatSuffix_maybe, addFatSuffixLocn,
 
         -- * Module mappings
         ModuleEnv,
@@ -146,6 +146,13 @@ addFatSuffix_maybe :: Bool -> FilePath -> FilePath
 addFatSuffix_maybe want_fat path
   | want_fat = addFatSuffix path
   | otherwise = path
+
+addFatSuffixLocn :: ModLocation -> ModLocation
+-- ^ Add the @-fat@ suffix to a location
+addFatSuffixLocn locn
+  = locn { ml_hs_file  = fmap addFatSuffix (ml_hs_file locn)
+         , ml_hi_file  = ml_hi_file locn
+         , ml_obj_file = ml_obj_file locn }
 
 addBootSuffix :: FilePath -> FilePath
 -- ^ Add the @-boot@ suffix to .hs, .hi and .o files

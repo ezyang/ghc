@@ -35,6 +35,7 @@ import Finder
 import GhcMonad
 import HeaderInfo
 import HscTypes
+import HscMain ( genModDetails )
 import Module
 import TcIface          ( typecheckIface )
 import TcRnMonad        ( initIfaceCheck )
@@ -1260,6 +1261,18 @@ upsweep_mod hsc_env old_hpt (stable_obj, stable_bco) summary mod_index nmods
         in
         case () of
          _
+          -- Need to have it in the graph so we add the interface
+          -- to the HPT, but don't want to actually build it
+          | gopt Opt_FromFatInterface dflags
+          , Just iface <- ms_fat_iface summary
+          , HsBootFile <- ms_hsc_src summary -> do
+                details <- genModDetails hsc_env iface
+                return HomeModInfo {
+                    hm_iface = iface,
+                    hm_details = details,
+                    hm_linkable = Nothing
+                }
+
                 -- Regardless of whether we're generating object code or
                 -- byte code, we can always use an existing object file
                 -- if it is *stable* (see checkStability).
@@ -1978,6 +1991,7 @@ summariseModule hsc_env old_summary_map is_boot (L loc wanted_mod)
                 -- Adjust location to point to the hs-boot source file,
                 -- hi file, object file, when is_boot says so
         let location' | IsBoot <- is_boot = addBootSuffixLocn location
+                      | gopt Opt_FromFatInterface dflags = addFatSuffixLocn location
                       | otherwise         = location
             src_fn = expectJust "summarise2" (ml_hs_file location')
 
@@ -1987,7 +2001,6 @@ summariseModule hsc_env old_summary_map is_boot (L loc wanted_mod)
         case maybe_t of
           Nothing -> return $ Just $ Left $ noHsFileErr dflags loc src_fn
           Just t  -> new_summary location' mod src_fn t
-
 
     new_summary location mod src_fn src_timestamp
       | gopt Opt_FromFatInterface dflags
@@ -2009,7 +2022,9 @@ summariseModule hsc_env old_summary_map is_boot (L loc wanted_mod)
 
         hi_timestamp <- maybeGetIfaceDate dflags location
         return (Just (Right (ModSummary { ms_mod       = mod,
-                              ms_hsc_src   = HiFatFile,
+                              ms_hsc_src   = case is_boot of
+                                                IsBoot -> HsBootFile
+                                                NotBoot -> HiFatFile,
                               ms_location  = location,
                               ms_hspp_file = src_fn,
                               ms_hspp_opts = dflags,

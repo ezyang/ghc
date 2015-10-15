@@ -242,7 +242,9 @@ findHomeModule hsc_env mod_name =
       ]
 
      source_hi_fat_exts =
-       [ (hisuf ++ "-fat", mkHomeModLocationSearched dflags mod_name (hisuf ++ "-fat")) ]
+       [ (addBootSuffix hisuf, mkHomeModLocationSearched dflags mod_name hisuf)
+       , (addFatSuffix hisuf,  mkHomeModLocationSearched dflags mod_name hisuf)
+       ]
 
      hi_exts = [ (hisuf,                mkHiOnlyModLocation dflags hisuf)
                , (addBootSuffix hisuf,  mkHiOnlyModLocation dflags hisuf)
