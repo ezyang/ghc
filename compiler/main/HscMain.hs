@@ -679,8 +679,11 @@ finishMerge :: HscEnv
             -> Maybe Fingerprint
             -> Hsc (HscStatus, HomeModInfo, Bool)
 finishMerge hsc_env summary iface0 mb_old_hash = do
+    let dflags = hsc_dflags hsc_env
     MASSERT( ms_hsc_src summary == HsBootMerge )
     (iface, changed) <- liftIO $ mkIfaceDirect hsc_env mb_old_hash iface0
+    when (gopt Opt_WriteFatInterface dflags) $ do
+        liftIO $ hscWriteIface dflags iface changed summary
     details <- liftIO $ genModDetails hsc_env iface
     let dflags = hsc_dflags hsc_env
         hsc_status =

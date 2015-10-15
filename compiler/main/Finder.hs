@@ -242,7 +242,11 @@ findHomeModule hsc_env mod_name =
       ]
 
      source_hi_fat_exts =
+       -- for hi-boot
        [ (addBootSuffix hisuf, mkHomeModLocationSearched dflags mod_name hisuf)
+       -- for hi (merge boot)
+       , (hisuf,               mkHomeModLocationSearched dflags mod_name hisuf)
+       -- for hi-fat
        , (addFatSuffix hisuf,  mkHomeModLocationSearched dflags mod_name hisuf)
        ]
 

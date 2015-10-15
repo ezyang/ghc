@@ -634,3 +634,9 @@ hifat02_make:
 	mkdir hifat02_make
 	"$(TEST_HC)" $(TEST_HC_OPTS) -outputdir hifat02_make --make HiFat02.hs -fno-code -fwrite-fat-interface
 	"$(TEST_HC)" $(TEST_HC_OPTS) -outputdir hifat02_make -i -ihifat02_make --make hifat02_make/HiFat02.hi-fat -ffrom-fat-interface
+
+.PHONY: hifat03
+hifat03:
+	"$(TEST_HC)" $(TEST_HC_OPTS)  --make HiFat03.hs -fno-code -fwrite-fat-interface -sig-of "HiFat03a is main:HiFat03b"
+	"$(TEST_HC)" $(TEST_HC_OPTS)  --make HiFat03.hi-fat -ffrom-fat-interface -sig-of "HiFat03a is main:HiFat03b"
+

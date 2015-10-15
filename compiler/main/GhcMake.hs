@@ -1265,7 +1265,7 @@ upsweep_mod hsc_env old_hpt (stable_obj, stable_bco) summary mod_index nmods
           -- to the HPT, but don't want to actually build it
           | gopt Opt_FromFatInterface dflags
           , Just iface <- ms_fat_iface summary
-          , HsBootFile <- ms_hsc_src summary -> do
+          , (ms_hsc_src summary == HsBootFile || ms_hsc_src summary == HsBootMerge) -> do
                 details <- genModDetails hsc_env iface
                 return HomeModInfo {
                     hm_iface = iface,
@@ -1938,6 +1938,7 @@ summariseModule hsc_env old_summary_map is_boot (L loc wanted_mod)
 
   | NotBoot <- is_boot
   , Just _ <- getSigOf dflags wanted_mod
+  , not (gopt Opt_FromFatInterface dflags)
   = do mod_summary0 <- makeMergeRequirementSummary hsc_env
                                                    obj_allowed
                                                    wanted_mod
@@ -1991,6 +1992,8 @@ summariseModule hsc_env old_summary_map is_boot (L loc wanted_mod)
                 -- Adjust location to point to the hs-boot source file,
                 -- hi file, object file, when is_boot says so
         let location' | IsBoot <- is_boot = addBootSuffixLocn location
+                      -- boot merge
+                      | Just _ <- getSigOf dflags wanted_mod = location
                       | gopt Opt_FromFatInterface dflags = addFatSuffixLocn location
                       | otherwise         = location
             src_fn = expectJust "summarise2" (ml_hs_file location')
