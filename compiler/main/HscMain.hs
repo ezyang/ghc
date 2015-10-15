@@ -121,7 +121,7 @@ import TcIface          ( typecheckIface, typecheckIface' )
 import TcRnMonad
 import IfaceEnv         ( initNameCache )
 import LoadIface        ( ifaceStats, initExternalPackageState
-                        , findAndReadIface, readAnyIface )
+                        , findAndReadIface, readAnyIface, loadInterface )
 import PrelInfo
 import MkIface
 import Desugar
@@ -702,11 +702,16 @@ finishTypecheckOnly :: HscEnv
 finishTypecheckOnly hsc_env summary tc_result mb_old_hash = do
     let dflags = hsc_dflags hsc_env
     MASSERT( hscTarget dflags == HscNothing || ms_hsc_src summary == HsBootFile )
-    when (gopt Opt_WriteFatInterface dflags) $ do
-        guts0 <- hscDesugar' (ms_location summary) tc_result
-        fat_iface <- liftIO $ hscFatIface hsc_env guts0
-        liftIO $ hscWriteFatIface dflags fat_iface summary
     (iface, changed, details) <- liftIO $ hscSimpleIface hsc_env tc_result mb_old_hash
+    when (gopt Opt_WriteFatInterface dflags) $ do
+        case ms_hsc_src summary of
+            HsSrcFile -> do
+                guts0 <- hscDesugar' (ms_location summary) tc_result
+                fat_iface <- liftIO $ hscFatIface hsc_env guts0
+                liftIO $ hscWriteFatIface dflags fat_iface summary
+            _ -> do
+                -- Make sure we write out a normal interface in this case
+                liftIO $ hscWriteIface dflags iface changed summary
     let hsc_status =
           case (hscTarget dflags, ms_hsc_src summary) of
             (HscNothing, _) -> HscNotGeneratingCode
@@ -858,7 +863,7 @@ hscFatInterfaceFrontEnd mod_summary = do
                             case mb_iface of
                                 Succeeded r -> return r
                                 Failed e -> liftIO $ throwGhcExceptionIO (CmdLineError (showSDoc dflags e))
-    liftIO $ hscReadFatIface (text "fat interface") hsc_env
+    liftIO $ hscReadFatIface (text (ms_hspp_file mod_summary)) hsc_env
                 -- NB: These seem to just make a difference where there
                 -- are some optimizations which we can't apply if we don't
                 -- have accurate type families.  Instances seem to not matter
@@ -1335,6 +1340,11 @@ hscReadFatIface loc_doc hsc_env inst_env fam_inst_env iface = do
         dflags = hsc_dflags hsc_env
     showPassIO dflags CoreLoadGuts
     initTcRnIf 'i' hsc_env gbl_env () . initIfaceLcl (mi_module iface) loc_doc $ do
+        -- First, load any boot modules, so that we don't try to tug
+        -- on the real hi file loadSrcInterface
+        --      TODO: this should give us the right eps insts
+        mapM_ (\(modname, is_boot) -> loadInterface (text "pre-boot") (mkModule (thisPackage dflags) modname) (ImportByUser is_boot))
+              (dep_mods (mi_deps iface))
         details <- initIfaceTc iface $ \ tc_env_var -> -- hideous!
                         updGblEnv (\env -> env { if_load_fat_interface = Just export_set } ) $
                         typecheckIface' iface tc_env_var

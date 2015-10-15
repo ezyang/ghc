@@ -620,8 +620,11 @@ hifat01:
 hifat02_oneshot:
 	$(RM) -rf hifat02_oneshot
 	mkdir hifat02_oneshot
+	"$(TEST_HC)" $(TEST_HC_OPTS) -outputdir hifat02_oneshot -i -ihifat02_oneshot -c HiFat02b.hs -fno-code -fwrite-fat-interface
+	"$(TEST_HC)" $(TEST_HC_OPTS) -outputdir hifat02_oneshot -i -ihifat02_oneshot -c HiFat02.hs-boot -fno-code -fwrite-fat-interface
 	"$(TEST_HC)" $(TEST_HC_OPTS) -outputdir hifat02_oneshot -i -ihifat02_oneshot -c HiFat02a.hs -fno-code -fwrite-fat-interface
 	"$(TEST_HC)" $(TEST_HC_OPTS) -outputdir hifat02_oneshot -i -ihifat02_oneshot -c HiFat02.hs -fno-code -fwrite-fat-interface
+	"$(TEST_HC)" $(TEST_HC_OPTS) -outputdir hifat02_oneshot -i -ihifat02_oneshot -c hifat02_oneshot/HiFat02b.hi-fat
 	"$(TEST_HC)" $(TEST_HC_OPTS) -outputdir hifat02_oneshot -i -ihifat02_oneshot -c hifat02_oneshot/HiFat02a.hi-fat
 	"$(TEST_HC)" $(TEST_HC_OPTS) -outputdir hifat02_oneshot -i -ihifat02_oneshot -c hifat02_oneshot/HiFat02.hi-fat
 

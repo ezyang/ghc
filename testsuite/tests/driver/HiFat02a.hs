@@ -1,2 +1,3 @@
 module HiFat02a where
-x = True
+import {-# SOURCE #-} HiFat02
+x = y

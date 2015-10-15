@@ -248,7 +248,8 @@ findHomeModule hsc_env mod_name =
                , (addBootSuffix hisuf,  mkHiOnlyModLocation dflags hisuf)
                ]
 
-     hi_fat_exts = [ (hisuf ++ "-fat", mkHiOnlyModLocation dflags hisuf) ]
+     hi_fat_exts = [ (hisuf ++ "-fat", mkHiOnlyModLocation dflags hisuf)
+                   , (addBootSuffix hisuf,  mkHiOnlyModLocation dflags hisuf) ]
 
         -- In compilation manager modes, we look for source files in the home
         -- package because we can compile these automatically.  In one-shot
