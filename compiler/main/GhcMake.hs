@@ -1977,7 +1977,6 @@ summariseModule hsc_env old_summary_map is_boot (L loc wanted_mod)
     just_found location mod = do
                 -- Adjust location to point to the hs-boot source file,
                 -- hi file, object file, when is_boot says so
-                -- TODO: booting this is wrong for hi-fat
         let location' | IsBoot <- is_boot = addBootSuffixLocn location
                       | otherwise         = location
             src_fn = expectJust "summarise2" (ml_hs_file location')
@@ -2001,7 +2000,6 @@ summariseModule hsc_env old_summary_map is_boot (L loc wanted_mod)
             (pre_srcimps, pre_the_imps) = partition snd (dep_mods (mi_deps fat_iface))
             srcimps = [(Nothing, noLoc modname) | (modname, _) <- pre_srcimps]
             the_imps = [(Nothing, noLoc modname) | (modname, _) <- pre_the_imps]
-                -- Find the object timestamp, and return the summary
                 -- Find the object timestamp, and return the summary
         obj_timestamp <-
            if isObjectTarget (hscTarget (hsc_dflags hsc_env))

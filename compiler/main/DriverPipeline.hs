@@ -495,6 +495,7 @@ makeMergeRequirementSummary hsc_env obj_allowed mod_name = do
              then liftIO $ modificationTimeIfExists (ml_obj_file location)
              else return Nothing
     r <- findHomeModule hsc_env mod_name
+    -- TODO: sanity check that this is indeed an hs-boot
     let has_local_boot = case r of
                             Found _ _ -> True
                             _ -> False

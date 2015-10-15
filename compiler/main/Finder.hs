@@ -216,6 +216,12 @@ uncacheModule hsc_env mod = do
 --
 --  4. Some special-case code in GHCi (ToDo: Figure out why that needs to
 --  call this.)
+--
+-- An important thing to note about the returned FindResult is that although
+-- we may search for an hi-boot or hi-fat file, the returned location does
+-- NOT mention that name; it says the base hi name.  You will have to
+-- bootify/fatify it afterwards! (Exception: hi-fat treated as source by
+-- compilation manager.)
 findHomeModule :: HscEnv -> ModuleName -> IO FindResult
 findHomeModule hsc_env mod_name =
    homeSearchCache hsc_env mod_name $
@@ -224,9 +230,6 @@ findHomeModule hsc_env mod_name =
      home_path = importPaths dflags
      hisuf = hiSuf dflags
      mod = mkModule (thisPackage dflags) mod_name
-     home_hisuf = if gopt Opt_WriteFatInterface dflags
-                    then hisuf ++ "-fat"
-                    else hisuf
 
      source_exts =
       [ ("hs",   mkHomeModLocationSearched dflags mod_name "hs")
@@ -238,20 +241,42 @@ findHomeModule hsc_env mod_name =
       , ("lhs-boot",  mkHomeModLocationSearched dflags mod_name "lhs")
       ]
 
-     hi_fat_exts =
-       [ ("hi-fat", mkHomeModLocationSearched dflags mod_name "hi-fat")
-       ]
+     source_hi_fat_exts =
+       [ (hisuf ++ "-fat", mkHomeModLocationSearched dflags mod_name (hisuf ++ "-fat")) ]
 
-     hi_exts = [ (home_hisuf,           mkHiOnlyModLocation dflags home_hisuf)
+     hi_exts = [ (hisuf,                mkHiOnlyModLocation dflags hisuf)
                , (addBootSuffix hisuf,  mkHiOnlyModLocation dflags hisuf)
                ]
+
+     hi_fat_exts = [ (hisuf ++ "-fat", mkHiOnlyModLocation dflags hisuf) ]
 
         -- In compilation manager modes, we look for source files in the home
         -- package because we can compile these automatically.  In one-shot
         -- compilation mode we look for .hi and .hi-boot files only.
-     exts | isOneShot (ghcMode dflags) = hi_exts
-          | gopt Opt_FromFatInterface dflags = hi_fat_exts
-          | otherwise                  = source_exts
+        --
+        -- For hi-fat:
+        --
+        --      - -fwrite-fat-interface means we are writing hi-fat files from
+        --      typechecking hs source *against* hi-fat files.  In one-shot
+        --      mode, this means we should look for hi-fat files; but in
+        --      compilation manager mode, we still want to look for the normal
+        --      hs source files.
+        --
+        --      - -ffrom-fat-interface means we are treating hi-fat files as
+        --      source, to compile into hi files *against* hi files. In one-shot,
+        --      this means we should look for hi files; but in compilation
+        --      manager mode, we want to look for *hi-fat* files, since they
+        --      are the "source" files we are compiling.
+        --
+        -- A bit finely balanced!
+     exts | isOneShot (ghcMode dflags)
+          = if gopt Opt_WriteFatInterface dflags
+                then hi_fat_exts
+                else hi_exts
+          | otherwise
+          = if gopt Opt_FromFatInterface dflags
+                then source_hi_fat_exts
+                else source_exts
    in
 
   -- special case for GHC.Prim; we won't find it in the filesystem.

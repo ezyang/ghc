@@ -710,8 +710,11 @@ findAndReadIface doc_str mod hi_boot_file
                    Found loc mod -> do
 
                        -- Found file, so read it
-                       let file_path = addBootSuffix_maybe hi_boot_file
-                                                           (ml_hi_file loc)
+                       let file_path = addFatSuffix_maybe
+                                        (gopt Opt_WriteFatInterface dflags &&
+                                         thisPackage dflags == moduleUnitId mod)
+                                     . addBootSuffix_maybe hi_boot_file
+                                     $ ml_hi_file loc
 
                        -- See Note [Home module load error]
                        if thisPackage dflags == moduleUnitId mod &&
