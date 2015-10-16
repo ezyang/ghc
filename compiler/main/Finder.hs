@@ -244,18 +244,13 @@ findHomeModule hsc_env mod_name =
      source_hi_fat_exts =
        -- for hi-boot
        [ (addBootSuffix hisuf, mkHomeModLocationSearched dflags mod_name hisuf)
-       -- for hi (merge boot)
+       -- for hi (merge and fat)
        , (hisuf,               mkHomeModLocationSearched dflags mod_name hisuf)
-       -- for hi-fat
-       , (addFatSuffix hisuf,  mkHomeModLocationSearched dflags mod_name hisuf)
        ]
 
      hi_exts = [ (hisuf,                mkHiOnlyModLocation dflags hisuf)
                , (addBootSuffix hisuf,  mkHiOnlyModLocation dflags hisuf)
                ]
-
-     hi_fat_exts = [ (hisuf ++ "-fat", mkHiOnlyModLocation dflags hisuf)
-                   , (addBootSuffix hisuf,  mkHiOnlyModLocation dflags hisuf) ]
 
         -- In compilation manager modes, we look for source files in the home
         -- package because we can compile these automatically.  In one-shot
@@ -277,9 +272,7 @@ findHomeModule hsc_env mod_name =
         --
         -- A bit finely balanced!
      exts | isOneShot (ghcMode dflags)
-          = if gopt Opt_WriteFatInterface dflags
-                then hi_fat_exts
-                else hi_exts
+          = hi_exts
           | otherwise
           = if gopt Opt_FromFatInterface dflags
                 then source_hi_fat_exts

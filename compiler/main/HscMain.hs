@@ -1367,7 +1367,7 @@ hscReadFatIface loc_doc hsc_env inst_env fam_inst_env iface = do
 
 hscWriteFatIface :: DynFlags -> ModIface -> ModSummary -> IO ()
 hscWriteFatIface dflags iface mod_summary = do
-    let ifaceFile = addFatSuffix (ml_hi_file (ms_location mod_summary))
+    let ifaceFile = ml_hi_file (ms_location mod_summary)
     writeIfaceFile dflags ifaceFile iface
 
 hscWriteIface :: DynFlags -> ModIface -> Bool -> ModSummary -> IO ()

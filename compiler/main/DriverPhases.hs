@@ -236,7 +236,7 @@ startPhase "hs"       = Cpp   HsSrcFile
 startPhase "hs-boot"  = Cpp   HsBootFile
 startPhase "hscpp"    = HsPp  HsSrcFile
 startPhase "hspp"     = Hsc   HsSrcFile
-startPhase "hi-fat"   = Hsc   HiFatFile
+startPhase "hi"       = Hsc   HiFatFile
 startPhase "hc"       = HCc
 startPhase "c"        = Cc
 startPhase "cpp"      = Ccxx
@@ -301,7 +301,7 @@ haskellish_src_suffixes      = haskellish_user_src_suffixes ++
 haskellish_suffixes          = haskellish_src_suffixes ++
                                [ "hc", "cmm", "cmmcpp" ]
 cish_suffixes                = [ "c", "cpp", "C", "cc", "cxx", "s", "S", "ll", "bc", "lm_s", "m", "M", "mm" ]
-fat_interface_suffixes       = [ "hi-fat" ]
+fat_interface_suffixes       = [ "hi" ]
 
 -- Will not be deleted as temp files:
 haskellish_user_src_suffixes = [ "hs", "lhs", "hs-boot", "lhs-boot" ]

@@ -1992,9 +1992,6 @@ summariseModule hsc_env old_summary_map is_boot (L loc wanted_mod)
                 -- Adjust location to point to the hs-boot source file,
                 -- hi file, object file, when is_boot says so
         let location' | IsBoot <- is_boot = addBootSuffixLocn location
-                      -- boot merge
-                      | Just _ <- getSigOf dflags wanted_mod = location
-                      | gopt Opt_FromFatInterface dflags = addFatSuffixLocn location
                       | otherwise         = location
             src_fn = expectJust "summarise2" (ml_hs_file location')
 
