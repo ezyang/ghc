@@ -90,10 +90,15 @@ endif
 $1_$2_$4_DEP_OPTS = \
  $$(foreach pkg,$$($1_$2_DEP_IPIDS),-package-id $$(pkg))
 
-ifeq "$($4_USE_COMPONENT_ID)" "NO"
-$4_THIS_COMPONENT_ID = -package-name
+ifneq "$($4_USE_COMPONENT_ID)" "NO"
+# TODO update me
+$1_$2_$4_THIS_COMPONENT_ID = -this-package-key $$($1_$2_COMPONENT_ID)
 else
-$4_THIS_COMPONENT_ID = -this-package-key
+ifneq "$(SUPPORTS_PACKAGE_KEY)" "NO"
+$1_$2_$4_THIS_COMPONENT_ID = -this-package-key $$($1_$2_PACKAGE_KEY)
+else
+$1_$2_$4_THIS_COMPONENT_ID = -package-name $$($1_$2_COMPONENT_ID)
+endif
 endif
 
 $1_$2_$3_MOST_HC_OPTS = \
@@ -103,7 +108,7 @@ $1_$2_$3_MOST_HC_OPTS = \
  $$($1_HC_OPTS) \
  $$($1_$2_HC_PKGCONF) \
  $$(if $$($1_$2_PROG),, \
-        $$(if $$($1_PACKAGE),$$($4_THIS_COMPONENT_ID) $$($1_$2_COMPONENT_ID))) \
+        $$(if $$($1_PACKAGE),$$($1_$2_$4_THIS_COMPONENT_ID))) \
  $$(if $$($1_PACKAGE),-hide-all-packages) \
  -i $$(if $$($1_$2_HS_SRC_DIRS),$$(foreach dir,$$($1_$2_HS_SRC_DIRS),-i$1/$$(dir)),-i$1) \
  -i$1/$2/build -i$1/$2/build/autogen \

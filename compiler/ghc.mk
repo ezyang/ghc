@@ -444,13 +444,8 @@ compiler_stage1_MUNGED_VERSION = $(subst .$(ProjectPatchLevel),,$(ProjectVersion
 define compiler_PACKAGE_MAGIC
 compiler_stage1_VERSION = $(compiler_stage1_MUNGED_VERSION)
 compiler_stage1_COMPONENT_ID = $(subst .$(ProjectPatchLevel),,$(compiler_stage1_COMPONENT_ID))
-compiler_stage1_COMPONENT_ID = $(subst .$(ProjectPatchLevel),,$(compiler_stage1_COMPONENT_ID))
+compiler_stage1_PACKAGE_KEY = $(subst .$(ProjectPatchLevel),,$(compiler_stage1_PACKAGE_KEY))
 endef
-
-# NB: the COMPONENT_ID munging has no effect for new-style unit ids
-# (which indeed, have nothing version like in them, but are important for
-# old-style unit ids which do.)  The subst operation is idempotent, so
-# as long as we do it at least once we should be good.
 
 # Don't register the non-munged package
 compiler_stage1_REGISTER_PACKAGE = NO

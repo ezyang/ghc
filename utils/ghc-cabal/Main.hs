@@ -284,10 +284,16 @@ generate :: FilePath -> FilePath -> String -> [String] -> IO ()
 generate directory distdir dll0Modules config_args
  = withCurrentDirectory directory
  $ do let verbosity = normal
+      -- NB: --ipid-extra disambiguates different component ID for bootstrap
+          ipid_args =
+            if directory == "compiler"
+                then ["--ipid", "$pkg-$version"] -- this won't work for bootstrap
+                else ["--ipid-extra", distdir]
+      -- libraries and distribution libraries so they don't conflict.
       -- XXX We shouldn't just configure with the default flags
       -- XXX And this, and thus the "getPersistBuildConfig distdir" below,
       -- aren't going to work when the deps aren't built yet
-      withArgs (["configure", "--distdir", distdir, "--ipid", "$pkg-$version"] ++ config_args)
+      withArgs (["configure", "--distdir", distdir] ++ ipid_args ++ config_args)
                runDefaultMain
 
       lbi <- getPersistBuildConfig distdir
@@ -313,15 +319,9 @@ generate directory distdir dll0Modules config_args
       -- generate inplace-pkg-config
       withLibLBI pd lbi $ \lib clbi ->
           do cwd <- getCurrentDirectory
-             let ipid = ComponentId (display (packageId pd))
              let installedPkgInfo = inplaceInstalledPackageInfo cwd distdir
                                         pd (Installed.AbiHash "") lib lbi clbi
-                 final_ipi = mangleIPI directory distdir lbi $ installedPkgInfo {
-                                 Installed.installedComponentId = ipid,
-                                 Installed.compatPackageKey = ipid,
-                                 Installed.haddockHTMLs = []
-                             }
-                 content = Installed.showInstalledPackageInfo final_ipi ++ "\n"
+                 content = Installed.showInstalledPackageInfo installedPkgInfo ++ "\n"
              writeFileAtomic (distdir </> "inplace-pkg-config") (BS.pack $ toUTF8 content)
 
       let
@@ -381,11 +381,11 @@ generate directory distdir dll0Modules config_args
           depNames = map (display . packageName) dep_ids
 
           transitive_dep_ids = map Installed.sourcePackageId dep_pkgs
+          transitive_dep_ipids = map (display . Installed.installedComponentId) dep_pkgs
           transitiveDeps = map display transitive_dep_ids
           transitiveDepLibNames
-            | packageKeySupported comp = map fixupRtsLibName transitiveDeps
+            | packageKeySupported comp = transitive_dep_ipids
             | otherwise = transitiveDeps
-          fixupRtsLibName "rts-1.0" = "rts"
           fixupRtsLibName x = x
           transitiveDepNames = map (display . packageName) transitive_dep_ids
 
@@ -405,10 +405,8 @@ generate directory distdir dll0Modules config_args
           otherMods = map display (otherModules bi)
           allMods = mods ++ otherMods
       let xs = [variablePrefix ++ "_VERSION = " ++ display (pkgVersion (package pd)),
-                -- TODO: move inside withLibLBI
-                variablePrefix ++ "_COMPONENT_ID = " ++ display (localCompatPackageKey lbi),
-                -- copied from mkComponentsLocalBuildInfo
                 variablePrefix ++ "_COMPONENT_ID = " ++ display (localComponentId lbi),
+                variablePrefix ++ "_PACKAGE_KEY = " ++ display (localCompatPackageKey lbi),
                 variablePrefix ++ "_MODULES = " ++ unwords mods,
                 variablePrefix ++ "_HIDDEN_MODULES = " ++ unwords otherMods,
                 variablePrefix ++ "_SYNOPSIS =" ++ synopsis pd,
