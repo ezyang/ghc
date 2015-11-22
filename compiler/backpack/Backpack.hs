@@ -244,6 +244,7 @@ doBackpack src_filename = do
             initBkpM src_filename comps $
                 forM_ (zip [1..] comps) $ \(i, (cid, pkg)) -> do
                     let comp_name = unLoc (hsunitName (unLoc pkg))
+                        is_primary = comp_name == primary_name
                     msgTopPackage (i,length bkp) comp_name
                     innerBkpM $ do
                         -- Figure out if we should type-check or
@@ -253,7 +254,7 @@ doBackpack src_filename = do
                         -- compiling the primary for a specific instantiation
                         -- (See test bkpcabal01)
                         let insts = if not (Map.null (sigOf dflags))
-                                            && comp_name == primary_name
+                                            && is_primary
                                         then Map.toList (sigOf dflags)
                                         else shUnitIdInsts sh_uid
                         uid <- liftIO $ newUnitId dflags cid insts
@@ -270,8 +271,8 @@ doBackpack src_filename = do
                                 if isEmptyUniqSet fh
                                     then if comp_name == ComponentName (fsLit "main")
                                             then compileExe pkg
-                                            else compileUnit uid
-                                    else typecheckUnit cid pkg
+                                            else compileUnit is_primary uid
+                                    else typecheckUnit is_primary cid pkg
 
 -- | Tiny enum for all types of Backpack operations we may do.
 data SessionType = ExeSession | TcSession | CompSession
@@ -370,8 +371,8 @@ withBkpCompSession uid mod_map req_map do_this =
     -- No setTargets nuttery
 
 -- | Type checks a unit and adds it to the indefinite unit database.
-typecheckUnit :: ComponentId -> LHsUnit -> BkpM ()
-typecheckUnit cid pkg = do
+typecheckUnit :: Bool {- is primary -} -> ComponentId -> LHsUnit -> BkpM ()
+typecheckUnit is_primary cid pkg = do
     hsc_env <- getSession
     let dflags = hsc_dflags hsc_env
         comp_name = unLoc (hsunitName (unLoc pkg))
@@ -445,28 +446,9 @@ typecheckUnit cid pkg = do
     -- NB: This is outside 'withBkpTcSession' so the update to 'Session'
     -- sticks.
     addPackage ipkg
-    {-
-    return $ case () of
-            _ | is_exe -> Just mainUnitId
-              -- This means we can compile immediately!
-              | isEmptyUniqSet (shUnitIdFreeHoles shpk) -> Just pk
-              | otherwise -> Nothing
-              -}
 
-compileExe :: LHsUnit -> BkpM ()
-compileExe pkg = do
-    msgUnitId mainUnitId
-    include_graph <- runShM $ shIncludeGraph mainUnitId pkg
-    forM_ (zip [1..] (map is_pkg_key include_graph)) $
-        compileInclude (length include_graph)
-    withBkpExeSession include_graph $ do
-        mod_graph <- runShM $ shModGraph mainUnitId include_graph pkg
-        msg <- mkBackpackMsg
-        ok <- load' LoadAllTargets (Just msg) mod_graph
-        when (failed ok) (liftIO $ exitWith (ExitFailure 1))
-
-compileUnit :: UnitId -> BkpM ()
-compileUnit uid = do
+compileUnit :: Bool {- is primary -} -> UnitId -> BkpM ()
+compileUnit is_primary uid = do
     dflags <- getDynFlags
     cid <- liftIO $ unitIdComponentId dflags uid
     bkp_env <- getBkpEnv
@@ -551,6 +533,26 @@ compileUnit uid = do
         }
     addPackage pkginfo
 
+{-
+buildUnit :: SessionType -> UnitId -> LHsUnit -> BkpM ()
+buildUnit session uid lunit = do
+    dflags <- getDynFlags
+    cid <- liftIO $ unitIdComponentId d
+    return ()
+    -}
+
+compileExe :: LHsUnit -> BkpM ()
+compileExe pkg = do
+    msgUnitId mainUnitId
+    include_graph <- runShM $ shIncludeGraph mainUnitId pkg
+    forM_ (zip [1..] (map is_pkg_key include_graph)) $
+        compileInclude (length include_graph)
+    withBkpExeSession include_graph $ do
+        mod_graph <- runShM $ shModGraph mainUnitId include_graph pkg
+        msg <- mkBackpackMsg
+        ok <- load' LoadAllTargets (Just msg) mod_graph
+        when (failed ok) (liftIO $ exitWith (ExitFailure 1))
+
 addPackage :: GhcMonad m => PackageConfig -> m ()
 addPackage pkg = do
     dflags0 <- GHC.getSessionDynFlags
@@ -577,5 +579,5 @@ compileInclude n (i, pk) = do
     case lookupPackage dflags pk of
         Nothing -> do
             -- Nope, compile it
-            innerBkpM $ compileUnit pk
+            innerBkpM $ compileUnit False pk
         Just _ -> return ()
