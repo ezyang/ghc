@@ -1,6 +1,5 @@
 module ShUnitId where
-import {-# SOURCE #-} PackageConfig (ComponentId)
-import {-# SOURCE #-} Module (Module, ModuleName, UnitId)
+import {-# SOURCE #-} Module (Module, ModuleName, UnitId, ComponentId)
 import {-# SOURCE #-} DynFlags (DynFlags)
 import Outputable (SDoc)
 newUnitId :: DynFlags

@@ -31,9 +31,6 @@ module PackageConfig (
 
         -- * Hack.
         addComponentName,
-
-        -- * Package key
-        ShUnitId(..),
     ) where
 
 #include "HsVersions.h"
@@ -41,12 +38,10 @@ module PackageConfig (
 import GHC.PackageDb
 import Data.Version
 
-import {-# SOURCE #-} Packages
 import FastString
 import Outputable
 import Module
 import Unique
-import UniqSet
 
 -- -----------------------------------------------------------------------------
 -- Our PackageConfig type is the InstalledPackageInfo from ghc-boot,
@@ -64,14 +59,9 @@ type PackageConfig = InstalledPackageInfo
 --       feature, but ghc doesn't currently have convenient support for any
 --       other compact string types, e.g. plain ByteString or Text.
 
-newtype ComponentId        = ComponentId        FastString deriving (Eq, Ord)
 newtype SourcePackageId    = SourcePackageId    FastString deriving (Eq, Ord)
 newtype PackageName        = PackageName        FastString deriving (Eq, Ord)
 newtype ComponentName      = ComponentName      FastString deriving (Eq, Ord)
-
-instance BinaryStringRep ComponentId where
-  fromStringRep = ComponentId . mkFastStringByteString
-  toStringRep (ComponentId s) = fastStringToByteString s
 
 instance BinaryStringRep SourcePackageId where
   fromStringRep = SourcePackageId . mkFastStringByteString
@@ -85,21 +75,11 @@ instance BinaryStringRep ComponentName where
   fromStringRep = ComponentName . mkFastStringByteString
   toStringRep (ComponentName s) = fastStringToByteString s
 
-instance Uniquable ComponentId where
-  getUnique (ComponentId n) = getUnique n
-
 instance Uniquable SourcePackageId where
   getUnique (SourcePackageId n) = getUnique n
 
 instance Uniquable PackageName where
   getUnique (PackageName n) = getUnique n
-
-instance Outputable ComponentId where
-  ppr cid@(ComponentId str) =
-    sdocWithDynFlags $ \dflags ->
-        case lookupComponentIdString dflags cid of
-            Nothing -> ftext str
-            Just spid -> text spid
 
 instance Outputable ComponentName where
   ppr (ComponentName str) = ftext str
@@ -113,15 +93,15 @@ instance Outputable PackageName where
 defaultPackageConfig :: PackageConfig
 defaultPackageConfig = emptyInstalledPackageInfo
 
-componentIdString :: PackageConfig -> String
-componentIdString pkg = unpackFS str
-  where
-    ComponentId str = componentId pkg
-
 sourcePackageIdString :: PackageConfig -> String
 sourcePackageIdString pkg = unpackFS str
   where
     SourcePackageId str = sourcePackageId pkg
+
+componentIdString :: PackageConfig -> String
+componentIdString pkg = unpackFS str
+  where
+    ComponentId str = componentId pkg
 
 packageNameString :: PackageConfig -> String
 packageNameString pkg = unpackFS str
@@ -192,21 +172,3 @@ packageComponentId pkg = componentId pkg
 addComponentName :: ComponentId -> ComponentName -> ComponentId
 addComponentName (ComponentId cid) (ComponentName n) =
     ComponentId (concatFS [cid, fsLit "-", n])
-
--- | An elaborated representation of a 'UnitId', which records
--- all of the components that go into the hashed 'UnitId', and
--- some extra cached metadata which can speed up some computations.
-data ShUnitId
-    = ShUnitId {
-          shUnitIdComponentId       :: !ComponentId,
-          shUnitIdInsts             :: ![(ModuleName, Module)],
-          shUnitIdFreeHoles         :: UniqSet ModuleName
-      }
-
-instance Eq ShUnitId where
-    suid == suid' = shUnitIdComponentId suid == shUnitIdComponentId suid'
-                 && shUnitIdInsts suid == shUnitIdInsts suid'
-
-instance Outputable ShUnitId where
-    ppr (ShUnitId uid insts fh)
-        = ppr uid <+> ppr insts <+> parens (ppr fh)

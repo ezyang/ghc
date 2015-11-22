@@ -100,9 +100,6 @@ module DynFlags (
         parseDynamicFilePragma,
         parseDynamicFlagsFull,
 
-        -- ** Unit ID cache
-        UnitIdCache,
-
         -- ** Available DynFlags
         allFlags,
         flagsAll,
@@ -670,10 +667,6 @@ type SigOf = Map ModuleName Module
 getSigOf :: DynFlags -> ModuleName -> Maybe Module
 getSigOf dflags n = Map.lookup n (sigOf dflags)
 
--- NameCache updNameCache
-type UnitIdEnv = UniqFM
-type UnitIdCache = UnitIdEnv ShUnitId
-
 -- | Contains not only a collection of 'GeneralFlag's but also a plethora of
 -- information relating to the compilation of a single file or GHC session
 data DynFlags = DynFlags {
@@ -816,7 +809,6 @@ data DynFlags = DynFlags {
   -- Packages.initPackages
   pkgDatabase           :: Maybe [(FilePath, [PackageConfig])],
   pkgState              :: PackageState,
-  unitIdCache           :: {-# UNPACK #-} !(IORef UnitIdCache),
 
   -- Temporary files
   -- These have to be IORefs, because the defaultCleanupHandler needs to
@@ -1521,7 +1513,6 @@ defaultDynFlags mySettings =
         pkgDatabase             = Nothing,
         -- This gets filled in with GHC.setSessionDynFlags
         pkgState                = emptyPackageState,
-        unitIdCache             = v_unsafePkgKeyCache,
         ways                    = defaultWays mySettings,
         buildTag                = mkBuildTag (defaultWays mySettings),
         rtsBuildTag             = mkBuildTag (defaultWays mySettings),
@@ -4344,8 +4335,6 @@ unsafeGlobalDynFlags = unsafePerformIO $ readIORef v_unsafeGlobalDynFlags
 
 setUnsafeGlobalDynFlags :: DynFlags -> IO ()
 setUnsafeGlobalDynFlags = writeIORef v_unsafeGlobalDynFlags
-
-GLOBAL_VAR(v_unsafePkgKeyCache, emptyUFM, UnitIdCache)
 
 -- -----------------------------------------------------------------------------
 -- SSE and AVX

@@ -28,9 +28,11 @@ module Module
         stableModuleNameCmp,
 
         -- * The UnitId type
+        ComponentId(..),
         UnitId,
-        fsToUnitId,
         unitIdFS,
+        unitIdComponentId,
+        fsToUnitId,
         stringToUnitId,
         unitIdString,
         stableUnitIdCmp,
@@ -92,7 +94,9 @@ import UniqFM
 import FastString
 import Binary
 import Util
+import UniqSet
 import {-# SOURCE #-} ShUnitId
+import {-# SOURCE #-} Packages
 import GHC.PackageDb (BinaryStringRep(..), GenModule(..) )
 
 import Data.Data
@@ -315,15 +319,41 @@ class HasModule m where
 ************************************************************************
 -}
 
+newtype ComponentId        = ComponentId        FastString deriving (Eq, Ord)
+
+instance BinaryStringRep ComponentId where
+  fromStringRep = ComponentId . mkFastStringByteString
+  toStringRep (ComponentId s) = fastStringToByteString s
+
+instance Uniquable ComponentId where
+  getUnique (ComponentId n) = getUnique n
+
+instance Outputable ComponentId where
+  ppr cid@(ComponentId str) =
+    sdocWithDynFlags $ \dflags ->
+        case lookupComponentIdString dflags cid of
+            Nothing -> ftext str
+            Just spid -> text spid
+
+
+
 -- | A string which uniquely identifies a package.  For wired-in packages,
 -- it is just the package name, but for user compiled packages, it is a hash.
 -- ToDo: when the key is a hash, we can do more clever things than store
 -- the hex representation and hash-cons those strings.
-newtype UnitId = PId FastString deriving( Eq, Typeable )
-    -- here to avoid module loops with PackageConfig
+data UnitId = UnitId {
+        unitIdComponentId :: !ComponentId,
+        unitIdInsts :: ![(ModuleName, Module)],
+        unitIdFreeHoles :: UniqSet ModuleName,
+        unitIdFS :: FastString,
+        unitIdKey :: Unique -- cached unique of unitIdFS
+    } deriving (Typeable)
+
+instance Eq UnitId where
+  uid1 == uid2 = unitIdKey uid1 == unitIdKey uid2
 
 instance Uniquable UnitId where
- getUnique pid = getUnique (unitIdFS pid)
+  getUnique = unitIdKey
 
 -- Note: *not* a stable lexicographic ordering, a faster unique-based
 -- ordering.
@@ -352,10 +382,13 @@ instance BinaryStringRep UnitId where
   toStringRep   = fastStringToByteString . unitIdFS
 
 fsToUnitId :: FastString -> UnitId
-fsToUnitId = PId
-
-unitIdFS :: UnitId -> FastString
-unitIdFS (PId fs) = fs
+fsToUnitId fs = UnitId {
+    unitIdComponentId = ComponentId fs,
+    unitIdInsts = [],
+    unitIdFreeHoles = emptyUniqSet,
+    unitIdFS = fs,
+    unitIdKey = getUnique fs
+    }
 
 stringToUnitId :: String -> UnitId
 stringToUnitId = fsToUnitId . mkFastString

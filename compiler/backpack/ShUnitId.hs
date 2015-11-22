@@ -85,30 +85,16 @@ import Data.IORef
 -- If this set is empty no substitutions are possible.
 type ShFreeHoles = UniqSet ModuleName
 
--- | Returns the hole mapping of a 'UnitId'.
-unitIdInsts :: DynFlags -> UnitId -> IO [(ModuleName, Module)]
-unitIdInsts dflags pk = fmap shUnitIdInsts (lookupUnitId dflags pk)
-
--- | Returns the 'ComponentId' of a 'UnitId'.
-unitIdComponentId :: DynFlags -> UnitId -> IO ComponentId
-unitIdComponentId dflags pk = fmap shUnitIdComponentId (lookupUnitId dflags pk)
-
--- | Returns the free holes of a 'UnitId'. NB: if this
--- 'UnitId' is a 'holeUnitId', this will return an
--- empty set; use 'moduleFreeHoles' to handle HOLE:A properly.
-unitIdFreeHoles :: DynFlags -> UnitId -> IO (UniqSet ModuleName)
-unitIdFreeHoles dflags pk = fmap shUnitIdFreeHoles (lookupUnitId dflags pk)
-
 -- | Calculate the free holes of a 'Module'.
-moduleFreeHoles :: DynFlags -> Module -> IO ShFreeHoles
+moduleFreeHoles :: Module -> ShFreeHoles
 moduleFreeHoles dflags m
-    | moduleUnitId m == holeUnitId = return (unitUniqSet (moduleName m))
-    | otherwise = unitIdFreeHoles dflags (moduleUnitId m)
+    | moduleUnitId m == holeUnitId = unitUniqSet (moduleName m)
+    | otherwise = unitIdFreeHoles (moduleUnitId m)
 
 -- | Calculate the free holes of the hole map @[('ModuleName', 'Module')]@.
-calcInstsFreeHoles :: DynFlags -> [(ModuleName, Module)] -> IO ShFreeHoles
+calcInstsFreeHoles :: [(ModuleName, Module)] -> ShFreeHoles
 calcInstsFreeHoles dflags insts =
-    fmap unionManyUniqSets (mapM (moduleFreeHoles dflags . snd) insts)
+    unionManyUniqSets (map (moduleFreeHoles . snd) insts)
 
 -- | Given a 'ComponentName', an 'ComponentId', and sorted mapping of holes to
 -- their implementations, compute the 'UnitId' associated with it, as well
