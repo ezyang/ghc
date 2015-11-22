@@ -1,5 +1,5 @@
 module Packages where
-import {-# SOURCE #-} PackageConfig (ComponentId)
+import {-# SOURCE #-} Module (ComponentId)
 import {-# SOURCE #-} DynFlags (DynFlags)
 data PackageState
 emptyPackageState :: PackageState

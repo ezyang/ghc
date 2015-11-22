@@ -69,7 +69,6 @@ import FastString
 import ErrUtils         ( debugTraceMsg, MsgDoc )
 import Exception
 import Unique
-import {-# SOURCE #-} ShUnitId
 
 import System.Directory
 import System.FilePath as FilePath
@@ -850,11 +849,13 @@ mkPackageState dflags0 dbs preload0 = do
   dflags <- interpretPackageEnv dflags0
 
   -- Register all unit IDs
+  {-
   forM_ dbs $ \(_, ps) ->
     forM_ ps $ \p ->
       forM_ (unitIdMap p) $ \(uid, IndefiniteUnitId cid insts) -> do
         new_uid <- newUnitId dflags cid insts
         ASSERT2( uid == new_uid, ppr uid <+> ppr new_uid ) return ()
+        -}
 
   -- Compute the unit ID
   let this_package = thisPackage dflags

@@ -8,7 +8,6 @@ module ShUnify(
 
     -- * Hole substitutions
     ShHoleSubst,
-    mkShHoleSubst,
     addListToHoleSubst,
     fixShHoleSubst,
     computeHoleSubst,
@@ -26,7 +25,6 @@ module ShUnify(
     -- * HOLE renaming
     renameHoleUnitId,
     renameHoleModule,
-    renameHoleModule',
     renameHoleAvailInfo,
 
     -- * Unification
@@ -96,7 +94,7 @@ data ShSubst
 mkShSubst :: HscEnv -> ShHoleSubst -> ShNameSubst -> IO ShSubst
 mkShSubst hsc_env hsubst0 nsubst0 = do
     let dflags = hsc_dflags hsc_env
-    hsubst <- fixShHoleSubst dflags hsubst0
+        hsubst = fixShHoleSubst hsubst0
     -- TODO: which order of applying the substitution is best?
     nsubst1 <- T.mapM (substHoleName hsc_env hsubst) nsubst0
     let nsubst = fixShNameSubst nsubst1
@@ -116,22 +114,13 @@ substAvailInfo hsc_env (ShSubst hsubst nsubst) a
 ************************************************************************
 -}
 
--- | Substitution on @HOLE:A@.  'ShFreeHoles' says what the free
--- holes of the range of the substitution are.
-type ShHoleSubst = ModuleNameEnv (Module, ShFreeHoles)
+-- | Substitution on @HOLE:A@.
+type ShHoleSubst = ModuleNameEnv Module
 
--- | Calculate a NON-IDEMPOTENT substitution from an arbitrary mapping.
-mkShHoleSubst :: DynFlags -> ModuleNameEnv Module -> IO ShHoleSubst
-mkShHoleSubst dflags subst = T.mapM addShFreeHoles subst
-    where addShFreeHoles m = do
-            free_holes <- moduleFreeHoles dflags m
-            return (m, free_holes)
-
-addListToHoleSubst :: DynFlags -> ShHoleSubst -> [(ModuleName, Module)] -> IO ShHoleSubst
-addListToHoleSubst dflags subst xs0 = do
-    subst' <- mkShHoleSubst dflags (listToUFM xs0)
+addListToHoleSubst :: ShHoleSubst -> [(ModuleName, Module)] -> ShHoleSubst
+addListToHoleSubst subst xs0 =
     -- TODO: handle ambiguous module imports (overlap) properly
-    return (plusUFM_C (panic "addListToHoleSubst duplicate") subst subst')
+    plusUFM_C (panic "addListToHoleSubst duplicate") subst (listToUFM xs0)
 
 -- | Compute the NON-IDEMPOTENT substitution for filling some requirements
 -- with some provisions.
@@ -139,27 +128,25 @@ addListToHoleSubst dflags subst xs0 = do
 -- Historical note: historically, this also checked the UnitId to augment
 -- the substitution.  This is no longer relevant as we don't run shaping
 -- unless the unit ID is all holes.
-computeHoleSubst :: DynFlags -> ShProvides -> ShRequires -> IO ShHoleSubst
-computeHoleSubst dflags provs reqs = do
-    let proto_hsubst =
-            foldl' (\m modname ->
-            -- TODO Does order matter? Shouldn't...
-                case Map.lookup modname provs of
-                    Just (mod, _) -> addToUFM m modname mod
-                    Nothing -> m)
-               emptyUFM (Map.keys reqs)
-    mkShHoleSubst dflags proto_hsubst
+computeHoleSubst :: ShProvides -> ShRequires -> ShHoleSubst
+computeHoleSubst provs reqs = do
+    foldl' (\m modname ->
+    -- TODO Does order matter? Shouldn't...
+        case Map.lookup modname provs of
+            Just (mod, _) -> addToUFM m modname mod
+            Nothing -> m)
+       emptyUFM (Map.keys reqs)
 
 -- | Find the idempotent fixed point of a non-idempotent substitution on
 -- 'Module's.
-fixShHoleSubst :: DynFlags -> ShHoleSubst -> IO ShHoleSubst
-fixShHoleSubst dflags env0 = f env0 where
-    f env | not fixpoint = f =<< T.mapM (renameHoleModule' dflags env . fst) (removeCycles env)
-          | otherwise    = return env
+fixShHoleSubst :: ShHoleSubst -> ShHoleSubst
+fixShHoleSubst env0 = f env0 where
+    f env | not fixpoint = f (fmap (renameHoleModule env) (removeCycles env))
+          | otherwise    = env
         where fixpoint = isNullUFM (intersectUFM_C const in_scope env)
-              in_scope = unionManyUniqSets (map snd (eltsUFM env))
+              in_scope = unionManyUniqSets (map moduleFreeHoles (eltsUFM env))
               removeCycles m = filterUFM_Directly notCycle m
-              notCycle u (m, _) = not (isHoleModule m && getUnique (moduleName m) == u)
+              notCycle u m = not (isHoleModule m && getUnique (moduleName m) == u)
 
 -- | Substitutes holes in an 'AvailInfo'.  NOT suitable for renaming
 -- when an include occurs (see 'renameHoleAvailInfo' instead).
@@ -186,7 +173,7 @@ substHoleFieldLabel hsc_env env (FieldLabel l b sel) = do
 substHoleName :: HscEnv -> ShHoleSubst -> Name -> IO Name
 substHoleName hsc_env env n = do
     let m = nameModule n
-    m' <- substHoleModule (hsc_dflags hsc_env) env m
+        m' = substHoleModule env m
     if m == m'
         then return n
         else setNameModule hsc_env (Just m') n
@@ -195,58 +182,33 @@ substHoleName hsc_env env n = do
 -- this is the behavior you want when substituting the 'nameModule' of a 'Name'.
 -- @p(A -> HOLE:A):B@ maps to @p(A -> q():A):B@ with @A -> q():A@;
 -- this substitution has no effect on @HOLE:A@.
-substHoleModule :: DynFlags -> ShHoleSubst -> Module -> IO Module
-substHoleModule dflags env m = fmap fst (substHoleModule' dflags env m)
-
--- | Like 'substHoleModule', but also returns the 'ShFreeHoles' of the resulting
--- 'Module'.
-substHoleModule' :: DynFlags -> ShHoleSubst -> Module -> IO (Module, ShFreeHoles)
-substHoleModule' dflags env m
-  | not (isHoleModule m) = renameHoleModule' dflags env m
-  | otherwise = return (m, unitUniqSet (moduleName m))
+substHoleModule :: ShHoleSubst -> Module -> Module
+substHoleModule env m
+  | not (isHoleModule m) = renameHoleModule env m
+  | otherwise = m
 
 -- | Substitutes holes in a 'Module'.  NOT suitable for being called
 -- directly on a 'nameModule'.
 -- @p(A -> HOLE:A):B@ maps to @p(A -> q():A):B@ with @A -> q():A@;
 -- similarly, @HOLE:A@ maps to @q():A@.
-renameHoleModule :: DynFlags -> ShHoleSubst -> Module -> IO Module
-renameHoleModule dflags env m = fmap fst (renameHoleModule' dflags env m)
-
--- | Like 'renameHoleModule', but returns the 'ShFreeHoles' of the substituted
--- 'Module'.
-renameHoleModule' :: DynFlags -> ShHoleSubst -> Module -> IO (Module, ShFreeHoles)
-renameHoleModule' dflags env m
-  | not (isHoleModule m) = do
-        (pk, in_scope) <- renameHoleUnitId' dflags env (moduleUnitId m)
-        return (mkModule pk (moduleName m), in_scope)
-  | Just (m', in_scope') <- lookupUFM env (moduleName m) = return (m', in_scope')
+renameHoleModule :: ShHoleSubst -> Module -> Module
+renameHoleModule env m
+  | not (isHoleModule m) =
+        let uid = renameHoleUnitId env (moduleUnitId m)
+        in mkModule uid (moduleName m)
+  | Just m' <- lookupUFM env (moduleName m) = m'
   -- NB m = HOLE:Blah, that's what's in scope.
-  | otherwise = return (m, unitUniqSet (moduleName m))
+  | otherwise = m
 
 -- | Substitutes holes in a 'UnitId', suitable for renaming when
 -- an include occurs.
 --
 -- @p(A -> HOLE:A)@ maps to @p(A -> HOLE:B)@ with @A -> HOLE:B@.
-renameHoleUnitId :: DynFlags -> ShHoleSubst -> UnitId -> IO UnitId
-renameHoleUnitId dflags env pk = fmap fst (renameHoleUnitId' dflags env pk)
-
--- | Like 'renameHoleUnitId', but returns the 'ShFreeHoles' of
--- the resulting 'UnitId'.
-renameHoleUnitId' :: DynFlags
-                      -> ShHoleSubst
-                      -> UnitId
-                      -> IO (UnitId, ShFreeHoles)
-renameHoleUnitId' dflags env pk = do
-    ShUnitId { shUnitIdComponentId = uid
-             , shUnitIdInsts = insts
-             , shUnitIdFreeHoles = in_scope } <- lookupUnitId dflags pk
-    if isNullUFM (intersectUFM_C const in_scope env)
-        then return (pk, in_scope)
-        else do insts' <- mapM (\(modname, mod) -> do
-                            -- XXX todo use renameHoleModule'
-                            mod' <- renameHoleModule dflags env mod
-                            return (modname, mod')) insts
-                newUnitIdWithScope dflags uid insts'
+renameHoleUnitId :: ShHoleSubst -> UnitId -> UnitId
+renameHoleUnitId env uid =
+    if isNullUFM (intersectUFM_C const (unitIdFreeHoles uid) env)
+        then uid
+        else mapUnitIdInsts (\(_, mod) -> renameHoleModule env mod) uid
 
 {-
 ************************************************************************
@@ -346,8 +308,8 @@ renameHoleName :: HscEnv -> ShHoleSubst -> Name -> IO Name
 renameHoleName hsc_env env n = do
     let m = nameModule n
         dflags = hsc_dflags hsc_env
-    -- This line distinguishes this from 'substHoleName'.
-    m' <- renameHoleModule dflags env m
+        -- This line distinguishes this from 'substHoleName'.
+        m' = renameHoleModule env m
     if m == m'
         then return n
         else initIfaceCheck hsc_env $
@@ -415,8 +377,7 @@ initRnIface :: HscEnv -> UnitId -> ShIfM a -> IO a
 initRnIface hsc_env uid do_this = do
     MASSERT( uid /= holeUnitId )
     let dflags = hsc_dflags hsc_env
-    insts <- unitIdInsts dflags uid
-    hmap <- mkShHoleSubst dflags (listToUFM insts)
+        hmap = listToUFM (unitIdInsts uid)
     initTcRnIf 'c' hsc_env uid hmap do_this
 
 -- | This is UNLIKE the other substitutions, which occur during
@@ -468,7 +429,7 @@ rnModule :: Rename Module
 rnModule mod = do
     hmap <- getLclEnv
     dflags <- getDynFlags
-    liftIO $ renameHoleModule dflags hmap mod
+    return (renameHoleModule hmap mod)
 
 type ShIfM = TcRnIf UnitId ShHoleSubst
 type Rename a = a -> ShIfM a
@@ -526,7 +487,7 @@ rnIfaceGlobal n = do
     eps <- getEps
     let m = nameModule n
         dflags = hsc_dflags hsc_env
-    m' <- liftIO $ renameHoleModule dflags hmap m
+        m' = renameHoleModule hmap m
     -- pprTrace "rnIfaceGlobal" (ppr m <+> ppr m' <+> ppr n) $ return ()
     fmap (substName (eps_shape eps)) $ case () of
         _ | m == m' -> return n

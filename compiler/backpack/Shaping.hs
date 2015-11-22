@@ -463,7 +463,7 @@ hsModuleToModSummary dflags hsc_src modname
 -- can calculate it based on the 'Module's that are available.
 data ShapeConfig
     = ShapeConfig {
-        shcShUnitId :: ShUnitId,
+        shcUnitId :: UnitId,
         shcProvides :: Map ModuleName Module,
         shcRequires :: Map ModuleName Module
     }
@@ -476,9 +476,9 @@ lookupIndefUnitId cid = do
     dflags <- getDynFlags
     case lookupComponentId dflags cid of
         Just cfg -> do
-            sh_uid <- liftIO $ lookupUnitId dflags (packageConfigId cfg)
             return $ Just
-                ShapeConfig { shcShUnitId = sh_uid
+            -- TODO: This would be bad if the UnitId is not serialized correctly
+                ShapeConfig { shcUnitId = packageConfigId cfg
                             , shcProvides = Map.fromList (exposedModules cfg)
                             -- TODO: is this right?  Should be OK
                             , shcRequires = Map.fromList (shUnitIdInsts sh_uid)
@@ -883,7 +883,7 @@ mergePreShapes psh1 psh2 =
 -}
 
 -- | Compute package key of a 'HsUnit'
-shComputeUnitId :: ComponentId -> LHsUnit -> ShM ShUnitId
+shComputeUnitId :: ComponentId -> LHsUnit -> ShM UnitId
 shComputeUnitId cid
     (L loc HsUnit { hsunitName = L _ name
                   , hsunitExports = Nothing -- XXX incomplete
@@ -897,7 +897,7 @@ shComputeUnitId cid
                         -- TODO: unnecessarily monadic
                         let mod = mkModule holeUnitId modname
                         return (modname, mod)
-         liftIO $ newShUnitId dflags cid insts
+         liftIO $ newUnitId dflags cid insts
 shComputeUnitId _cid
     (L _ HsUnit { hsunitName = _
                   , hsunitExports = Just _

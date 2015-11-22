@@ -42,7 +42,7 @@ module GHC.PackageDb (
        IndefiniteUnitId(..),
        GenModule(..),
        BinaryStringRep(..),
-       mkUnitId,
+       hashUnitId,
        emptyInstalledPackageInfo,
        readPackageDbForGhc,
        readPackageDbForGhcPkg,
@@ -100,9 +100,9 @@ toBase62 w = showIntAtBase 62 represent w ""
         | x < 62 = Char.chr (97 + x - 36)
         | otherwise = error "represent (base 62): impossible!"
 
-mkUnitId :: (BinaryStringRep compid, BinaryStringRep modulename, BinaryStringRep unitid)
+hashUnitId :: (BinaryStringRep compid, BinaryStringRep modulename, BinaryStringRep unitid)
          => compid -> [(modulename, GenModule unitid modulename)] -> unitid
-mkUnitId cid sorted_holes
+hashUnitId cid sorted_holes
     -- Including empty
   | all (\(m, mod) -> BS.Char8.pack "hole" == toStringRep (moduleUnitId mod)
                    && toStringRep m == toStringRep (moduleName mod)) sorted_holes =

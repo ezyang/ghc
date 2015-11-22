@@ -1,23 +1,8 @@
 {-# LANGUAGE CPP #-}
 module ShUnitId(
-    ShFreeHoles,
-
-    newUnitId,
-    newUnitId',
-    newUnitIdWithScope,
-    newShUnitId,
-    lookupUnitId,
-
-    unitIdComponentId,
-    unitIdInsts,
-    unitIdFreeHoles,
-    moduleFreeHoles,
-
     generalizeHoleModule,
     generalizeHoleUnitId,
     canonicalizeModule,
-
-    pprUnitId
 ) where
 
 #include "HsVersions.h"
@@ -46,33 +31,6 @@ import Data.IORef
 ************************************************************************
 -}
 
--- Note: [UnitId cache]
--- ~~~~~~~~~~~~~~~~~~~~~~~~
--- The built-in UnitId type (used by Module, Name, etc)
--- records the instantiation of the package as an MD5 hash
--- which is not reversible without some extra information.
--- However, the shape merging process requires us to be able
--- to substitute Module occurrences /inside/ the UnitID.
---
--- Thus, we maintain the invariant: for every UnitId
--- in our system, either:
---
---      1. It has an empty hole mapping (and is thus equal
---         to the ComponentId), or
---      2. We've recorded the associated mapping in the
---         UnitIdCache.
---
--- A UnitId can be expanded into a ShUnitId which has
--- the instance mapping.  In the mapping, we don't bother
--- expanding a 'Module'; depending on 'shUnitIdFreeHoles',
--- it may not be necessary to do a substitution (you only
--- need to drill down when substituing HOLE:H if H is in scope.
---
--- Note that ShUnitId is different from IndefUnitId/IndefiniteUnitId;
--- the latter data type is "fully-expanded" (whereas ShUnitId only
--- unrolls the mapping one level.)  This makes the latter suitable
--- for serializing/deserializing in the package database.
-
 -- Note: [Module name in scope set]
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 -- Similar to InScopeSet, ShFreeHoles is an optimization that
@@ -80,35 +38,13 @@ import Data.IORef
 -- if there isn't actually anything in the module expression that
 -- we can substitute.
 
--- | Given a Name or Module, the 'ShFreeHoles' contains the set
--- of free variables, i.e. HOLE:A modules, which may be substituted.
--- If this set is empty no substitutions are possible.
-type ShFreeHoles = UniqSet ModuleName
-
--- | Returns the hole mapping of a 'UnitId'.
-unitIdInsts :: DynFlags -> UnitId -> IO [(ModuleName, Module)]
-unitIdInsts dflags pk = fmap shUnitIdInsts (lookupUnitId dflags pk)
-
--- | Returns the 'ComponentId' of a 'UnitId'.
-unitIdComponentId :: DynFlags -> UnitId -> IO ComponentId
-unitIdComponentId dflags pk = fmap shUnitIdComponentId (lookupUnitId dflags pk)
-
--- | Returns the free holes of a 'UnitId'. NB: if this
--- 'UnitId' is a 'holeUnitId', this will return an
--- empty set; use 'moduleFreeHoles' to handle HOLE:A properly.
-unitIdFreeHoles :: DynFlags -> UnitId -> IO (UniqSet ModuleName)
-unitIdFreeHoles dflags pk = fmap shUnitIdFreeHoles (lookupUnitId dflags pk)
-
--- | Calculate the free holes of a 'Module'.
-moduleFreeHoles :: DynFlags -> Module -> IO ShFreeHoles
-moduleFreeHoles dflags m
-    | moduleUnitId m == holeUnitId = return (unitUniqSet (moduleName m))
-    | otherwise = unitIdFreeHoles dflags (moduleUnitId m)
-
--- | Calculate the free holes of the hole map @[('ModuleName', 'Module')]@.
-calcInstsFreeHoles :: DynFlags -> [(ModuleName, Module)] -> IO ShFreeHoles
-calcInstsFreeHoles dflags insts =
-    fmap unionManyUniqSets (mapM (moduleFreeHoles dflags . snd) insts)
+{-
+-- | This creates a UnitId, but also makes sure that it's consistent
+-- with what we know about it in the package database.
+NewUnitId :: DynFlags
+          -> ComponentId
+          -> [(ModuleName, Module)]
+          -> UnitId
 
 -- | Given a 'ComponentName', an 'ComponentId', and sorted mapping of holes to
 -- their implementations, compute the 'UnitId' associated with it, as well
@@ -137,7 +73,7 @@ newUnitId dflags uid insts = do
 newShUnitId :: DynFlags
             -> ComponentId
             -> [(ModuleName, Module)]
-            -> IO ShUnitId
+            -> IO UnitId
 newShUnitId dflags cid insts = do
     -- This is a bit terrible but it will help a lot
     fhs <- unsafeInterleaveIO (calcInstsFreeHoles dflags insts)
@@ -180,21 +116,7 @@ mkLegacyId pk
                , shUnitIdInsts = []
                , shUnitIdFreeHoles = emptyUniqSet
                }
-
-pprUnitId :: UnitId -> SDoc
-pprUnitId pk = sdocWithDynFlags $ \dflags ->
-    -- name cache is a memotable
-    let shpk = unsafePerformIO (lookupUnitId dflags pk)
-    in ppr (shUnitIdComponentId shpk) <>
-        (if not (null (shUnitIdInsts shpk)) -- pprIf
-          then
-            parens (hsep
-                (punctuate comma [ ppUnless (moduleName m == modname)
-                                            (ppr modname <+> text "->")
-                                   <+> ppr m
-                                 | (modname, m) <- shUnitIdInsts shpk]))
-          else empty)
-        <> ifPprDebug (braces (ftext (unitIdFS pk)))
+               -}
 
 -- NB: newUnitId and lookupUnitId are mutually recursive; this
 -- recursion is guaranteed to bottom out because you can't set up cycles
@@ -214,32 +136,27 @@ pprUnitId pk = sdocWithDynFlags $ \dflags ->
 -- used when we have a unit ID, and we know that the generalized version
 -- has already been typechecked, so we can load that interface and then
 -- rename it to the requested unit ID.
-generalizeHoleModule :: DynFlags -> Module -> IO Module
-generalizeHoleModule dflags m = do
-    pk <- generalizeHoleUnitId dflags (moduleUnitId m)
-    return (mkModule pk (moduleName m))
+generalizeHoleModule :: Module -> Module
+generalizeHoleModule m =
+    let uid = generalizeHoleUnitId (moduleUnitId m)
+    in mkModule uid (moduleName m)
 
 -- | Generalize a 'UnitId' into one where all the holes are indefinite.
 -- @p(A -> q():A) generalizes to p(A -> HOLE:A)@.
-generalizeHoleUnitId :: DynFlags -> UnitId -> IO UnitId
-generalizeHoleUnitId dflags pk = do
-    ShUnitId { shUnitIdComponentId = uid,
-               shUnitIdInsts = insts0 } <- lookupUnitId dflags pk
-    let insts = map (\(x, _) -> (x, mkModule holeUnitId x)) insts0
-    newUnitId dflags uid insts
+generalizeHoleUnitId :: UnitId -> UnitId
+generalizeHoleUnitId =
+    mapUnitIdInsts (\(x, _) -> mkModule holeUnitId x)
 
 -- | Canonicalize a 'Module' so that it uniquely identifies a module.
 -- For example, @p(A -> M):A@ canonicalizes to @M@.  Useful for making
 -- sure the interface you've loaded as the right @mi_module@.
-canonicalizeModule :: DynFlags -> Module -> IO Module
+canonicalizeModule :: DynFlags -> Module -> Module
 -- Kind of hack to make "not-actually Backpack signatures" work
 canonicalizeModule dflags m
     | moduleUnitId m == thisPackage dflags
     , Just sof <- getSigOf dflags (moduleName m)
-    = return sof
-canonicalizeModule dflags m = do
-    let pk = moduleUnitId m
-    ShUnitId { shUnitIdInsts = insts } <- lookupUnitId dflags pk
-    return $ case lookup (moduleName m) insts of
-                Just m' -> m'
-                _ -> m
+    = sof
+    | otherwise
+    = case lookup (moduleName m) (unitIdInsts (moduleUnitId m)) of
+        Just m' -> m'
+        _ -> m

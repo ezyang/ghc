@@ -97,8 +97,8 @@ initTc hsc_env hsc_src keep_rn_syntax mod loc do_this
         dependent_files_var <- newIORef [] ;
         static_wc_var       <- newIORef emptyWC ;
 
-        let { dflags = hsc_dflags hsc_env } ;
-        semantic_mod <- canonicalizeModule dflags mod ;
+        let { dflags = hsc_dflags hsc_env ;
+              semantic_mod = canonicalizeModule dflags mod } ;
 #ifdef GHCI
         th_topdecls_var      <- newIORef [] ;
         th_topnames_var      <- newIORef emptyNameSet ;
@@ -614,7 +614,7 @@ traceOptIf flag doc
 setModule :: Module -> TcRn a -> TcRn a
 setModule mod thing_inside = do
     dflags <- getDynFlags
-    semantic_mod <- liftIO $ canonicalizeModule dflags mod
+    let semantic_mod = canonicalizeModule dflags mod
     updGblEnv (\env -> env { tcg_mod = mod
                            , tcg_semantic_mod = semantic_mod }) thing_inside
 
@@ -1423,8 +1423,8 @@ initIfaceTc iface do_this
  = do   { tc_env_var <- newTcRef emptyTypeEnv
         ; dflags <- getDynFlags
         -- NB use semantic module here!
-        ; mod <- liftIO $ canonicalizeModule dflags (mi_module iface)
-        ; let { doc = ptext (sLit "The interface for") <+> quotes (ppr mod)
+        ; let { mod = canonicalizeModule dflags (mi_module iface)
+              ; doc = ptext (sLit "The interface for") <+> quotes (ppr mod)
               ; gbl_env = IfGblEnv {
                             if_doc = text "initIfaceTc",
                             if_rec_types = Just (mod, readTcRef tc_env_var)

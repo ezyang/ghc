@@ -214,8 +214,8 @@ mkIface_ hsc_env maybe_old_fingerprint
 --      to expose in the interface
 
   = do
-    semantic_mod <- liftIO $ canonicalizeModule dflags this_mod
-    let entities = typeEnvElts type_env
+    let semantic_mod = canonicalizeModule dflags this_mod
+        entities = typeEnvElts type_env
         decls  = [ tyThingToIfaceDecl entity
                  | entity <- entities,
                    let name = getName entity,
@@ -1087,7 +1087,7 @@ checkHsig :: HscEnv -> ModSummary -> ModIface -> IfG RecompileRequired
 checkHsig hsc_env mod_summary iface = do
     let outer_mod = ms_mod mod_summary
         dflags = hsc_dflags hsc_env
-    inner_mod <- liftIO $ canonicalizeModule dflags outer_mod
+        inner_mod = canonicalizeModule dflags outer_mod
     case inner_mod == mi_semantic_module iface of
         True -> up_to_date (text "implementing module unchanged")
         False -> return (RecompBecause "implementing module changed")

@@ -584,7 +584,6 @@ compiler_stage2_dll0_MODULES = \
 	Rules \
 	Serialized \
 	SrcLoc \
-	ShUnitId \
 	StaticFlags \
 	StringBuffer \
 	TcEvidence \

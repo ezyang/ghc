@@ -522,14 +522,14 @@ computeInterfaceAnd ::
 computeInterfaceAnd def_action indef_action doc_str hi_boot_file mod = do
     dflags <- getDynFlags
     -- First try for a fully compiled interface
-    fh <- liftIO $ moduleFreeHoles dflags mod
+    let fh = moduleFreeHoles mod
     r <- findAndReadIface doc_str mod hi_boot_file
     case r of
         Succeeded (iface0, path) | isEmptyUniqSet fh -> do
             return (Succeeded (def_action iface0, path))
         _ -> do
             -- Now try for a fat interface
-            imod <- liftIO $ generalizeHoleModule dflags mod
+            let imod = generalizeHoleModule mod
             r <- findAndReadIface doc_str imod hi_boot_file
             case r of
                 Succeeded (iface0, path) -> do
