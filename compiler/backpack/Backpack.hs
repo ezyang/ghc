@@ -376,7 +376,6 @@ typecheckUnit is_primary cid pkg = do
     hsc_env <- getSession
     let dflags = hsc_dflags hsc_env
         comp_name = unLoc (hsunitName (unLoc pkg))
-    --  is_exe = comp_name == ComponentName (fsLit "main")
     shpk <- runShM $ shComputeUnitId cid pkg
     pk <- liftIO $ newUnitId' dflags shpk
     -- TODO skip this when there are no holes
@@ -533,13 +532,156 @@ compileUnit is_primary uid = do
         }
     addPackage pkginfo
 
-{-
+getSource :: ComponentId -> BkpM LHsUnit
+getSource cid = do
+    bkp_env <- getBkpEnv
+    case Map.lookup cid (bkp_table bkp_env) of
+        -- TODO: exception throw
+        Nothing -> panic "missing needed dependency, please compile me manually"
+        Just lunit -> return lunit
+
+typecheckUnit' :: ComponentId -> BkpM ()
+typecheckUnit' cid = do
+    dflags <- getDynFlags
+    lunit <- getSource cid
+    sh_uid <- runShM $ shComputeUnitId cid lunit
+    uid <- liftIO $ newUnitId' dflags sh_uid
+    buildUnit TcSession uid lunit
+
+compileUnit' :: UnitId -> BkpM ()
+compileUnit' uid = do
+    dflags <- getDynFlags
+    cid <- liftIO $ unitIdComponentId dflags uid
+    lunit <- getSource cid
+    buildUnit CompSession uid lunit
+
 buildUnit :: SessionType -> UnitId -> LHsUnit -> BkpM ()
 buildUnit session uid lunit = do
     dflags <- getDynFlags
-    cid <- liftIO $ unitIdComponentId d
-    return ()
-    -}
+
+    -- Let everyone know we're building this unit ID
+    msgUnitId uid
+
+    -- Analyze the dependency structure
+    include_graph <- runShM $ shIncludeGraph uid lunit
+
+    -- Determine the dependencies of this unit.
+    let raw_deps = map is_pkg_key include_graph
+
+    -- The compilation dependencies are just the appropriately filled
+    -- in unit IDs which must be compiled before we can compile.
+    insts <- liftIO $ unitIdInsts dflags uid
+    hsubst <- liftIO $ mkShHoleSubst dflags (listToUFM insts)
+    deps <- liftIO $ mapM (renameHoleUnitId dflags hsubst) raw_deps
+
+    -- Build/type-check dependencies
+    forM_ (zip [1..] deps) $ \(i, dep) ->
+        case session of
+            TcSession -> do
+                dep_cid <- liftIO $ unitIdComponentId dflags dep
+                typecheckUnit' dep_cid
+            _ -> compileUnit' dep
+
+    -- Compute the in-scope provisions and requirements
+    let raw_provs = map is_inst_provides include_graph
+        raw_reqs  = map is_inst_requires include_graph
+    provs <- liftIO $ mapM (T.mapM (renameHoleModule dflags hsubst)) raw_provs
+    reqs <- liftIO $ mapM (T.mapM (fmap (:[]) . renameHoleModule dflags hsubst)) raw_reqs
+    let mod_map = Map.unions provs
+        req_map = Map.unionsWith (++) reqs
+
+    mb_old_eps <- case session of
+                    TcSession -> fmap Just getEpsGhc
+                    _ -> return Nothing
+
+    conf <- withBkpSession uid mod_map req_map session $ do
+        dflags <- getDynFlags
+        mod_graph <- runShM $ shModGraph uid include_graph lunit
+
+        hsc_env <- getSession
+        case session of
+            TcSession -> do
+                -- TODO: do this lazily as we process modules
+                sh <- runShM $ shPackage uid include_graph mod_graph lunit
+                sh_subst <- liftIO $ computeShapeSubst hsc_env sh
+                updateEpsGhc_ (\eps -> eps { eps_shape = sh_subst } )
+            _ -> return ()
+
+        msg <- mkBackpackMsg
+        ok <- load' LoadAllTargets (Just msg) mod_graph
+        when (failed ok) (liftIO $ exitWith (ExitFailure 1))
+
+        let hi_dir = expectJust (panic "hiDir Backpack") $ hiDir dflags
+            -- TODO: doesn't handle export renaming
+            export_mod ms = (ms_mod_name ms, ms_mod ms)
+            mods = [ export_mod ms | ms <- mod_graph, ms_hsc_src ms == HsSrcFile ]
+
+        -- Compile relevant only
+        hsc_env <- getSession
+        let home_mod_infos = eltsUFM (hsc_HPT hsc_env)
+            linkables = map (expectJust "bkp link" . hm_linkable)
+                      . filter ((==HsSrcFile) . mi_hsc_src . hm_iface)
+                      $ home_mod_infos
+            getOfiles (LM _ _ us) = map nameOfObject (filter isObject us)
+            obj_files = concatMap getOfiles linkables
+
+        indef_deps <- liftIO
+                    . mapM (generalizeHoleUnitId dflags . is_pkg_key)
+                    -- TODO: THIS IS WRONG
+                    -- The actual problem is that wired in packages like
+                    -- ghc-prim need to be "unwired" so that the resolution
+                    -- mechanism can handle them properly
+                    . filter (not . Map.null . is_requires)
+                    $ include_graph
+
+        return InstalledPackageInfo {
+            -- componentId = cid,
+            -- Stub data
+            abiHash = "",
+            sourcePackageId = SourcePackageId (fsLit ""),
+            packageName = PackageName (fsLit ""),
+            packageVersion = makeVersion [0],
+            componentName = ComponentName (fsLit ""),
+            unitId = uid,
+            exposedModules = mods,
+            hiddenModules = [], -- TODO: doc only
+            -- this is NOT the build plan
+            depends = case session of
+                        TcSession -> indef_deps
+                        _ -> deps,
+            instantiatedDepends = deps ++ [ moduleUnitId mod
+                                          | (_, mod) <- insts
+                                          , not (isHoleModule mod) ],
+            ldOptions = case session of
+                            TcSession -> []
+                            _ -> obj_files,
+            importDirs = [ hi_dir ],
+            exposed = False,
+            indefinite = case session of
+                            TcSession -> True
+                            _ -> False,
+            -- not necessary for in-memory
+            unitIdMap = [],
+            -- nope
+            hsLibraries = [],
+            extraLibraries = [],
+            extraGHCiLibraries = [],
+            libraryDirs = [],
+            frameworks = [],
+            frameworkDirs = [],
+            ccOptions = [],
+            includes = [],
+            includeDirs = [],
+            haddockInterfaces = [],
+            haddockHTMLs = [],
+            trusted = False
+            }
+
+
+    addPackage conf
+    case mb_old_eps of
+        Just old_eps -> updateEpsGhc_ (const old_eps)
+        _ -> return ()
 
 compileExe :: LHsUnit -> BkpM ()
 compileExe pkg = do
@@ -576,6 +718,9 @@ compileInclude n (i, pk) = do
     shpk <- liftIO $ lookupUnitId dflags pk
     let cid = shUnitIdComponentId shpk
     msgInclude (i, n) cid
+    -- TODO: this recompilation avoidance should distinguish between
+    -- local in-memory entries (OK to avoid recompile) and entries
+    -- from the database (MUST recompile).
     case lookupPackage dflags pk of
         Nothing -> do
             -- Nope, compile it
