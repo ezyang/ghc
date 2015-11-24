@@ -271,8 +271,8 @@ doBackpack src_filename = do
                                 if isEmptyUniqSet fh
                                     then if comp_name == ComponentName (fsLit "main")
                                             then compileExe pkg
-                                            else compileUnit is_primary uid
-                                    else typecheckUnit is_primary cid pkg
+                                            else compileUnit uid
+                                    else typecheckUnit cid
 
 -- | Tiny enum for all types of Backpack operations we may do.
 data SessionType = ExeSession | TcSession | CompSession
@@ -349,189 +349,6 @@ withBkpExeSession include_graph do_this = do
     let mod_map = Map.unions (map is_inst_provides include_graph)
     withBkpSession mainUnitId mod_map Map.empty ExeSession do_this
 
--- | Create a temporary session for type-checking.
-withBkpTcSession :: UnitId -> IncludeGraph -> BkpM a -> BkpM a
-withBkpTcSession pk include_graph do_this = do
-    old_eps <- getEpsGhc
-    let mod_map = Map.unions (map is_inst_provides include_graph)
-        req_map = Map.unionsWith (++) (map (Map.map return . is_inst_requires) include_graph)
-    r <- withBkpSession pk mod_map req_map TcSession do_this
-    -- Restore the old EPS from prior to typechecking.  This is because
-    -- any indefinite TyThings we stored in the EPS may become invalid
-    -- on future runs, if shaping changes.
-    --
-    -- Resetting the entire EPS to prior to the compilation is a pretty big
-    -- hammer, but better than totally clearing the EPS.
-    updateEpsGhc_ (const old_eps)
-    return r
-
-withBkpCompSession :: UnitId -> Map ModuleName Module -> Map ModuleName [Module] -> BkpM a -> BkpM a
-withBkpCompSession uid mod_map req_map do_this =
-    withBkpSession uid mod_map req_map CompSession do_this
-    -- No setTargets nuttery
-
--- | Type checks a unit and adds it to the indefinite unit database.
-typecheckUnit :: Bool {- is primary -} -> ComponentId -> LHsUnit -> BkpM ()
-typecheckUnit is_primary cid pkg = do
-    hsc_env <- getSession
-    let dflags = hsc_dflags hsc_env
-        comp_name = unLoc (hsunitName (unLoc pkg))
-    shpk <- runShM $ shComputeUnitId cid pkg
-    pk <- liftIO $ newUnitId' dflags shpk
-    -- TODO skip this when there are no holes
-    -- when (not is_exe) $ do
-    -- Desugar into the include and module graphs we need
-    include_graph <- runShM $ shIncludeGraph pk pkg
-    ipkg <- withBkpTcSession pk include_graph $ do
-        dflags <- getDynFlags
-        mod_graph <- runShM $ shModGraph pk include_graph pkg
-
-        -- Record the shape in the EPS, so that type-checking
-        -- can see it.
-        sh <- runShM $ shPackage pk include_graph mod_graph pkg
-        sh_subst <- liftIO $ computeShapeSubst hsc_env sh
-        updateEpsGhc_ (\eps -> eps { eps_shape = sh_subst } )
-
-        msg <- mkBackpackMsg
-        ok <- load' LoadAllTargets (Just msg) mod_graph
-        when (failed ok) (liftIO $ exitWith (ExitFailure 1))
-        let hi_dir = expectJust (panic "hiDir Backpack") $ hiDir dflags
-
-        -- TODO duplicate
-        let export_mod ms = (ms_mod_name ms, ms_mod ms)
-            mods = [ export_mod ms | ms <- mod_graph, ms_hsc_src ms == HsSrcFile ]
-
-        -- TODO: THIS IS WRONG
-        -- The actual problem is that wired in packages like ghc-prim
-        -- need to be "unwired" so that the resolution mechanism can handle
-        -- them properly
-        indef_deps <- liftIO  . mapM (generalizeHoleUnitId dflags . is_pkg_key) . filter (not . Map.null . is_requires) $ include_graph
-
-        return InstalledPackageInfo {
-            componentId = cid,
-            -- Stub data
-            abiHash = "",
-            sourcePackageId = SourcePackageId (fsLit ""),
-            packageName = PackageName (fsLit ""),
-            packageVersion = makeVersion [0],
-            componentName = comp_name,
-            unitId = pk,
-            exposedModules = mods,
-            hiddenModules = [], -- TODO: doc only
-            -- this is NOT the build plan
-            depends = indef_deps,
-            instantiatedDepends = map is_pkg_key include_graph,
-            ldOptions = [],
-            importDirs = [ hi_dir ],
-            exposed = False,
-            indefinite = True,
-            -- not necessary for in-memory
-            unitIdMap = [],
-            -- nope
-            hsLibraries = [],
-            extraLibraries = [],
-            extraGHCiLibraries = [],
-            libraryDirs = [],
-            frameworks = [],
-            frameworkDirs = [],
-            ccOptions = [],
-            includes = [],
-            includeDirs = [],
-            haddockInterfaces = [],
-            haddockHTMLs = [],
-            trusted = False
-        }
-
-    -- NB: This is outside 'withBkpTcSession' so the update to 'Session'
-    -- sticks.
-    addPackage ipkg
-
-compileUnit :: Bool {- is primary -} -> UnitId -> BkpM ()
-compileUnit is_primary uid = do
-    dflags <- getDynFlags
-    cid <- liftIO $ unitIdComponentId dflags uid
-    bkp_env <- getBkpEnv
-    lunit <- case Map.lookup cid (bkp_table bkp_env) of
-                -- TODO: exception throw
-                Nothing -> panic "missing needed dependency, please compile me manually"
-                Just lunit -> return lunit
-    let comp_name = unLoc (hsunitName (unLoc lunit))
-    msgUnitId uid
-    include_graph <- runShM $ shIncludeGraph uid lunit
-    let raw_deps = map is_pkg_key include_graph
-    insts <- liftIO $ unitIdInsts dflags uid
-    hsubst <- liftIO $ mkShHoleSubst dflags (listToUFM insts)
-    deps <- liftIO $ mapM (renameHoleUnitId dflags hsubst) raw_deps
-    let raw_provs = map is_inst_provides include_graph
-        raw_reqs  = map is_inst_requires include_graph
-    provs <- liftIO $ mapM (T.mapM (renameHoleModule dflags hsubst)) raw_provs
-    reqs <- liftIO $ mapM (T.mapM (fmap (:[]) . renameHoleModule dflags hsubst)) raw_reqs
-    let mod_map = Map.unions provs
-        req_map = Map.unionsWith (++) reqs
-    forM_ (zip [1..] deps) $
-        compileInclude (length deps)
-    (exposed, hi_dir, obj_files) <- withBkpCompSession uid mod_map req_map $ do
-        mod_graph <- runShM $ shModGraph uid include_graph lunit
-        msg <- mkBackpackMsg
-        ok <- load' LoadAllTargets (Just msg) mod_graph
-        when (failed ok) (liftIO $ exitWith (ExitFailure 1))
-
-        hsc_env <- getSession
-        let home_mod_infos = eltsUFM (hsc_HPT hsc_env)
-            linkables = map (expectJust "bkp link".hm_linkable) $ filter ((==HsSrcFile) . mi_hsc_src . hm_iface) home_mod_infos
-            getOfiles (LM _ _ us) = map nameOfObject (filter isObject us)
-            obj_files = concatMap getOfiles linkables
-
-        let export_mod ms = (ms_mod_name ms, ms_mod ms)
-            mods = [ export_mod ms | ms <- mod_graph, ms_hsc_src ms == HsSrcFile ]
-            exposed = mods
-
-            hi_dir = expectJust (panic "Backpack hiDir") $ hiDir dflags
-
-        return (exposed, hi_dir, obj_files)
-    let pkginfo = InstalledPackageInfo {
-            componentId = cid,
-            abiHash = "",
-            -- Stub data
-            sourcePackageId = SourcePackageId (fsLit ""),
-            packageName = PackageName (fsLit ""),
-            packageVersion = makeVersion [0],
-            componentName = comp_name,
-            unitId = uid,
-            exposedModules = exposed,
-            hiddenModules = [], -- TODO: doc only
-            -- 'depends' is important if we end up linking into a real
-            -- executable
-            instantiatedDepends = [],
-            depends = deps
-                       ++ [ moduleUnitId mod | (_, mod) <- insts],
-            -- We didn't bother making an 'ar' archive which would be specified
-            -- in 'hsLibraries', so instead we just add the object files to
-            -- the linker options so they get linked in.  This is not such a
-            -- good idea for -dynamic compilation; we should probably make
-            -- the libraries in that case.
-            ldOptions = obj_files,
-            importDirs = [ hi_dir ],
-            exposed = False,
-            indefinite = False,
-            -- not necessary for in-memory
-            unitIdMap = [],
-            -- nope
-            hsLibraries = [],
-            extraLibraries = [],
-            extraGHCiLibraries = [],
-            libraryDirs = [],
-            frameworks = [],
-            frameworkDirs = [],
-            ccOptions = [],
-            includes = [],
-            includeDirs = [],
-            haddockInterfaces = [],
-            haddockHTMLs = [],
-            trusted = False
-        }
-    addPackage pkginfo
-
 getSource :: ComponentId -> BkpM LHsUnit
 getSource cid = do
     bkp_env <- getBkpEnv
@@ -540,16 +357,18 @@ getSource cid = do
         Nothing -> panic "missing needed dependency, please compile me manually"
         Just lunit -> return lunit
 
-typecheckUnit' :: ComponentId -> BkpM ()
-typecheckUnit' cid = do
+typecheckUnit :: ComponentId -> BkpM ()
+typecheckUnit cid = do
     dflags <- getDynFlags
     lunit <- getSource cid
     sh_uid <- runShM $ shComputeUnitId cid lunit
     uid <- liftIO $ newUnitId' dflags sh_uid
     buildUnit TcSession uid lunit
 
-compileUnit' :: UnitId -> BkpM ()
-compileUnit' uid = do
+compileUnit :: UnitId -> BkpM ()
+compileUnit uid = do
+    -- Let everyone know we're building this unit ID
+    msgUnitId uid
     dflags <- getDynFlags
     cid <- liftIO $ unitIdComponentId dflags uid
     lunit <- getSource cid
@@ -558,9 +377,6 @@ compileUnit' uid = do
 buildUnit :: SessionType -> UnitId -> LHsUnit -> BkpM ()
 buildUnit session uid lunit = do
     dflags <- getDynFlags
-
-    -- Let everyone know we're building this unit ID
-    msgUnitId uid
 
     -- Analyze the dependency structure
     include_graph <- runShM $ shIncludeGraph uid lunit
@@ -574,13 +390,11 @@ buildUnit session uid lunit = do
     hsubst <- liftIO $ mkShHoleSubst dflags (listToUFM insts)
     deps <- liftIO $ mapM (renameHoleUnitId dflags hsubst) raw_deps
 
-    -- Build/type-check dependencies
-    forM_ (zip [1..] deps) $ \(i, dep) ->
-        case session of
-            TcSession -> do
-                dep_cid <- liftIO $ unitIdComponentId dflags dep
-                typecheckUnit' dep_cid
-            _ -> compileUnit' dep
+    -- Build dependencies
+    case session of
+        TcSession -> return ()
+        _ -> forM_ (zip [1..] deps) $ \(i, dep) ->
+                compileInclude (length deps) (i, dep)
 
     -- Compute the in-scope provisions and requirements
     let raw_provs = map is_inst_provides include_graph
@@ -633,9 +447,10 @@ buildUnit session uid lunit = do
                     -- mechanism can handle them properly
                     . filter (not . Map.null . is_requires)
                     $ include_graph
+        cid <- liftIO $ unitIdComponentId dflags uid
 
         return InstalledPackageInfo {
-            -- componentId = cid,
+            componentId = cid,
             -- Stub data
             abiHash = "",
             sourcePackageId = SourcePackageId (fsLit ""),
@@ -711,18 +526,18 @@ addPackage pkg = do
                         return ()
 
 compileInclude :: Int -> (Int, UnitId) -> BkpM ()
-compileInclude n (i, pk) = do
+compileInclude n (i, uid) = do
     hsc_env <- getSession
     let dflags = hsc_dflags hsc_env
     -- Check if we've compiled it already
-    shpk <- liftIO $ lookupUnitId dflags pk
+    shpk <- liftIO $ lookupUnitId dflags uid
     let cid = shUnitIdComponentId shpk
     msgInclude (i, n) cid
     -- TODO: this recompilation avoidance should distinguish between
     -- local in-memory entries (OK to avoid recompile) and entries
     -- from the database (MUST recompile).
-    case lookupPackage dflags pk of
+    case lookupPackage dflags uid of
         Nothing -> do
             -- Nope, compile it
-            innerBkpM $ compileUnit False pk
+            innerBkpM $ compileUnit uid
         Just _ -> return ()
