@@ -1193,6 +1193,7 @@ mk/ghcconfig*_inplace_bin_ghc-stage2.exe.mk
 /tests/perf/space_leaks/T4334.stats
 /tests/perf/space_leaks/space_leak_001
 /tests/perf/space_leaks/space_leak_001.stats
+/tests/plugins/frontend01
 /tests/plugins/plugins01
 /tests/plugins/plugins05
 /tests/plugins/plugins06

@@ -38,3 +38,5 @@ test('plugins06',
        only_ways([config.ghc_plugin_way]) ],
      multimod_compile_and_run, ['plugins06', '-package ghc'])
 
+test('frontend01', [ extra_clean(['FrontendPlugin.hi', 'FrontendPlugin.o', 'frontend01', 'frontend01.o', 'frontend01.hi']) ],
+     run_command, ['$MAKE -s --no-print-directory frontend01'])

@@ -757,6 +757,7 @@ data DynFlags = DynFlags {
   -- Plugins
   pluginModNames        :: [ModuleName],
   pluginModNameOpts     :: [(ModuleName,String)],
+  frontendPluginOpts    :: [String],
 
   -- GHC API hooks
   hooks                 :: Hooks,
@@ -1469,6 +1470,7 @@ defaultDynFlags mySettings =
 
         pluginModNames          = [],
         pluginModNameOpts       = [],
+        frontendPluginOpts      = [],
         hooks                   = emptyHooks,
 
         outputFile              = Nothing,
@@ -1952,6 +1954,9 @@ addPluginModuleNameOption optflag d = d { pluginModNameOpts = (mkModuleName m, o
         option = case rest of
           [] -> "" -- should probably signal an error
           (_:plug_opt) -> plug_opt -- ignore the ':' from break
+
+addFrontendPluginOption :: String -> DynFlags -> DynFlags
+addFrontendPluginOption s d = d { frontendPluginOpts = s : frontendPluginOpts d }
 
 parseDynLibLoaderMode f d =
  case splitAt 8 f of
@@ -2571,6 +2576,7 @@ dynamic_flags = [
         ------ Plugin flags ------------------------------------------------
   , defGhcFlag "fplugin-opt" (hasArg addPluginModuleNameOption)
   , defGhcFlag "fplugin"     (hasArg addPluginModuleName)
+  , defGhcFlag "ffrontend-opt" (hasArg addFrontendPluginOption)
 
         ------ Optimisation flags ------------------------------------------
   , defGhcFlag "O"      (noArgM (setOptLevel 1))
