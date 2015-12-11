@@ -29,8 +29,10 @@ import InteractiveUI    ( interactiveUI, ghciWelcomeMsg, defaultGhciSettings )
 #endif
 
 -- Frontend plugins
+#ifdef GHCI
 import DynamicLoading
 import Plugins
+#endif
 import Module           ( ModuleName )
 
 
@@ -824,10 +826,15 @@ dumpPackagesSimple dflags = putMsg dflags (pprPackagesSimple dflags)
 -- Frontend plugin support
 
 doFrontend :: ModuleName -> [(String, Maybe Phase)] -> Ghc ()
+#ifndef GHCI
+doFrontend _ _ =
+    throwGhcException (CmdLineError "not built for interactive use")
+#else
 doFrontend modname srcs = do
     hsc_env <- getSession
     frontend_plugin <- liftIO $ loadFrontendPlugin hsc_env modname
     frontend frontend_plugin (frontendPluginOpts (hsc_dflags hsc_env)) srcs
+#endif
 
 -- -----------------------------------------------------------------------------
 -- ABI hash support
