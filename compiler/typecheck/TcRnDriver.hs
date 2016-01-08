@@ -474,12 +474,17 @@ tcRnSrcDecls explicit_mod_hdr decls
  = do { -- Create a binding for $trModule
         -- Do this before processing any data type declarations,
         -- which need tcg_tr_module to be initialised
+        -- TODO: I think we can do this fter renaming
       ; tcg_env <- mkModIdBindings
 
-                -- Do all the declarations
+        -- Rename and run TH splices
+      ; (tcg_env, rn_decls) <- setGblEnv tcg_env $
+                               rn_src_decls decls emptyRnGroup
+
+        -- Run the typechecker
       ; ((tcg_env, tcl_env), lie) <- setGblEnv tcg_env  $
                                      captureConstraints $
-              do { (tcg_env, tcl_env) <- tc_rn_src_decls decls ;
+              do { (tcg_env, tcl_env) <- tcTopSrcDecls rn_decls ;
                  ; tcg_env <- setEnvs (tcg_env, tcl_env) $
                               checkMain explicit_mod_hdr
                  ; return (tcg_env, tcl_env) }
@@ -545,18 +550,19 @@ tcRnSrcDecls explicit_mod_hdr decls
 
    } }
 
-tc_rn_src_decls :: [LHsDecl RdrName]
-                -> TcM (TcGblEnv, TcLclEnv)
 -- Loops around dealing with each top level inter-splice group
 -- in turn, until it's dealt with the entire module
-tc_rn_src_decls ds
- = {-# SCC "tc_rn_src_decls" #-}
-   do { (first_group, group_tail) <- findSplice ds
+rn_src_decls :: [LHsDecl RdrName]
+             -> HsGroup Name
+             -> TcM (TcGblEnv, HsGroup Name)
+rn_src_decls ds rn_decls0
+ = do { (first_group, group_tail) <- findSplice ds
                 -- If ds is [] we get ([], Nothing)
 
         -- Deal with decls up to, but not including, the first splice
-      ; (tcg_env, rn_decls) <- rnTopSrcDecls first_group
+      ; (tcg_env, rn_decls1) <- rnTopSrcDecls first_group
                 -- rnTopSrcDecls fails if there are any errors
+      ; let rn_decls = appendGroups rn_decls0 rn_decls1
 
 #ifdef GHCI
         -- Get TH-generated top-level declarations and make sure they don't
@@ -591,14 +597,9 @@ tc_rn_src_decls ds
                     }
 #endif /* GHCI */
 
-      -- Type check all declarations
-      ; (tcg_env, tcl_env) <- setGblEnv tcg_env $
-                              tcTopSrcDecls rn_decls
-
-        -- If there is no splice, we're nearly done
-      ; setEnvs (tcg_env, tcl_env) $
+      ; setGblEnv tcg_env $
         case group_tail of
-          { Nothing -> return (tcg_env, tcl_env)
+          { Nothing -> return (tcg_env, rn_decls)
 
 #ifndef GHCI
             -- There shouldn't be a splice
@@ -613,7 +614,7 @@ tc_rn_src_decls ds
 
                  -- Glue them on the front of the remaining decls and loop
                ; setGblEnv (tcg_env `addTcgDUs` usesOnly splice_fvs) $
-                 tc_rn_src_decls (spliced_decls ++ rest_ds)
+                 rn_src_decls (spliced_decls ++ rest_ds) rn_decls
                }
           }
 #endif /* GHCI */
