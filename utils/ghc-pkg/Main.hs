@@ -1028,7 +1028,7 @@ updateInternalDB :: PackageDB -> [DBOp] -> PackageDB
 updateInternalDB db cmds = db{ packages = foldl do_cmd (packages db) cmds }
  where
   do_cmd pkgs (RemovePackage p) =
-    filter ((/= installedUnitId p) . installedUnitId) pkgs
+    filter ((/= installedComponentId p) . installedComponentId) pkgs
   do_cmd pkgs (AddPackage p) = p : pkgs
   do_cmd pkgs (ModifyPackage p) =
     do_cmd (do_cmd pkgs (RemovePackage p)) (AddPackage p)
@@ -1095,7 +1095,7 @@ convertModule :: Module -> GhcModule
 convertModule (Module uid modname) =
     GhcModule (convertUnitId uid) modname
 
-hashInstalledUnitId p = ghcUnitIdHash (convertUnitId (installedUnitId p))
+hashInstalledUnitId p = ghcUnitIdHash (convertUnitId (installedComponentId p))
 
 -- Go through this rigamarole because we need to be able to compute
 -- hashes for filenames...
@@ -1126,7 +1126,7 @@ convertPackageInfoToCacheFormat pkg =
        GhcPkg.sourcePackageId    = display (sourcePackageId pkg),
        GhcPkg.packageName        = display (packageName pkg),
        GhcPkg.packageVersion     = packageVersion pkg,
-       GhcPkg.unitId             = convertUnitId (installedUnitId pkg),
+       GhcPkg.unitId             = convertUnitId (installedComponentId pkg),
        GhcPkg.componentName      = display (componentName pkg),
        GhcPkg.depends            = map convertUnitId (depends pkg),
        GhcPkg.abiHash            = let AbiHash abi = abiHash pkg
@@ -1153,7 +1153,7 @@ convertPackageInfoToCacheFormat pkg =
     }
   where convertExposed (ExposedModule n reexport) =
             (n, case reexport of
-                    Nothing -> GhcModule (convertUnitId (installedUnitId pkg)) n
+                    Nothing -> GhcModule (convertUnitId (installedComponentId pkg)) n
                     Just m -> convertModule m)
 
 instance GhcPkg.BinaryStringRep ModuleName where
@@ -1205,9 +1205,9 @@ modifyPackage fn pkgarg verbosity my_flags force = do
       db_name = location db
       pkgs    = packages db
 
-      pks = map installedUnitId ps
+      pks = map installedComponentId ps
 
-      cmds = [ fn pkg | pkg <- pkgs, installedUnitId pkg `elem` pks ]
+      cmds = [ fn pkg | pkg <- pkgs, installedComponentId pkg `elem` pks ]
       new_db = updateInternalDB db cmds
 
       -- ...but do consistency checks with regards to the full stack
@@ -1215,14 +1215,14 @@ modifyPackage fn pkgarg verbosity my_flags force = do
       rest_of_stack = filter ((/= db_name) . location) db_stack
       new_stack = new_db : rest_of_stack
       new_broken = brokenPackages (allPackagesInStack new_stack)
-      newly_broken = filter ((`notElem` map installedUnitId old_broken)
-                            . installedUnitId) new_broken
+      newly_broken = filter ((`notElem` map installedComponentId old_broken)
+                            . installedComponentId) new_broken
   --
   let displayQualPkgId pkg
         | [_] <- filter ((== pkgid) . sourcePackageId)
                         (allPackagesInStack db_stack)
             = display pkgid
-        | otherwise = display pkgid ++ "@" ++ display (installedUnitId pkg)
+        | otherwise = display pkgid ++ "@" ++ display (installedComponentId pkg)
         where pkgid = sourcePackageId pkg
   when (not (null newly_broken)) $
       dieOrForceAll force ("unregistering would break the following packages: "
@@ -1273,7 +1273,7 @@ listPackages verbosity my_flags mPackageName mModuleName = do
                         EQ -> case pkgVersion p1 `compare` pkgVersion p2 of
                                 LT -> LT
                                 GT -> GT
-                                EQ -> installedUnitId pkg1 `compare` installedUnitId pkg2
+                                EQ -> installedComponentId pkg1 `compare` installedComponentId pkg2
                    where (p1,p2) = (sourcePackageId pkg1, sourcePackageId pkg2)
 
       stack = reverse db_stack_sorted
@@ -1281,7 +1281,7 @@ listPackages verbosity my_flags mPackageName mModuleName = do
       match `exposedInPkg` pkg = any match (map display $ exposedModules pkg)
 
       pkg_map = allPackagesInStack db_stack
-      broken = map installedUnitId (brokenPackages pkg_map)
+      broken = map installedComponentId (brokenPackages pkg_map)
 
       show_normal PackageDB{ location = db_name, packages = pkg_confs } =
           do hPutStrLn stdout db_name
@@ -1290,7 +1290,7 @@ listPackages verbosity my_flags mPackageName mModuleName = do
                  else hPutStrLn stdout $ unlines (map ("    " ++) (map pp_pkg pkg_confs))
            where
                  pp_pkg p
-                   | installedUnitId p `elem` broken = printf "{%s}" doc
+                   | installedComponentId p `elem` broken = printf "{%s}" doc
                    | exposed p = doc
                    | otherwise = printf "(%s)" doc
                    where doc | verbosity >= Verbose = printf "%s (%s)" pkg uid
@@ -1320,7 +1320,7 @@ listPackages verbosity my_flags mPackageName mModuleName = do
                             : map (termText "    " <#>) (map pp_pkg pkg_confs))
           where
                    pp_pkg p
-                     | installedUnitId p `elem` broken = withF Red  doc
+                     | installedComponentId p `elem` broken = withF Red  doc
                      | exposed p                       = doc
                      | otherwise                       = withF Blue doc
                      where doc | verbosity >= Verbose
@@ -1541,7 +1541,7 @@ closure pkgs db_stack = go pkgs db_stack
                  -> Bool
    depsAvailable pkgs_ok pkg = null dangling
         where dangling = filter (`notElem` pids) (depends pkg)
-              pids = map installedUnitId pkgs_ok
+              pids = map installedComponentId pkgs_ok
 
         -- we want mutually recursive groups of package to show up
         -- as broken. (#1750)
@@ -1662,14 +1662,14 @@ checkPackageId ipi =
 checkUnitId :: InstalledPackageInfo -> PackageDBStack -> Bool
                 -> Validate ()
 checkUnitId ipi db_stack update = do
-  let uid = installedUnitId ipi
+  let uid = installedComponentId ipi
   when (uid == UnitId (ComponentId "") []) $ verror CannotForce "missing id field"
   let dups = [ p | p <- allPackagesInStack db_stack,
-                   installedUnitId p == uid ]
+                   installedComponentId p == uid ]
   when (not update && not (null dups)) $
     verror CannotForce $
         "package(s) with this id already exist: " ++
-         unwords (map (display.installedUnitId) dups)
+         unwords (map (display.installedComponentId) dups)
 
 checkDuplicates :: PackageDBStack -> InstalledPackageInfo
                 -> Bool -> Bool-> Validate ()
@@ -1735,7 +1735,7 @@ checkDep db_stack pkgid
                                  ++ "\" doesn't exist")
   where
         all_pkgs = allPackagesInStack db_stack
-        pkgids = map installedUnitId all_pkgs
+        pkgids = map installedComponentId all_pkgs
 
 checkDuplicateDepends :: [UnitId] -> Validate ()
 checkDuplicateDepends deps
@@ -1823,7 +1823,7 @@ checkModule field_name db_stack pkg
     -- TODO: also disabled for now
     (Module definingPkgId definingModule) = return ()
   {-
-  let mpkg = if definingPkgId == installedUnitId pkg
+  let mpkg = if definingPkgId == installedComponentId pkg
               then Just pkg
               -- TODO OBVIOUSLY BOGUS
               -- This won't get you the right original module!
