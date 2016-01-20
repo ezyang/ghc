@@ -32,7 +32,6 @@ module Module
         ComponentId(..),
         ShFreeHoles,
         UnitId,
-        unsafeNewUnitId,
         pprUnitId,
         mapUnitIdInsts,
         unitIdFS,
@@ -100,6 +99,14 @@ import Util
 import UniqSet
 import {-# SOURCE #-} Packages
 import GHC.PackageDb (BinaryStringRep(..), DbModuleRep(..), DbModule(..))
+
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Unsafe as BS
+import qualified Data.ByteString.Char8 as BS.Char8
+import System.IO.Unsafe
+import Foreign.Ptr (castPtr)
+import GHC.Fingerprint
+import Encoding
 
 import Data.Data
 import Data.Map (Map)
@@ -439,20 +446,54 @@ type ShFreeHoles = UniqSet ModuleName
 -- ToDo: when the key is a hash, we can do more clever things than store
 -- the hex representation and hash-cons those strings.
 data UnitId = UnitId {
+        unitIdFS :: FastString,
+        unitIdKey :: Unique, -- cached unique of unitIdFS
         unitIdComponentId :: !ComponentId,
         unitIdInsts :: ![(ModuleName, Module)],
-        unitIdFreeHoles :: ShFreeHoles,
+        unitIdFreeHoles :: ShFreeHoles
+    }
+    | DefiniteUnitId {
         unitIdFS :: FastString,
         unitIdKey :: Unique -- cached unique of unitIdFS
     } deriving (Typeable)
 
+-- These are ONLY used to get Uniques.  If you want to actually make
+-- symbols, these are NOT what you want.  This is totally internal to GHC.
+--
+-- TODO: Consider using a TrieMap instead, and a proper unique supply.
+-- (Downside of native unique supply: can't plunder FastString uniques)
+
+hashUnitId :: ComponentId -> [(ModuleName, Module)] -> FastString
+hashUnitId cid sorted_holes =
+    mkFastStringByteString
+  . fingerprintUnitId (toStringRep cid)
+  . fingerprintByteString
+  . BS.concat $ do
+        (m, b) <- sorted_holes
+        [ toStringRep m,                BS.Char8.singleton ' ',
+          fastStringToByteString (unitIdFS (moduleUnitId b)), BS.Char8.singleton ':',
+          toStringRep (moduleName b),   BS.Char8.singleton '\n']
+
+fingerprintByteString :: BS.ByteString -> Fingerprint
+fingerprintByteString bs = unsafePerformIO
+                         . BS.unsafeUseAsCStringLen bs
+                         $ \(p,l) -> fingerprintData (castPtr p) l
+
+fingerprintUnitId :: BS.ByteString -> Fingerprint -> BS.ByteString
+fingerprintUnitId prefix (Fingerprint a b)
+    = BS.concat
+    $ [ prefix
+      , BS.Char8.singleton '-'
+      , BS.Char8.pack (toBase62Padded a)
+      , BS.Char8.pack (toBase62Padded b) ]
+
+
 -- | Unsafe because it doesn't check if the instantiation makes sense
 -- for the 'ComponentId'.
 unsafeNewUnitId :: ComponentId -> [(ModuleName, Module)] -> UnitId
-unsafeNewUnitId cid insts =
-    let fs = mkFastStringByteString (hashUnitId cid insts)
-    in mkUnitId cid insts fs
+unsafeNewUnitId cid insts = mkUnitId cid insts (hashUnitId cid insts)
 
+{-
 instance UnitIdModuleRep ComponentId UnitId ModuleName Module where
     fromDbModule (GenModule uid modname) = mkModule uid modname
     toDbModule mod = GenModule (moduleUnitId mod) (moduleName mod)
@@ -461,6 +502,7 @@ instance UnitIdModuleRep ComponentId UnitId ModuleName Module where
     toDbUnitId UnitId{ unitIdComponentId = cid, unitIdInsts = insts }
         = IndefiniteUnitId cid insts
     unitIdHash uid = fastStringToByteString (unitIdFS uid)
+-}
 
 mkUnitId :: ComponentId -> [(ModuleName, Module)] -> FastString -> UnitId
 mkUnitId cid insts fs =
@@ -527,12 +569,8 @@ instance Binary ComponentId where
   put_ bh (ComponentId fs) = put_ bh fs
   get bh = do { fs <- get bh; return (ComponentId fs) }
 
--- NB: use me sparingly
 fsToUnitId :: FastString -> UnitId
-fsToUnitId fs = UnitId {
-    unitIdComponentId = ComponentId fs,
-    unitIdInsts = [],
-    unitIdFreeHoles = emptyUniqSet,
+fsToUnitId fs = DefiniteUnitId {
     unitIdFS = fs,
     unitIdKey = getUnique fs
     }

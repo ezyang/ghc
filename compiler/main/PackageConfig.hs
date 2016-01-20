@@ -50,7 +50,6 @@ type PackageConfig = InstalledPackageInfo
                        SourcePackageId
                        PackageName
                        Module.UnitId
-                       ComponentName
                        Module.ModuleName
                        Module.Module
 
@@ -96,11 +95,6 @@ sourcePackageIdString :: PackageConfig -> String
 sourcePackageIdString pkg = unpackFS str
   where
     SourcePackageId str = sourcePackageId pkg
-
-componentNameString :: PackageConfig -> String
-componentNameString pkg = unpackFS str
-  where
-    ComponentName str = componentName pkg
 
 componentId :: PackageConfig -> ComponentId
 componentId pkg = unitIdComponentId (unitId pkg)
