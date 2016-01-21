@@ -98,7 +98,7 @@ import Binary
 import Util
 import UniqSet
 import {-# SOURCE #-} Packages
-import GHC.PackageDb (BinaryStringRep(..), DbModuleRep(..), DbModule(..))
+import GHC.PackageDb (BinaryStringRep(..), DbUnitIdModuleRep(..), DbModule(..), DbUnitId(..))
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Unsafe as BS
@@ -400,9 +400,17 @@ class ContainsModule t where
 class HasModule m where
     getModule :: m Module
 
-instance DbModuleRep UnitId ModuleName Module where
+instance DbUnitIdModuleRep ComponentId UnitId ModuleName Module where
   fromDbModule (DbModule uid mod_name) = mkModule uid mod_name
   toDbModule mod = DbModule (moduleUnitId mod) (moduleName mod)
+  fromDbUnitId (DbUnitId { dbUnitIdComponentId = cid, dbUnitIdInsts = insts })
+    = unsafeNewUnitId cid insts
+  fromDbUnitId (DbDefiniteUnitId bs)
+    = fsToUnitId (mkFastStringByteString bs)
+  toDbUnitId UnitId{ unitIdComponentId = cid, unitIdInsts = insts }
+    = DbUnitId cid insts
+  toDbUnitId DefiniteUnitId{ unitIdFS = fs }
+    = DbDefiniteUnitId (fastStringToByteString fs)
 
 {-
 ************************************************************************
@@ -518,6 +526,7 @@ mkUnitId cid insts fs =
 mapUnitIdInsts :: ((ModuleName, Module) -> Module) -> UnitId -> UnitId
 mapUnitIdInsts f UnitId{ unitIdComponentId = cid, unitIdInsts = insts0 } =
     unsafeNewUnitId cid (zip (map fst insts0) (map f insts0))
+mapUnitIdInsts _ uid@DefiniteUnitId{} = uid
 
 pprUnitId :: UnitId -> SDoc
 pprUnitId uid =
@@ -558,12 +567,20 @@ instance Outputable UnitId where
 
 -- Performance: would prefer to have a NameCache like thing
 instance Binary UnitId where
+  put_ bh DefiniteUnitId{ unitIdFS = fs } = do
+    putByte bh 0
+    put_ bh fs
   put_ bh UnitId{ unitIdComponentId = cid, unitIdInsts = insts } = do
+    putByte bh 1
     put_ bh cid
     put_ bh insts
-  get bh = do cid <- get bh
-              insts <- get bh
-              return (unsafeNewUnitId cid insts)
+  get bh = do b <- getByte bh
+              case b of
+                0 -> fmap fsToUnitId (get bh)
+                _ -> do
+                  cid <- get bh
+                  insts <- get bh
+                  return (unsafeNewUnitId cid insts)
 
 instance Binary ComponentId where
   put_ bh (ComponentId fs) = put_ bh fs

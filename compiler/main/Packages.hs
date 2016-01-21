@@ -43,7 +43,6 @@ module Packages (
         packageHsLibs,
 
         -- * Utils
-        lookupComponentIdString,
         pprFlag,
         pprPackages,
         pprPackagesSimple,
@@ -1500,18 +1499,6 @@ missingDependencyMsg (Just parent)
   = space <> parens (text "dependency of" <+> ftext (unitIdFS parent))
 
 -- -----------------------------------------------------------------------------
-
-lookupComponentIdString :: DynFlags -> ComponentId -> Maybe String
-lookupComponentIdString dflags cid
-    = do conf <- lookupComponentId dflags cid
-         guard (sourcePackageIdString conf /= "")
-         -- TODO: make this field Maybe
-         return $ case componentNameString conf of
-            "" -> sourcePackageIdString conf
-            -- TODO: this is dodgy, it kind of looks like a ComponentId
-            -- but it's not because we didn't use the full hash!  Would
-            -- prefer for this to be visually distinct.
-            cname -> sourcePackageIdString conf ++ "-" ++ cname
 
 -- | Will the 'Name' come from a dynamically linked library?
 isDllName :: DynFlags -> UnitId -> Module -> Name -> Bool

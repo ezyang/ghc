@@ -47,6 +47,7 @@ import Unique
 -- which is similar to a subset of the InstalledPackageInfo type from Cabal.
 
 type PackageConfig = InstalledPackageInfo
+                       ComponentId
                        SourcePackageId
                        PackageName
                        Module.UnitId
