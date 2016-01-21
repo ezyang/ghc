@@ -1,12 +1,10 @@
 {-# LANGUAGE CPP #-}
-module MergeIface(mergeModIface, mergeModIface', mergeAvails) where
+module MergeIface(mergeModIface', mergeAvails) where
 
 #include "HsVersions.h"
 
 import Outputable
 import HscTypes
-import UniqFM
-import Maybes
 import Avail
 import Name
 import IfaceSyn
@@ -16,8 +14,6 @@ import RnNames
 import NameEnv
 import Util
 import Fingerprint
-
-import Data.Either
 
 {-
 ************************************************************************
@@ -91,39 +87,6 @@ mergeModIface' merged_decls iface1 iface2 =
         -- TODO: THIS IS PRETTY BAD TOO
         mi_usages    = []
     }
-
--- MaybeErr is a bad warning because we want to report as
--- many errors as possible
--- TODO totally unclear what fingerprints should be, so omitted for now
-mergeIfaceDecls :: [IfaceDecl]
-                -> [IfaceDecl]
-                -> MaybeErr
-                    -- on error, we want to report the two IfaceDecls
-                    -- for pretty printing, as well as a little description
-                    -- why they were different.
-                    [(IfaceDecl, IfaceDecl, SDoc)]
-                    [IfaceDecl]
-mergeIfaceDecls ds1 ds2 =
-    let mkE ds = listToUFM [ (ifName d, d) | d <- ds ]
-        (bad, ok) = partitionEithers
-                  . map (\(d1,d2) -> case mergeIfaceDecl d1 d2 of
-                                        Succeeded d -> Right d
-                                        Failed err -> Left (d1, d2, err))
-                  . eltsUFM
-                  $ intersectUFM_C (,) (mkE ds1) (mkE ds2)
-    in case bad of
-              -- HACK using right bias
-        [] -> Succeeded (eltsUFM (plusUFM (mkE ds1) (plusUFM (mkE ds2) (mkE ok))))
-        _ -> Failed bad
-
-mergeModIface :: ModIface -> ModIface -> MaybeErr [(IfaceDecl, IfaceDecl, SDoc)] ModIface
-mergeModIface iface1 iface2 = do
-    merged_decls <- fmap (map ((,) fingerprint0))
-                  $ mergeIfaceDecls (map snd (mi_decls iface1))
-                               (map snd (mi_decls iface2))
-    let iface = mergeModIface' merged_decls iface1 iface2
-    {- pprTrace "iface" (pprModIface iface) $ -}
-    return iface
 
 mergeFixities :: [(OccName, Fixity)] -> [(OccName, Fixity)] -> [(OccName, Fixity)]
 mergeFixities fix1 fix2 =

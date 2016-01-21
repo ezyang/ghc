@@ -3,4 +3,3 @@ import {-# SOURCE #-} Module (ComponentId)
 import {-# SOURCE #-} DynFlags (DynFlags)
 data PackageState
 emptyPackageState :: PackageState
-lookupComponentIdString :: DynFlags -> ComponentId -> Maybe String

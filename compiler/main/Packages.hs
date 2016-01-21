@@ -18,7 +18,6 @@ module Packages (
 
         -- * Querying the package config
         lookupPackage,
-        lookupPackageName,
         lookupComponentId,
         searchPackageId,
         getPackageDetails,
@@ -256,10 +255,6 @@ data PackageState = PackageState {
   -- may have the 'exposed' flag be 'False'.)
   pkgIdMap              :: PackageConfigMap,
 
-  -- | A mapping of 'PackageName' to 'ComponentId'.  This is used when
-  -- users refer to packages in Backpack includes.
-  packageNameMap            :: Map PackageName ComponentId,
-
   -- | The packages we're going to link in eagerly.  This list
   -- should be in reverse dependency order; that is, a package
   -- is always mentioned before the packages it depends on.
@@ -281,7 +276,6 @@ data PackageState = PackageState {
 emptyPackageState :: PackageState
 emptyPackageState = PackageState {
     pkgIdMap = emptyUFM,
-    packageNameMap = Map.empty,
     preloadPackages = [],
     explicitPackages = [],
     moduleToPkgConfAll = Map.empty,
@@ -305,11 +299,6 @@ lookupPackage' = lookupUFM
 -- unit key is precisely its component ID; and that they share uniques.
 lookupComponentId :: DynFlags -> ComponentId -> Maybe PackageConfig
 lookupComponentId dflags (ComponentId cid_fs) = lookupUFM (pkgIdMap (pkgState dflags)) cid_fs
-
--- | Find the package we know about with the given package name (e.g. @foo@), if any
--- (NB: there might be a locally defined unit name which overrides this)
-lookupPackageName :: DynFlags -> PackageName -> Maybe ComponentId
-lookupPackageName dflags n = Map.lookup n (packageNameMap (pkgState dflags))
 
 -- | Search for packages with a given package ID (e.g. \"foo-0.1\")
 searchPackageId :: DynFlags -> SourcePackageId -> [PackageConfig]
@@ -1110,12 +1099,6 @@ mkPackageState dflags0 dbs preload0 = do
       get_exposed _                 = []
 
   let pkg_db = extendPackageConfigMap emptyPackageConfigMap pkgs2
-      pkgname_map = foldl add Map.empty pkgs2
-        where add pn_map p
-                | "" <- componentNameString p
-                = Map.insert (packageName p) (packageComponentId p) pn_map
-                | otherwise
-                = pn_map
 
   let preload2 = preload1
 
@@ -1144,8 +1127,7 @@ mkPackageState dflags0 dbs preload0 = do
                                 else xs) [] pkg_db,
     pkgIdMap            = pkg_db,
     moduleToPkgConfAll  = mkModuleToPkgConfAll dflags pkg_db vis_map,
-    pluginModuleToPkgConfAll = mkModuleToPkgConfAll dflags pkg_db plugin_vis_map,
-    packageNameMap          = pkgname_map
+    pluginModuleToPkgConfAll = mkModuleToPkgConfAll dflags pkg_db plugin_vis_map
     }
   return (pstate, new_dep_preload)
 

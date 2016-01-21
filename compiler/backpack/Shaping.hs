@@ -13,7 +13,6 @@ module Shaping (
 
 #include "HsVersions.h"
 
-import MergeIface
 import HscMain
 import BackpackSyn
 import ShUnify
@@ -53,6 +52,9 @@ import Util
 import FastString
 import LoadIface
 import GhcMake
+import MergeIface
+
+import qualified GHC.LanguageExtensions as LangExt
 
 import System.FilePath
 import Data.List
@@ -348,7 +350,7 @@ hsModuleToModSummary dflags hsc_src modname
         ordinary_imps = filter ((/= moduleName gHC_PRIM) . unLoc . ideclName . unLoc)
                                ord_idecls
 
-        implicit_prelude = xopt Opt_ImplicitPrelude dflags
+        implicit_prelude = xopt LangExt.ImplicitPrelude dflags
         implicit_imports = mkPrelImports modname loc
                                          implicit_prelude imps
         convImport (L _ i) = (fmap sl_fs (ideclPkgQual i), ideclName i)
@@ -408,7 +410,9 @@ lookupIndefUnitId cid = do
             return $ Just
             -- TODO: This would be bad if the UnitId is not serialized correctly
                 ShapeConfig { shcUnitId = packageConfigId cfg
-                            , shcProvides = Map.fromList (exposedModules cfg)
+                            , shcProvides = Map.fromList
+                                                [ (mod_name, fromMaybe (mkModule (packageConfigId cfg) mod_name) mb_mod)
+                                                | (mod_name, mb_mod) <- exposedModules cfg ]
                             -- TODO: is this right?  Should be OK
                             , shcRequires = Map.fromList (unitIdInsts (packageConfigId cfg))
                             }
@@ -424,10 +428,14 @@ lookupUnit n@(ComponentName fs) = do
     case mb_shc of
         Just shc -> return shc
         Nothing -> do
+            -- TODO
             let pn = PackageName fs
+                uid = undefined :: ComponentId
+            {-
             uid <- case lookupPackageName dflags pn of
                     Just uid -> return uid
                     Nothing -> failSh (text "Cannot find unit" <+> ppr n)
+            -}
             mb_shc <- lookupIndefUnitId uid
             case mb_shc of
                 Just shc -> return shc
@@ -924,7 +932,7 @@ shModule (L loc (HsModule maybe_mod export_ies
     -- setGblEnv tcg_env $ do
 
     -- TODO factor this out to a function and reuse in tcRnModuleTcRnM
-    implicit_prelude <- xoptM Opt_ImplicitPrelude;
+    implicit_prelude <- xoptM LangExt.ImplicitPrelude;
     let { prel_imports = mkPrelImports (moduleName this_mod) prel_imp_loc
                                      implicit_prelude import_decls }
 

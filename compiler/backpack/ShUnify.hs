@@ -739,8 +739,8 @@ rnIfaceCo (IfaceTyConAppCo role tc cos)
     = IfaceTyConAppCo role <$> rnIfaceTyCon tc <*> mapM rnIfaceCo cos
 rnIfaceCo (IfaceAppCo co1 co2)
     = IfaceAppCo <$> rnIfaceCo co1 <*> rnIfaceCo co2
-rnIfaceCo (IfaceForAllCo bndr co)
-    = IfaceForAllCo <$> rnIfaceTvBndr bndr <*> rnIfaceCo co
+rnIfaceCo (IfaceForAllCo bndr co1 co2)
+    = IfaceForAllCo <$> rnIfaceTvBndr bndr <*> rnIfaceCo co1 <*> rnIfaceCo co2
 rnIfaceCo (IfaceCoVarCo lcl) = IfaceCoVarCo <$> pure lcl
 rnIfaceCo (IfaceAxiomInstCo n i cs)
     = IfaceAxiomInstCo <$> rnIfaceGlobal n <*> pure i <*> mapM rnIfaceCo cs
@@ -750,14 +750,13 @@ rnIfaceCo (IfaceSymCo c)
     = IfaceSymCo <$> rnIfaceCo c
 rnIfaceCo (IfaceTransCo c1 c2)
     = IfaceTransCo <$> rnIfaceCo c1 <*> rnIfaceCo c2
-rnIfaceCo (IfaceInstCo c1 t2)
-    = IfaceInstCo <$> rnIfaceCo c1 <*> rnIfaceType t2
+rnIfaceCo (IfaceInstCo c1 c2)
+    = IfaceInstCo <$> rnIfaceCo c1 <*> rnIfaceCo c2
 rnIfaceCo (IfaceNthCo d c) = IfaceNthCo d <$> rnIfaceCo c
 rnIfaceCo (IfaceLRCo lr c) = IfaceLRCo lr <$> rnIfaceCo c
 rnIfaceCo (IfaceSubCo c) = IfaceSubCo <$> rnIfaceCo c
-rnIfaceCo (IfaceAxiomRuleCo ax tys cos)
-    = IfaceAxiomRuleCo ax <$> mapM rnIfaceType tys
-                          <*> mapM rnIfaceCo cos
+rnIfaceCo (IfaceAxiomRuleCo ax cos)
+    = IfaceAxiomRuleCo ax <$> mapM rnIfaceCo cos
 
 rnIfaceTyCon :: Rename IfaceTyCon
 rnIfaceTyCon (IfaceTyCon n info)
@@ -785,9 +784,12 @@ rnIfaceType (IfaceTupleTy s i tks)
 rnIfaceType (IfaceTyConApp tc tks)
     = IfaceTyConApp <$> rnIfaceTyCon tc <*> rnIfaceTcArgs tks
 rnIfaceType (IfaceForAllTy tv t)
-    = IfaceForAllTy <$> rnIfaceTvBndr tv <*> rnIfaceType t
+    = IfaceForAllTy <$> rnIfaceForAllBndr tv <*> rnIfaceType t
+
+rnIfaceForAllBndr :: Rename IfaceForAllBndr
+rnIfaceForAllBndr (IfaceTv tv vis) = IfaceTv <$> rnIfaceTvBndr tv <*> pure vis
 
 rnIfaceTcArgs :: Rename IfaceTcArgs
-rnIfaceTcArgs (ITC_Type t ts) = ITC_Type <$> rnIfaceType t <*> rnIfaceTcArgs ts
-rnIfaceTcArgs (ITC_Kind t ts) = ITC_Kind <$> rnIfaceType t <*> rnIfaceTcArgs ts
+rnIfaceTcArgs (ITC_Invis t ts) = ITC_Invis <$> rnIfaceType t <*> rnIfaceTcArgs ts
+rnIfaceTcArgs (ITC_Vis t ts) = ITC_Vis <$> rnIfaceType t <*> rnIfaceTcArgs ts
 rnIfaceTcArgs ITC_Nil = pure ITC_Nil

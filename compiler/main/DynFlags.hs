@@ -3914,12 +3914,6 @@ exposePackage' p dflags
 setUnitId :: String -> DynFlags -> DynFlags
 setUnitId p s =  s{ thisPackage = stringToUnitId p }
 
-setComponentId :: String -> DynFlags -> DynFlags
-setComponentId v s = s{ thisComponentId = ComponentId (mkFastString v) }
-
-setComponentName :: String -> DynFlags -> DynFlags
-setComponentName v s = s{ thisComponentName = Just (ComponentName (mkFastString v)) }
-
 -- -----------------------------------------------------------------------------
 -- | Find the package environment (if one exists)
 --

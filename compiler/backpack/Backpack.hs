@@ -438,9 +438,10 @@ buildUnit session uid lunit = do
             sourcePackageId = SourcePackageId (fsLit ""),
             packageName = PackageName (fsLit ""),
             packageVersion = makeVersion [0],
-            componentName = ComponentName (fsLit ""),
+            -- componentName = ComponentName (fsLit ""),
             unitId = uid,
-            exposedModules = mods,
+            -- Slight inefficiency here haha
+            exposedModules = map (\(m,n) -> (m,Just n)) mods,
             hiddenModules = [], -- TODO: doc only
             -- this is NOT the build plan
             depends = case session of
@@ -448,15 +449,17 @@ buildUnit session uid lunit = do
                         _ -> deps ++ [ moduleUnitId mod
                                           | (_, mod) <- insts
                                           , not (isHoleModule mod) ],
-            instantiatedDepends = deps,
+            -- instantiatedDepends = deps,
             ldOptions = case session of
                             TcSession -> []
                             _ -> obj_files,
             importDirs = [ hi_dir ],
             exposed = False,
+            {-
             indefinite = case session of
                             TcSession -> True
                             _ -> False,
+                            -}
             -- nope
             hsLibraries = [],
             extraLibraries = [],

@@ -33,6 +33,7 @@ module Module
         ShFreeHoles,
         UnitId,
         pprUnitId,
+        unsafeNewUnitId,
         mapUnitIdInsts,
         unitIdFS,
         unitIdComponentId,
@@ -438,11 +439,7 @@ instance Uniquable ComponentId where
   getUnique (ComponentId n) = getUnique n
 
 instance Outputable ComponentId where
-  ppr cid@(ComponentId str) =
-    sdocWithDynFlags $ \dflags ->
-        case lookupComponentIdString dflags cid of
-            Nothing -> ftext str
-            Just spid -> text spid <> ifPprDebug (braces (ftext str))
+  ppr (ComponentId str) = ftext str
 
 -- | Given a Name or Module, the 'ShFreeHoles' contains the set
 -- of free variables, i.e. HOLE:A modules, which may be substituted.
