@@ -21,12 +21,9 @@ module PackageConfig (
         ComponentName(..),
         Version(..),
         defaultPackageConfig,
-        componentIdString,
         sourcePackageIdString,
         packageNameString,
         pprPackageConfig,
-
-        packageComponentId,
 
         -- * Hack.
         addComponentName,
@@ -97,14 +94,6 @@ sourcePackageIdString pkg = unpackFS str
   where
     SourcePackageId str = sourcePackageId pkg
 
-componentId :: PackageConfig -> ComponentId
-componentId pkg = unitIdComponentId (unitId pkg)
-
-componentIdString :: PackageConfig -> String
-componentIdString pkg = unpackFS str
-  where
-    ComponentId str = componentId pkg
-
 packageNameString :: PackageConfig -> String
 packageNameString pkg = unpackFS str
   where
@@ -152,10 +141,6 @@ pprPackageConfig InstalledPackageInfo {..} =
 -- | Get the GHC 'UnitId' right out of a Cabalish 'PackageConfig'
 packageConfigId :: PackageConfig -> UnitId
 packageConfigId = unitId
-
--- | Returns the 'ComponentId' of a package.
-packageComponentId :: PackageConfig -> ComponentId
-packageComponentId pkg = componentId pkg
 
 {-
 ************************************************************************

@@ -406,12 +406,16 @@ instance DbUnitIdModuleRep ComponentId UnitId ModuleName Module where
   toDbModule mod = DbModule (moduleUnitId mod) (moduleName mod)
   fromDbUnitId (DbUnitId { dbUnitIdComponentId = cid, dbUnitIdInsts = insts })
     = unsafeNewUnitId cid insts
+  {-
   fromDbUnitId (DbDefiniteUnitId bs)
     = fsToUnitId (mkFastStringByteString bs)
+    -}
   toDbUnitId UnitId{ unitIdComponentId = cid, unitIdInsts = insts }
     = DbUnitId cid insts
+  {-
   toDbUnitId DefiniteUnitId{ unitIdFS = fs }
     = DbDefiniteUnitId (fastStringToByteString fs)
+    -}
 
 {-
 ************************************************************************
@@ -456,10 +460,6 @@ data UnitId = UnitId {
         unitIdComponentId :: !ComponentId,
         unitIdInsts :: ![(ModuleName, Module)],
         unitIdFreeHoles :: ShFreeHoles
-    }
-    | DefiniteUnitId {
-        unitIdFS :: FastString,
-        unitIdKey :: Unique -- cached unique of unitIdFS
     } deriving (Typeable)
 
 -- These are ONLY used to get Uniques.  If you want to actually make
@@ -469,6 +469,7 @@ data UnitId = UnitId {
 -- (Downside of native unique supply: can't plunder FastString uniques)
 
 hashUnitId :: ComponentId -> [(ModuleName, Module)] -> FastString
+hashUnitId (ComponentId fs_cid) [] = fs_cid
 hashUnitId cid sorted_holes =
     mkFastStringByteString
   . fingerprintUnitId (toStringRep cid)
@@ -498,17 +499,6 @@ fingerprintUnitId prefix (Fingerprint a b)
 unsafeNewUnitId :: ComponentId -> [(ModuleName, Module)] -> UnitId
 unsafeNewUnitId cid insts = mkUnitId cid insts (hashUnitId cid insts)
 
-{-
-instance UnitIdModuleRep ComponentId UnitId ModuleName Module where
-    fromDbModule (GenModule uid modname) = mkModule uid modname
-    toDbModule mod = GenModule (moduleUnitId mod) (moduleName mod)
-    fromDbUnitId (IndefiniteUnitId cid insts)
-        = unsafeNewUnitId cid insts
-    toDbUnitId UnitId{ unitIdComponentId = cid, unitIdInsts = insts }
-        = IndefiniteUnitId cid insts
-    unitIdHash uid = fastStringToByteString (unitIdFS uid)
--}
-
 mkUnitId :: ComponentId -> [(ModuleName, Module)] -> FastString -> UnitId
 mkUnitId cid insts fs =
     -- ASSERT( sortBy stableModuleNameCmp (map fst insts) == map fst insts )
@@ -523,20 +513,20 @@ mkUnitId cid insts fs =
 mapUnitIdInsts :: ((ModuleName, Module) -> Module) -> UnitId -> UnitId
 mapUnitIdInsts f UnitId{ unitIdComponentId = cid, unitIdInsts = insts0 } =
     unsafeNewUnitId cid (zip (map fst insts0) (map f insts0))
-mapUnitIdInsts _ uid@DefiniteUnitId{} = uid
+-- mapUnitIdInsts _ uid@DefiniteUnitId{} = uid
 
 pprUnitId :: UnitId -> SDoc
-pprUnitId uid =
-    ppr (unitIdComponentId uid) <>
-        (if not (null (unitIdInsts uid)) -- pprIf
+-- pprUnitId DefiniteUnitId{ unitIdFS = fs } = ftext fs
+pprUnitId uid@UnitId{ unitIdComponentId = cid, unitIdInsts = insts } =
+    ppr cid <>
+        (if not (null insts) -- pprIf
           then
             parens (hsep
                 (punctuate comma [ ppUnless (moduleName m == modname)
                                             (ppr modname <+> text "->")
                                    <+> ppr m
-                                 | (modname, m) <- unitIdInsts uid]))
+                                 | (modname, m) <- insts]))
           else empty)
-        <> ifPprDebug (braces (ftext (unitIdFS uid)))
 
 instance Eq UnitId where
   uid1 == uid2 = unitIdKey uid1 == unitIdKey uid2
@@ -564,16 +554,18 @@ instance Outputable UnitId where
 
 -- Performance: would prefer to have a NameCache like thing
 instance Binary UnitId where
+  {-
   put_ bh DefiniteUnitId{ unitIdFS = fs } = do
     putByte bh 0
     put_ bh fs
+    -}
   put_ bh UnitId{ unitIdComponentId = cid, unitIdInsts = insts } = do
     putByte bh 1
     put_ bh cid
     put_ bh insts
   get bh = do b <- getByte bh
               case b of
-                0 -> fmap fsToUnitId (get bh)
+                -- 0 -> fmap fsToUnitId (get bh)
                 _ -> do
                   cid <- get bh
                   insts <- get bh
@@ -584,10 +576,13 @@ instance Binary ComponentId where
   get bh = do { fs <- get bh; return (ComponentId fs) }
 
 fsToUnitId :: FastString -> UnitId
+fsToUnitId fs = unsafeNewUnitId (ComponentId fs) []
+{-
 fsToUnitId fs = DefiniteUnitId {
     unitIdFS = fs,
     unitIdKey = getUnique fs
     }
+    -}
 
 stringToUnitId :: String -> UnitId
 stringToUnitId = fsToUnitId . mkFastString

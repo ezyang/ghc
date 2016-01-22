@@ -134,8 +134,10 @@ data DbUnitId compid unitid modulename mod
        dbUnitIdComponentId :: compid,
        dbUnitIdInsts :: [(modulename, mod)]
      }
+     {-
    -- We could have a type for it but I'm too lazy right now
    | DbDefiniteUnitId BS.ByteString
+   -}
 
 class BinaryStringRep a where
   fromStringRep :: BS.ByteString -> a
@@ -145,7 +147,7 @@ emptyInstalledPackageInfo :: RepInstalledPackageInfo a b c d e f
                           => InstalledPackageInfo a b c d e f
 emptyInstalledPackageInfo =
   InstalledPackageInfo {
-       unitId             = fromDbUnitId (DbDefiniteUnitId BS.empty),
+       unitId             = fromDbUnitId (DbUnitId (fromStringRep BS.empty) []),
        sourcePackageId    = fromStringRep BS.empty,
        packageName        = fromStringRep BS.empty,
        packageVersion     = Version [] [],
@@ -387,9 +389,11 @@ instance (BinaryStringRep modulename, BinaryStringRep compid,
 instance (BinaryStringRep modulename, BinaryStringRep compid,
           DbUnitIdModuleRep compid unitid modulename mod) =>
          Binary (DbUnitId compid unitid modulename mod) where
+  {-
   put (DbDefiniteUnitId bs) = do
     putWord8 0
     put bs
+    -}
   put (DbUnitId dbUnitIdComponentId dbUnitIdInsts) = do
     putWord8 1
     put (toStringRep dbUnitIdComponentId)
@@ -397,7 +401,9 @@ instance (BinaryStringRep modulename, BinaryStringRep compid,
   get = do
     b <- getWord8
     case b of
+      {-
       0 -> fmap DbDefiniteUnitId get
+      -}
       _ -> do
         dbUnitIdComponentId <- get
         dbUnitIdInsts <- get
