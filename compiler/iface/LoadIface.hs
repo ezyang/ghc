@@ -73,7 +73,6 @@ import Hooks
 import FieldLabel
 import ShUnitId
 import ShUnify
-import UniqSet
 
 import Control.Monad
 import Data.IORef
@@ -520,7 +519,6 @@ computeInterfaceAnd ::
     -> SDoc -> IsBootInterface -> Module
     -> TcRnIf gbl lcl (MaybeErr MsgDoc (a, FilePath))
 computeInterfaceAnd def_action indef_action doc_str hi_boot_file mod = do
-    dflags <- getDynFlags
     -- First try for a fully compiled interface
     r <- findAndReadIface doc_str mod hi_boot_file
     case r of

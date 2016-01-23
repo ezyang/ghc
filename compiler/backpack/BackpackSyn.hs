@@ -1,5 +1,6 @@
 module BackpackSyn(
     -- * Backpack abstract syntax
+    HsComponentId(..),
     LHsUnit, HsUnit(..),
     LHsUnitDecl, HsUnitDecl(..),
     HsDeclType(..),
@@ -27,25 +28,33 @@ import Data.Map (Map)
 ************************************************************************
 -}
 
--- | Top level @package@ declaration in a Backpack file.
-data HsUnit = HsUnit {
-        hsunitName :: Located ComponentName,
-        hsunitExports :: Maybe LInclSpec,
-        hsunitBody :: [LHsUnitDecl]
+data HsComponentId = HsComponentId {
+    hsPackageName :: PackageName,
+    hsComponentId :: ComponentId
     }
-type LHsUnit = Located HsUnit
+
+instance Outputable HsComponentId where
+    ppr (HsComponentId pn cid) = ppr cid -- todo debug with pn
+
+-- | Top level @package@ declaration in a Backpack file.
+data HsUnit n = HsUnit {
+        hsunitName :: Located n,
+        hsunitExports :: Maybe LInclSpec,
+        hsunitBody :: [LHsUnitDecl n]
+    }
+type LHsUnit n = Located (HsUnit n)
 
 -- | A declaration in a package, e.g. a module or signature definition,
 -- or an include.
 data HsDeclType = ModuleD | SignatureD
-data HsUnitDecl
+data HsUnitDecl n
     = DeclD      HsDeclType (Located ModuleName) (Maybe (Located (HsModule RdrName)))
-    | IncludeD   IncludeDecl
-type LHsUnitDecl = Located HsUnitDecl
+    | IncludeD   (IncludeDecl n)
+type LHsUnitDecl n = Located (HsUnitDecl n)
 
 -- | An include of another package.
-data IncludeDecl = IncludeDecl {
-        idComponentName :: Located ComponentName,
+data IncludeDecl n = IncludeDecl {
+        idInclude :: Located n,
         idInclSpec :: Maybe LInclSpec
     }
 
@@ -75,7 +84,7 @@ type LRenaming = Located Renaming
 
 -- | An include declaration which can be topologically sorted.
 data IncludeSummary = IncludeSummary {
-        is_ldecl :: Located IncludeDecl,
+        is_loc :: SrcSpan,
         -- The INSTANTIATED package key for this include.
         -- So if we "include p requires (H)" and we happen to
         -- know that H is q:H, then is_uid is p(q:H).

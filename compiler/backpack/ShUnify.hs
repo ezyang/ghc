@@ -39,9 +39,7 @@ module ShUnify(
 #include "HsVersions.h"
 
 import Shape
-import ShUnitId
 
-import PackageConfig
 import Outputable
 import HscTypes
 import Module
@@ -51,7 +49,6 @@ import Avail
 import IfaceSyn
 import FieldLabel
 
-import DynFlags
 import Name
 import NameEnv
 import TcRnMonad
@@ -95,8 +92,7 @@ data ShSubst
 -- an idempotent hole+name substitution
 mkShSubst :: HscEnv -> ShHoleSubst -> ShNameSubst -> IO ShSubst
 mkShSubst hsc_env hsubst0 nsubst0 = do
-    let dflags = hsc_dflags hsc_env
-        hsubst = fixShHoleSubst hsubst0
+    let hsubst = fixShHoleSubst hsubst0
     -- TODO: which order of applying the substitution is best?
     nsubst1 <- T.mapM (substHoleName hsc_env hsubst) nsubst0
     let nsubst = fixShNameSubst nsubst1
@@ -312,7 +308,6 @@ renameHoleAvailInfo hsc_env env (AvailTC n ns fs) = do
 renameHoleName :: HscEnv -> ShHoleSubst -> Name -> IO Name
 renameHoleName hsc_env env n = do
     let m = nameModule n
-        dflags = hsc_dflags hsc_env
         -- This line distinguishes this from 'substHoleName'.
         m' = renameHoleModule env m
     if m == m'
@@ -381,8 +376,7 @@ uHoleName subst h n =
 initRnIface :: HscEnv -> UnitId -> ShIfM a -> IO a
 initRnIface hsc_env uid do_this = do
     MASSERT( uid /= holeUnitId )
-    let dflags = hsc_dflags hsc_env
-        hmap = listToUFM (unitIdInsts uid)
+    let hmap = listToUFM (unitIdInsts uid)
     initTcRnIf 'c' hsc_env uid hmap do_this
 
 -- | This is UNLIKE the other substitutions, which occur during
@@ -433,7 +427,6 @@ rnModExports hsc_env uid as = initRnIface hsc_env uid $ mapM rnAvailInfo as
 rnModule :: Rename Module
 rnModule mod = do
     hmap <- getLclEnv
-    dflags <- getDynFlags
     return (renameHoleModule hmap mod)
 
 type ShIfM = TcRnIf UnitId ShHoleSubst
@@ -491,7 +484,6 @@ rnIfaceGlobal n = do
     hsc_env <- getTopEnv
     eps <- getEps
     let m = nameModule n
-        dflags = hsc_dflags hsc_env
         m' = renameHoleModule hmap m
     -- pprTrace "rnIfaceGlobal" (ppr m <+> ppr m' <+> ppr n) $ return ()
     fmap (substName (eps_shape eps)) $ case () of
@@ -644,6 +636,7 @@ rnIfaceConDecl d = do
 rnIfaceClassOp :: Rename IfaceClassOp
 rnIfaceClassOp (IfaceClassOp n ty dm) = IfaceClassOp n <$> rnIfaceType ty <*> rnMaybeDefMethSpec dm
 
+rnMaybeDefMethSpec :: Rename (Maybe (DefMethSpec IfaceType))
 rnMaybeDefMethSpec (Just (GenericDM ty)) = Just . GenericDM <$> rnIfaceType ty
 rnMaybeDefMethSpec mb = return mb
 
@@ -757,6 +750,8 @@ rnIfaceCo (IfaceLRCo lr c) = IfaceLRCo lr <$> rnIfaceCo c
 rnIfaceCo (IfaceSubCo c) = IfaceSubCo <$> rnIfaceCo c
 rnIfaceCo (IfaceAxiomRuleCo ax cos)
     = IfaceAxiomRuleCo ax <$> mapM rnIfaceCo cos
+rnIfaceCo (IfaceKindCo c) = IfaceKindCo <$> rnIfaceCo c
+rnIfaceCo (IfaceCoherenceCo c1 c2) = IfaceCoherenceCo <$> rnIfaceCo c1 <*> rnIfaceCo c2
 
 rnIfaceTyCon :: Rename IfaceTyCon
 rnIfaceTyCon (IfaceTyCon n info)
@@ -785,6 +780,10 @@ rnIfaceType (IfaceTyConApp tc tks)
     = IfaceTyConApp <$> rnIfaceTyCon tc <*> rnIfaceTcArgs tks
 rnIfaceType (IfaceForAllTy tv t)
     = IfaceForAllTy <$> rnIfaceForAllBndr tv <*> rnIfaceType t
+rnIfaceType (IfaceCoercionTy co)
+    = IfaceCoercionTy <$> rnIfaceCo co
+rnIfaceType (IfaceCastTy ty co)
+    = IfaceCastTy <$> rnIfaceType ty <*> rnIfaceCo co
 
 rnIfaceForAllBndr :: Rename IfaceForAllBndr
 rnIfaceForAllBndr (IfaceTv tv vis) = IfaceTv <$> rnIfaceTvBndr tv <*> pure vis

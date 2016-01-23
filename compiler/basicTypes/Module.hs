@@ -98,7 +98,6 @@ import FastString
 import Binary
 import Util
 import UniqSet
-import {-# SOURCE #-} Packages
 import GHC.PackageDb (BinaryStringRep(..), DbUnitIdModuleRep(..), DbModule(..), DbUnitId(..))
 
 import qualified Data.ByteString as BS
@@ -469,7 +468,8 @@ data UnitId = UnitId {
 -- (Downside of native unique supply: can't plunder FastString uniques)
 
 hashUnitId :: ComponentId -> [(ModuleName, Module)] -> FastString
-hashUnitId (ComponentId fs_cid) [] = fs_cid
+hashUnitId (ComponentId fs_cid) sorted_holes
+    | all (\(mod_name, m) -> mkModule holeUnitId mod_name == m) sorted_holes = fs_cid
 hashUnitId cid sorted_holes =
     mkFastStringByteString
   . fingerprintUnitId (toStringRep cid)
@@ -517,7 +517,7 @@ mapUnitIdInsts f UnitId{ unitIdComponentId = cid, unitIdInsts = insts0 } =
 
 pprUnitId :: UnitId -> SDoc
 -- pprUnitId DefiniteUnitId{ unitIdFS = fs } = ftext fs
-pprUnitId uid@UnitId{ unitIdComponentId = cid, unitIdInsts = insts } =
+pprUnitId UnitId{ unitIdComponentId = cid, unitIdInsts = insts } =
     ppr cid <>
         (if not (null insts) -- pprIf
           then

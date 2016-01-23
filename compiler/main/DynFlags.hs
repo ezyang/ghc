@@ -673,10 +673,6 @@ data DynFlags = DynFlags {
   thisComponentId       :: ComponentId,
                             -- ^ Cabal-specified ComponentId identifying
                             -- what is being compiled
-  thisComponentName     :: Maybe ComponentName,
-                            -- ^ If this is set, we're assumed to only be
-                            -- compiling a single component (even if a Backpack
-                            -- file has many)
 
   -- ways
   ways                  :: [Way],       -- ^ Way flags from the command line
@@ -1469,7 +1465,6 @@ defaultDynFlags mySettings =
 
         thisPackage             = mainUnitId,
         thisComponentId         = ComponentId (fsLit ""),
-        thisComponentName       = Nothing,
 
         objectDir               = Nothing,
         dylibInstallName        = Nothing,

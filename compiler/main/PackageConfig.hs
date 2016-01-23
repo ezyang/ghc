@@ -18,15 +18,11 @@ module PackageConfig (
         ComponentId(..),
         SourcePackageId(..),
         PackageName(..),
-        ComponentName(..),
         Version(..),
         defaultPackageConfig,
         sourcePackageIdString,
         packageNameString,
         pprPackageConfig,
-
-        -- * Hack.
-        addComponentName,
     ) where
 
 #include "HsVersions.h"
@@ -57,7 +53,6 @@ type PackageConfig = InstalledPackageInfo
 
 newtype SourcePackageId    = SourcePackageId    FastString deriving (Eq, Ord)
 newtype PackageName        = PackageName        FastString deriving (Eq, Ord)
-newtype ComponentName      = ComponentName      FastString deriving (Eq, Ord)
 
 instance BinaryStringRep SourcePackageId where
   fromStringRep = SourcePackageId . mkFastStringByteString
@@ -67,18 +62,11 @@ instance BinaryStringRep PackageName where
   fromStringRep = PackageName . mkFastStringByteString
   toStringRep (PackageName s) = fastStringToByteString s
 
-instance BinaryStringRep ComponentName where
-  fromStringRep = ComponentName . mkFastStringByteString
-  toStringRep (ComponentName s) = fastStringToByteString s
-
 instance Uniquable SourcePackageId where
   getUnique (SourcePackageId n) = getUnique n
 
 instance Uniquable PackageName where
   getUnique (PackageName n) = getUnique n
-
-instance Outputable ComponentName where
-  ppr (ComponentName str) = ftext str
 
 instance Outputable SourcePackageId where
   ppr (SourcePackageId str) = ftext str
@@ -141,17 +129,3 @@ pprPackageConfig InstalledPackageInfo {..} =
 -- | Get the GHC 'UnitId' right out of a Cabalish 'PackageConfig'
 packageConfigId :: PackageConfig -> UnitId
 packageConfigId = unitId
-
-{-
-************************************************************************
-*                                                                      *
-                        Indefinite package
-*                                                                      *
-************************************************************************
--}
-
--- | Given a 'ComponentId', create a new 'ComponentId' for a private
--- subcomponent named 'ComponentName' contained within it.
-addComponentName :: ComponentId -> ComponentName -> ComponentId
-addComponentName (ComponentId cid) (ComponentName n) =
-    ComponentId (concatFS [cid, fsLit "-", n])

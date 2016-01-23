@@ -518,24 +518,24 @@ identifier :: { Located RdrName }
 -----------------------------------------------------------------------------
 -- Backpack stuff
 
-backpack :: { [LHsUnit] }
+backpack :: { [LHsUnit PackageName] }
          : implicit_top units close { fromOL $2 }
          | '{' units '}'            { fromOL $2 }
 
-units :: { OrdList LHsUnit }
+units :: { OrdList (LHsUnit PackageName) }
          : units ';' unit { $1 `appOL` unitOL $3 }
          | units ';'      { $1 }
          | unit           { unitOL $1 }
 
-unit :: { LHsUnit }
+unit :: { LHsUnit PackageName }
         : 'unit' unitname maybeunitexports 'where' unitbody
             { sL1 $1 $ HsUnit { hsunitName = $2
                               , hsunitExports = $3
                               , hsunitBody = fromOL $5 } }
 
-unitname :: { Located ComponentName }
-        : STRING { sL1 $1 $ ComponentName (getSTRING $1) }
-        | unitid { sL1 $1 $ ComponentName (unLoc $1) }
+unitname :: { Located PackageName }
+        : STRING { sL1 $1 $ PackageName (getSTRING $1) }
+        | unitid { sL1 $1 $ PackageName (unLoc $1) }
 
 unitid_segment :: { Located FastString }
         : VARID  { sL1 $1 $ getVARID $1 }
@@ -569,16 +569,16 @@ rn :: { LRenaming }
         : modid 'as' modid { sLL $1 $> $ Renaming (unLoc $1) (unLoc $3) }
         | modid            { sL1 $1    $ Renaming (unLoc $1) (unLoc $1) }
 
-unitbody :: { OrdList LHsUnitDecl }
+unitbody :: { OrdList (LHsUnitDecl PackageName) }
         : '{'     unitdecls '}'   { $2 }
         | vocurly unitdecls close { $2 }
 
-unitdecls :: { OrdList LHsUnitDecl }
+unitdecls :: { OrdList (LHsUnitDecl PackageName) }
         : unitdecls ';' unitdecl { $1 `appOL` unitOL $3 }
         | unitdecls ';'         { $1 }
         | unitdecl              { unitOL $1 }
 
-unitdecl :: { LHsUnitDecl }
+unitdecl :: { LHsUnitDecl PackageName }
         : maybedocheader 'module' modid maybemodwarning maybeexports 'where' body
              -- XXX not accurate
              { sL1 $2 $ DeclD ModuleD $3 (Just (sL1 $2 (HsModule (Just $3) $5 (fst $ snd $7) (snd $ snd $7) $4 $1))) }
@@ -591,7 +591,7 @@ unitdecl :: { LHsUnitDecl }
         | maybedocheader 'signature' modid
              { sL1 $2 $ DeclD SignatureD $3 Nothing }
         | 'include' unitname maybeinclspec
-             { sL1 $1 $ IncludeD (IncludeDecl { idComponentName = $2
+             { sL1 $1 $ IncludeD (IncludeDecl { idInclude = $2
                                               , idInclSpec = $3 }) }
 
 -----------------------------------------------------------------------------

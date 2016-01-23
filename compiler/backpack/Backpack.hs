@@ -62,7 +62,7 @@ data BkpEnv
         -- | The filename of the bkp file we're compiling
         bkp_filename :: FilePath,
         -- | Table of source units which we know how to compile
-        bkp_table :: Map ComponentId LHsUnit,
+        bkp_table :: Map ComponentId (LHsUnit HsComponentId),
         -- | When a package we are compiling includes another package
         -- which has not been compiled, we bump the level and compile
         -- that.
@@ -121,12 +121,12 @@ getEpsGhc = do
     liftIO $ readIORef (hsc_EPS hsc_env)
 
 -- | Run 'BkpM' in 'Ghc'.
-initBkpM :: FilePath -> [(ComponentId, LHsUnit)] -> BkpM a -> Ghc a
+initBkpM :: FilePath -> [LHsUnit HsComponentId] -> BkpM a -> Ghc a
 initBkpM file bkp m = do
     reifyGhc $ \session -> do
     let env = BkpEnv {
                     bkp_session = session,
-                    bkp_table = Map.fromList bkp,
+                    bkp_table = Map.fromList [(hsComponentId (unLoc (hsunitName (unLoc u))), u) | u <- bkp],
                     bkp_filename = file,
                     bkp_level = 0
                 }
@@ -173,8 +173,8 @@ backpackStyle =
                       neverQualifyPackages) AllTheWay
 
 -- | Message when we initially process a Backpack unit.
-msgTopPackage :: (Int,Int) -> ComponentName -> BkpM ()
-msgTopPackage (i,n) (ComponentName fs_pn) = do
+msgTopPackage :: (Int,Int) -> HsComponentId -> BkpM ()
+msgTopPackage (i,n) (HsComponentId (PackageName fs_pn) _) = do
     dflags <- getDynFlags
     level <- getBkpLevel
     liftIO . backpackProgressMsg level dflags
@@ -189,18 +189,57 @@ msgUnitId pk = do
         $ "Instantiating " ++ renderWithStyle dflags (ppr pk) backpackStyle
 
 -- | Message when we include a Backpack unit.
--- How to user-friendly print ComponentId?  Use ComponentName -> ComponentId
--- mapping.
+-- How to user-friendly print ComponentId?
 msgInclude :: (Int,Int) -> ComponentId -> BkpM ()
-msgInclude (i,n) uid = do
+msgInclude (i,n) cid = do
     dflags <- getDynFlags
     level <- getBkpLevel
     liftIO . backpackProgressMsg level dflags
         $ showModuleIndex (i, n) ++ "Including " ++
-          renderWithStyle dflags (ppr uid) backpackStyle
+          renderWithStyle dflags (ppr cid) backpackStyle
 
 -- ----------------------------------------------------------------------------
 -- Run --backpack mode
+
+type PackageNameMap a = Map PackageName a
+
+-- For now, something really simple, since we're not actually going
+-- to use this for anything
+unitDefines :: LHsUnit PackageName -> (PackageName, HsComponentId)
+unitDefines (L _ HsUnit{ hsunitName = L _ pn@(PackageName fs) })
+    = (pn, HsComponentId pn (ComponentId (concatFS [fsLit "main-", fs])))
+
+packageNameMap :: [LHsUnit PackageName] -> PackageNameMap HsComponentId
+packageNameMap units = Map.fromList (map unitDefines units)
+
+renameHsUnits :: DynFlags -> PackageNameMap HsComponentId -> [LHsUnit PackageName] -> [LHsUnit HsComponentId]
+renameHsUnits dflags m units = map renameHsUnit units
+  where
+
+    renamePackageName :: PackageName -> HsComponentId
+    renamePackageName pn =
+        case Map.lookup pn m of
+            Nothing ->
+                case lookupPackageName dflags pn of
+                    Nothing -> error "no package name"
+                    Just cid -> HsComponentId pn cid
+            Just hscid -> hscid
+
+    renameHsUnit :: LHsUnit PackageName -> LHsUnit HsComponentId
+    renameHsUnit (L loc u) =
+        L loc HsUnit {
+            hsunitName = fmap renamePackageName (hsunitName u),
+            hsunitExports = hsunitExports u,
+            hsunitBody = map renameHsUnitDecl (hsunitBody u)
+        }
+
+    renameHsUnitDecl :: LHsUnitDecl PackageName -> LHsUnitDecl HsComponentId
+    renameHsUnitDecl (L loc (DeclD a b c)) = L loc (DeclD a b c)
+    renameHsUnitDecl (L loc (IncludeD idecl)) =
+        L loc (IncludeD IncludeDecl {
+            idInclude = fmap renamePackageName (idInclude idecl),
+            idInclSpec = idInclSpec idecl
+        })
 
 -- | Entry point to compile a Backpack file.
 doBackpack :: FilePath -> Ghc ()
@@ -223,28 +262,24 @@ doBackpack src_filename = do
 
     buf <- liftIO $ hGetStringBuffer src_filename
     let loc = mkRealSrcLoc (mkFastString src_filename) 1 1
-        primary_name = ComponentName (fsLit (dropExtension src_filename))
+        -- LOL this is terrible
+        primary_name = ComponentId (fsLit (dropExtension src_filename))
     case unP parseBackpack (mkPState dflags buf loc) of
         PFailed span err -> do
             liftIO $ throwOneError (mkPlainErrMsg dflags span err)
-        POk _ bkp -> do
-            let computeComponentId pkg =
+        POk _ pkgname_bkp -> do
+            -- OK, so we have an LHsUnit PackageName, but we want an
+            -- LHsUnit ComponentId.  So let's rename it
+            let bkp = renameHsUnits dflags (packageNameMap pkgname_bkp) pkgname_bkp
+            initBkpM src_filename bkp $
+                forM_ (zip [1..] bkp) $ \(i, pkg) -> do
                     let comp_name = unLoc (hsunitName (unLoc pkg))
-                        cid | comp_name == primary_name
-                            = thisComponentId dflags
-                            | otherwise
-                            = addComponentName (thisComponentId dflags) comp_name
-                    in cid
-                comps = [ (computeComponentId u, u) | u <- bkp ]
-            initBkpM src_filename comps $
-                forM_ (zip [1..] comps) $ \(i, (cid, pkg)) -> do
-                    let comp_name = unLoc (hsunitName (unLoc pkg))
-                        is_primary = comp_name == primary_name
+                        is_primary = hsComponentId comp_name == primary_name
                     msgTopPackage (i,length bkp) comp_name
                     innerBkpM $ do
                         -- Figure out if we should type-check or
                         -- compile
-                        uid0 <- runShM $ shComputeUnitId cid pkg
+                        uid0 <- runShM $ shComputeUnitId pkg
                         -- This test is necessary to see if we're
                         -- compiling the primary for a specific instantiation
                         -- (See test bkpcabal01)
@@ -254,10 +289,10 @@ doBackpack src_filename = do
                                         else unitIdInsts uid0
                             uid = unsafeNewUnitId (unitIdComponentId uid0) insts
                         if isEmptyUniqSet (unitIdFreeHoles uid)
-                            then if comp_name == ComponentName (fsLit "main")
+                            then if hsComponentId comp_name == ComponentId (fsLit "main")
                                     then compileExe pkg
                                     else compileUnit uid
-                            else typecheckUnit cid
+                            else typecheckUnit (hsComponentId comp_name)
 
 -- | Tiny enum for all types of Backpack operations we may do.
 data SessionType = ExeSession | TcSession | CompSession
@@ -336,7 +371,7 @@ withBkpExeSession include_graph do_this = do
     let mod_map = Map.unions (map is_inst_provides include_graph)
     withBkpSession mainUnitId mod_map Map.empty ExeSession do_this
 
-getSource :: ComponentId -> BkpM LHsUnit
+getSource :: ComponentId -> BkpM (LHsUnit HsComponentId)
 getSource cid = do
     bkp_env <- getBkpEnv
     case Map.lookup cid (bkp_table bkp_env) of
@@ -347,7 +382,7 @@ getSource cid = do
 typecheckUnit :: ComponentId -> BkpM ()
 typecheckUnit cid = do
     lunit <- getSource cid
-    uid <- runShM $ shComputeUnitId cid lunit
+    uid <- runShM $ shComputeUnitId lunit
     buildUnit TcSession uid lunit
 
 compileUnit :: UnitId -> BkpM ()
@@ -357,7 +392,7 @@ compileUnit uid = do
     lunit <- getSource (unitIdComponentId uid)
     buildUnit CompSession uid lunit
 
-buildUnit :: SessionType -> UnitId -> LHsUnit -> BkpM ()
+buildUnit :: SessionType -> UnitId -> LHsUnit HsComponentId -> BkpM ()
 buildUnit session uid lunit = do
     -- Analyze the dependency structure
     include_graph <- runShM $ shIncludeGraph uid lunit
@@ -431,14 +466,21 @@ buildUnit session uid lunit = do
                     -- mechanism can handle them properly
                     . filter (not . Map.null . is_requires)
                     $ include_graph
+            cand_compat_pn = PackageName (case unitIdComponentId uid of
+                                                    ComponentId fs -> fs)
+            compat_pn = case session of
+                            TcSession -> cand_compat_pn
+                            _ | [] <- unitIdInsts uid -> cand_compat_pn
+                            -- Cabal would munge this but there's no need to
+                            -- access these
+                              | otherwise -> PackageName (fsLit "")
 
         return InstalledPackageInfo {
             -- Stub data
             abiHash = "",
             sourcePackageId = SourcePackageId (fsLit ""),
-            packageName = PackageName (fsLit ""),
+            packageName = compat_pn,
             packageVersion = makeVersion [0],
-            -- componentName = ComponentName (fsLit ""),
             unitId = uid,
             -- Slight inefficiency here haha
             exposedModules = map (\(m,n) -> (m,Just n)) mods,
@@ -481,7 +523,7 @@ buildUnit session uid lunit = do
         Just old_eps -> updateEpsGhc_ (const old_eps)
         _ -> return ()
 
-compileExe :: LHsUnit -> BkpM ()
+compileExe :: LHsUnit HsComponentId -> BkpM ()
 compileExe pkg = do
     msgUnitId mainUnitId
     include_graph <- runShM $ shIncludeGraph mainUnitId pkg
@@ -531,3 +573,11 @@ compileInclude n (i, uid) = do
             -- Nope, compile it
             innerBkpM $ compileUnit uid
         Just _ -> return ()
+
+{-
+-- | Given a 'ComponentId', create a new 'ComponentId' for a private
+-- subcomponent named 'ComponentName' contained within it.
+addComponentName :: ComponentId -> ComponentName -> ComponentId
+addComponentName (ComponentId cid) (ComponentName n) =
+    ComponentId (concatFS [cid, fsLit "-", n])
+    -}

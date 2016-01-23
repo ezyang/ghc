@@ -78,7 +78,7 @@ import qualified Data.Traversable as T
 -- | This function takes a 'UnitId' and an source 'LHsUnit' and computes the
 -- list of 'IncludeSummary's specifying what external specific instantiated
 -- units are depended upon by this unit.
-shIncludeGraph :: UnitId -> LHsUnit -> ShM [IncludeSummary]
+shIncludeGraph :: UnitId -> LHsUnit HsComponentId -> ShM [IncludeSummary]
 shIncludeGraph uid lpkg = setPackageSh lpkg . setUnitIdSh uid $ do
     -- Extract out all the includes from the package description,
     -- processing any renamings so we have an up-to-date picture
@@ -127,10 +127,10 @@ shIncludeGraph uid lpkg = setPackageSh lpkg . setUnitIdSh uid $ do
 -- | Convert an 'IncludeDecl' into an 'IncludeSummary', applying any
 -- renaming to update the provided and required modules.  This does
 -- NOT substitute holes; that is done later in 'shIncludeGraph'.
-summariseInclude :: Located IncludeDecl -> ShM IncludeSummary
-summariseInclude ldecl@(L _ IncludeDecl { idComponentName = L _ name
-                                        , idInclSpec = mb_inclspec }) = do
-    ipkg <- lookupUnit name
+summariseInclude :: Located (IncludeDecl HsComponentId) -> ShM IncludeSummary
+summariseInclude (L loc IncludeDecl { idInclude = L _ name
+                                          , idInclSpec = mb_inclspec }) = do
+    ipkg <- lookupUnit (hsComponentId name)
     let hsubst = mkInclSpecSubst mb_inclspec
         provs0 = fmap (renameHoleModule hsubst) (shcProvides ipkg)
         renameProvides Nothing
@@ -147,7 +147,7 @@ summariseInclude ldecl@(L _ IncludeDecl { idComponentName = L _ name
 
     let uid = renameHoleUnitId hsubst (shcUnitId ipkg)
     return IncludeSummary {
-        is_ldecl = ldecl,
+        is_loc = loc,
         -- Not substituted yet, we will do this shortly
         is_uid = uid,
         is_provides = provs,
@@ -214,7 +214,7 @@ includeGraphNodes summaries = graphFromEdgedVertices nodes
 --
 -- We don't bother trying to support GhcMake for now, it's more trouble
 -- than it's worth for inline modules.
-shModGraph :: UnitId -> LHsUnit -> ShM [ModSummary]
+shModGraph :: UnitId -> LHsUnit HsComponentId -> ShM [ModSummary]
 shModGraph uid lpkg = setPackageSh lpkg . setUnitIdSh uid $ do
     let decls = hsunitBody (unLoc lpkg)
     dflags <- getDynFlags
@@ -248,9 +248,10 @@ shModGraph uid lpkg = setPackageSh lpkg . setUnitIdSh uid $ do
 summariseRequirement :: DynFlags -> ModuleName -> ShM ModSummary
 summariseRequirement dflags mod_name = do
     hsc_env <- getTopEnv
-    ComponentName cname_fs <- fmap shg_name getGblEnv
+    -- TODO: don't base this lookup on ComponentId
+    PackageName pn_fs <- fmap (hsPackageName . shg_name) getGblEnv
     location <- liftIO $ mkHomeModLocation2 dflags mod_name
-                 (unpackFS cname_fs </> moduleNameSlashes mod_name) "hsig"
+                 (unpackFS pn_fs </> moduleNameSlashes mod_name) "hsig"
 
     env <- getGblEnv
     time <- liftIO $ getModificationUTCTime (shg_filename env)
@@ -319,7 +320,8 @@ hsModuleToModSummary :: DynFlags
 hsModuleToModSummary dflags hsc_src modname
                      hsmod@(L loc (HsModule _ _ imps _ _ _)) = do
     -- Sort of the same deal as in DriverPipeline's getLocation
-    ComponentName unit_fs <- fmap shg_name getGblEnv
+    -- Use the PACKAGE NAME to find the location
+    PackageName unit_fs <- fmap (hsPackageName . shg_name) getGblEnv
     hsc_env <- getTopEnv
     -- Unfortunately, we have to define a "fake" location in
     -- order to appease the various code which uses the file
@@ -418,29 +420,13 @@ lookupIndefUnitId cid = do
                             }
         Nothing -> return Nothing
 
-lookupUnit :: ComponentName -> ShM ShapeConfig
-lookupUnit n@(ComponentName fs) = do
-    -- First, create a "local" unit id and see if we already have dealt
-    -- with it.
-    dflags <- getDynFlags
-    let local_uid = addComponentName (thisComponentId dflags) n
-    mb_shc <- lookupIndefUnitId local_uid
+lookupUnit :: ComponentId -> ShM ShapeConfig
+lookupUnit n = do
+    mb_shc <- lookupIndefUnitId n
     case mb_shc of
         Just shc -> return shc
-        Nothing -> do
-            -- TODO
-            let pn = PackageName fs
-                uid = undefined :: ComponentId
-            {-
-            uid <- case lookupPackageName dflags pn of
-                    Just uid -> return uid
-                    Nothing -> failSh (text "Cannot find unit" <+> ppr n)
-            -}
-            mb_shc <- lookupIndefUnitId uid
-            case mb_shc of
-                Just shc -> return shc
-                Nothing -> failSh (text "Cannot find unit" <+> ppr n <+>
-                                parens (text "despite having a mapping to" <+> ppr uid))
+        Nothing ->
+            failSh (text "Cannot find package" <+> ppr n)
 
 
 {-
@@ -452,10 +438,10 @@ lookupUnit n@(ComponentName fs) = do
 -}
 
 -- | Register 'LHsUnit' as the unit we are shaping.
-setPackageSh :: LHsUnit -> ShM a -> ShM a
+setPackageSh :: LHsUnit HsComponentId -> ShM a -> ShM a
 setPackageSh (L loc HsUnit { hsunitName = L _ name } ) do_this
     = setSrcSpanSh loc
-    . setComponentName name
+    . setHsComponentId name
     $ do_this
 
 -- | Register 'UnitId' as the unit ID we are shaping.
@@ -466,7 +452,7 @@ setUnitIdSh uid do_this
 
 data ShGblEnv = ShGblEnv {
     shg_uid :: UnitId,
-    shg_name :: ComponentName,
+    shg_name :: HsComponentId,
     shg_filename :: FilePath
     }
 data ShLclEnv = ShLclEnv {
@@ -492,8 +478,8 @@ setSrcSpanSh (RealSrcSpan real_loc) thing_inside
     = updLclEnv (\env -> env { shl_loc = real_loc }) thing_inside
 setSrcSpanSh (UnhelpfulSpan _) thing_inside = thing_inside
 
-setComponentName :: ComponentName -> ShM a -> ShM a
-setComponentName name thing_inside
+setHsComponentId :: HsComponentId -> ShM a -> ShM a
+setHsComponentId name thing_inside
     = updGblEnv (\env -> env { shg_name = name } ) thing_inside
 
 type ShM a = TcRnIf ShGblEnv ShLclEnv a
@@ -737,19 +723,19 @@ mkSignaturePreShape modname =
 emptyPreShape :: PreShape
 emptyPreShape = PreShape { psh_provides = emptyUniqSet, psh_requires = emptyUniqSet }
 
-preshape :: PreShape -> LHsUnitDecl -> ShM PreShape
+preshape :: PreShape -> LHsUnitDecl HsComponentId -> ShM PreShape
 preshape psh (L _ decl) = preshape' psh decl
 
-preshape' :: PreShape -> HsUnitDecl -> ShM PreShape
+preshape' :: PreShape -> HsUnitDecl HsComponentId -> ShM PreShape
 preshape' psh (DeclD ModuleD (L _ modname) _) =
     return (mergePreShapes psh (mkModulePreShape modname))
 preshape' psh (DeclD SignatureD (L _ modname) _) =
     return (mergePreShapes psh (mkSignaturePreShape modname))
 preshape' psh (IncludeD (IncludeDecl{
-                idComponentName = L _ name,
+                idInclude = L _ name,
                 idInclSpec = ispec
               })) = do
-    ipkg <- lookupUnit name
+    ipkg <- lookupUnit (hsComponentId name)
     fmap (mergePreShapes psh) (renamePreShape ispec (indefPackageToPreShape ipkg))
 
 renamePreShape :: Maybe LInclSpec -> PreShape -> ShM PreShape
@@ -817,29 +803,29 @@ mergePreShapes psh1 psh2 =
 -}
 
 -- | Compute package key of a 'HsUnit'
-shComputeUnitId :: ComponentId -> LHsUnit -> ShM UnitId
-shComputeUnitId cid
-    (L loc HsUnit { hsunitName = L _ name
+shComputeUnitId :: LHsUnit HsComponentId -> ShM UnitId
+shComputeUnitId
+    (L loc HsUnit { hsunitName = L _ hscid
                   , hsunitExports = Nothing -- XXX incomplete
                   , hsunitBody = decls })
     = setSrcSpanSh loc
-    . setComponentName name $
+    . setHsComponentId hscid $
       do -- Pre-pass, to calculate the requirements
          psh <- foldM preshape emptyPreShape decls
          let insts = map (\modname -> (modname, mkModule holeUnitId modname))
                          (uniqSetToList (psh_requires psh))
-         return (unsafeNewUnitId cid insts)
-shComputeUnitId _cid
+         return (unsafeNewUnitId (hsComponentId hscid) insts)
+shComputeUnitId
     (L _ HsUnit { hsunitName = _
                   , hsunitExports = Just _
                   , hsunitBody = _ }) = panic "Exports not implemented"
 
 -- | Shape a 'HsUnit'.
-shPackage :: UnitId -> IncludeGraph -> [ModSummary] -> LHsUnit -> ShM Shape
+shPackage :: UnitId -> IncludeGraph -> [ModSummary] -> LHsUnit HsComponentId -> ShM Shape
 shPackage uid
     include_graph
     mod_graph
-    lunit@(L _loc HsUnit { hsunitName = L _ name
+    lunit@(L _loc HsUnit { hsunitName = L _ hscid
                          , hsunitExports = Nothing })
     = setPackageSh lunit .
       setUnitIdSh uid $ do
@@ -847,7 +833,7 @@ shPackage uid
          sh0 <- foldM shIncludeSummary emptyShape include_graph
          sh <- foldM shModSummary sh0 mod_graph
          -- Dump the shape if we're asked to
-         shDump (vcat [ text "/--- Shape for" <+> ppr name
+         shDump (vcat [ text "/--- Shape for" <+> ppr (hsPackageName hscid)
                       , ppr sh
                       , text "\\---"
                       ])
@@ -859,7 +845,7 @@ shPackage _ _ _
                 , hsunitBody = _ }) = panic "exports not implemented"
 
 shIncludeSummary :: Shape -> IncludeSummary -> ShM Shape
-shIncludeSummary sh IncludeSummary{ is_ldecl = L loc _
+shIncludeSummary sh IncludeSummary{ is_loc = loc
                                   , is_provides = provs
                                   , is_requires = reqs } = setSrcSpanSh loc $ do
     hsc_env <- getTopEnv
