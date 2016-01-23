@@ -207,6 +207,9 @@ type PackageNameMap a = Map PackageName a
 -- to use this for anything
 unitDefines :: LHsUnit PackageName -> (PackageName, HsComponentId)
 unitDefines (L _ HsUnit{ hsunitName = L _ pn@(PackageName fs) })
+    | fs == fsLit "main"
+    = (pn, HsComponentId pn (ComponentId fs))
+    | otherwise
     = (pn, HsComponentId pn (ComponentId (concatFS [fsLit "main-", fs])))
 
 packageNameMap :: [LHsUnit PackageName] -> PackageNameMap HsComponentId
