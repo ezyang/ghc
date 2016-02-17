@@ -1,0 +1,34 @@
+[1 of 3] Processing p
+/--- Shape for p
+provides: M -> p(hole:A, hole:B):M
+               M{M, M}
+requires: A -> A{A}
+          B -> B{B, B}
+\---
+  [1 of 3] Compiling A[sig]           ( p/A.hsig, nothing )
+  [2 of 3] Compiling B[sig]           ( p/B.hsig, nothing )
+  [3 of 3] Compiling M                ( p/M.hs, nothing )
+[2 of 3] Processing q
+/--- Shape for q
+provides: M -> p(hole:A, hole:B):M
+               M{M, M}
+          Q -> q(hole:A, hole:B):Q
+               f
+requires: A -> A{A}
+          B -> B{B, B}
+\---
+  [1 of 3] Compiling A[sig]           ( q/A.hsig, nothing )
+  [2 of 3] Compiling B[sig]           ( q/B.hsig, nothing )
+  [3 of 3] Compiling Q                ( q/Q.hs, nothing )
+[3 of 3] Processing q2
+/--- Shape for q2
+provides: M -> p(hole:A, hole:B):M
+               M{M, M}
+          Q -> q2(hole:A, hole:B):Q
+               f
+requires: A -> A{A}
+          B -> B{B, B}
+\---
+  [1 of 3] Compiling A[sig]           ( q2/A.hsig, nothing )
+  [2 of 3] Compiling B[sig]           ( q2/B.hsig, nothing )
+  [3 of 3] Compiling Q                ( q2/Q.hs, nothing )

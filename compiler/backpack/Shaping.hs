@@ -479,6 +479,21 @@ hsModuleToModSummary dflags hsc_src modname
 
     extra_sig_imports <- liftIO $ findExtraSigImports hsc_env hsc_src modname
 
+    let normal_imports = map convImport (implicit_imports ++ ordinary_imps)
+    required_by_imports <- fmap concat $ forM normal_imports $ \(mb_pkg, L _ imp) -> do
+
+        -- TODO: terrible code duplication (see other
+        -- use of findImportedModule)
+        case Map.lookup imp (packageModuleMap dflags) of
+            Just mod | thisPackage dflags /= moduleUnitId mod  ->
+                        return (uniqSetToList (moduleFreeHoles mod))
+            Nothing -> do
+                found <- liftIO $ findImportedModule hsc_env imp mb_pkg
+                case found of
+                    Found _ mod | thisPackage dflags /= moduleUnitId mod ->
+                        return (uniqSetToList (moduleFreeHoles mod))
+                    _ -> return []
+
     -- So that Finder can find it, even though it doesn't exist...
     this_mod <- liftIO $ addHomeModuleToFinder hsc_env modname location
     return ModSummary {
@@ -494,11 +509,12 @@ hsModuleToModSummary dflags hsc_src modname
                 },
             ms_hspp_buf = Nothing,
             ms_srcimps = map convImport src_idecls,
-            ms_textual_imps = map convImport (implicit_imports ++ ordinary_imps)
+            ms_textual_imps = normal_imports
                            -- We have to do something special here:
                            -- due to merging, requirements may end up with
                            -- extra imports
-                           ++ extra_sig_imports,
+                           ++ extra_sig_imports
+                           ++ [ (Nothing, noLoc mn) | mn <- required_by_imports ],
             -- This is our hack to get the parse tree to the right spot
             ms_parsed_mod = Just (HsParsedModule {
                     hpm_module = hsmod,
@@ -542,22 +558,6 @@ findExtraSigImports hsc_env hsc_src modname = do
     return [ (Nothing, noLoc mod_name) | mod_name <- extra_requirements ]
 
 -- resolveImport :: ModuleName -> 
-
--- To get truly accurate dependency information, we need to
--- determine what the requirements of every external import are.
-importRequirements hsc_env mod_name = do
-    let dflags = hsc_dflags hsc_env
-    found <- findImportedModule hsc_env mod_name Nothing
-    case found of
-        Found _ mod -> do
-            -- OK, this is pretty good, now we just consult the
-            -- free hole variables to find out what it requires, assuming
-            -- that it's an external one (if it's internal one
-            -- the natural import graph will handle it)
-            if thisPackage dflags == moduleUnitId mod
-                then return []
-                else return (uniqSetToList (unitIdFreeHoles (moduleUnitId mod)))
-        _ -> return []
 
 {-
 ************************************************************************
