@@ -201,6 +201,7 @@ import System.IO
 import System.IO.Error
 import Text.ParserCombinators.ReadP hiding (char)
 import Text.ParserCombinators.ReadP as R
+import Text.ParserCombinators.ReadP as Parse
 
 import Data.IntSet (IntSet)
 import qualified Data.IntSet as IntSet
@@ -3929,7 +3930,40 @@ exposePackage' p dflags
             parsePackageFlag "-package" PackageArg p : packageFlags dflags }
 
 setUnitId :: String -> DynFlags -> DynFlags
-setUnitId p s =  s{ thisPackage = stringToUnitId p }
+setUnitId p s =  s{ thisPackage =
+                        case filter ((=="").snd) (readP_to_S parseUnitId p) of
+                            [(r, "")] -> r
+                            _ -> throwGhcException $ CmdLineError ("Can't parse unit identity: " ++ p)
+                  }
+
+parseUnitId :: ReadP UnitId
+parseUnitId = parseUnitIdVar <++ parseFullUnitId <++ parseSimpleUnitId
+  where
+    parseUnitIdVar = do _ <- Parse.char '?'
+                        fmap UnitIdVar (readS_to_P reads)
+    parseFullUnitId = do cid <- parseComponentId
+                         insts <- parseModSubst
+                         return (unsafeNewUnitId cid insts)
+    parseSimpleUnitId = do cid <- parseComponentId
+                           return (unsafeNewUnitId cid [])
+
+parseComponentId :: ReadP ComponentId
+parseComponentId = (ComponentId . mkFastString)  `fmap` Parse.munch1 abi_char
+   where abi_char c = isAlphaNum c || c `elem` "-_."
+
+parseModule :: ReadP Module
+parseModule = do uid <- parseUnitId
+                 _ <- Parse.char ':'
+                 modname <- parseModuleName
+                 return (mkModule uid modname)
+
+parseModSubst :: ReadP [(ModuleName, Module)]
+parseModSubst = Parse.between (Parse.char '[') (Parse.char ']')
+      . flip Parse.sepBy (Parse.char ',')
+      $ do k <- parseModuleName
+           _ <- Parse.char '='
+           v <- parseModule
+           return (k, v)
 
 -- -----------------------------------------------------------------------------
 -- | Find the package environment (if one exists)
