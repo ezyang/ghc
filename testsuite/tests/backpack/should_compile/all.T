@@ -5,7 +5,6 @@ test('bkpfile01', expect_broken(0), backpack_compile, ['-ddump-shape'])
 test('bkp01', extra_clean(['bkp01_out/*']), backpack_compile, ['-ddump-shape -O'])
 test('bkp01c', normal, run_command, ['$MAKE -s --no-print-directory bkp01c'])
 test('bkp02', normal, backpack_compile, ['-ddump-shape'])
-test('bkp03', normal, backpack_compile, ['-ddump-shape'])
 test('bkp04', normal, backpack_compile, ['-ddump-shape'])
 # Fails due to AvailInfo nonsense
 test('bkp05', normal, backpack_compile_fail, ['-ddump-shape'])

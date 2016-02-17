@@ -1,0 +1,9 @@
+[1 of 2] Processing q
+  [1 of 3] Compiling X[sig]           ( q/X.hsig, nothing )
+  [2 of 3] Compiling T                ( q/T.hs, nothing )
+  [3 of 3] Compiling H[sig]           ( q/H.hsig, nothing )
+[2 of 2] Processing p
+  [1 of 4] Compiling XImpl            ( p/XImpl.hs, nothing )
+  [2 of 4] Compiling X[sig]           ( p/X.hsig, nothing )
+Module imports form a cycle:
+  module ‘H’ (p/H.hsig) imports itself
