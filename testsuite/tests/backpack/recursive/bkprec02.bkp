@@ -16,7 +16,6 @@ unit p where
         import XImpl
     signature H(T) where
         import T(X) -- thread it through
-        import X() -- fix a shaping bug for now...
         data T = T X
     module A(T) where
         import X(X(X))

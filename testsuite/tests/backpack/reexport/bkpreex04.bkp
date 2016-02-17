@@ -1,7 +1,7 @@
 unit p where
-    signature A(T) where
+    signature A where
         data T
-    signature B(T) where
+    signature B where
         data T
     signature A(T) where
         import B(T)

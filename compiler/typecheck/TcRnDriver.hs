@@ -380,6 +380,10 @@ tcRnModuleTcRnM hsc_env hsc_src
                 -- Check that main is exported (must be after rnExports)
         checkMainExported tcg_env ;
 
+                -- This means no shaping is necessary
+        checkTc (not (hsc_src == HsigFile && export_ies /= Nothing)) $
+            text "Explicit exports not supported in hsig files";
+
         -- Compare the hi-boot iface (if any) with the real thing
         -- Must be done after processing the exports
         tcg_env <- checkHiBootIface tcg_env boot_info ;
