@@ -1,58 +1,27 @@
-==== Package bar ====
-Shape for bar
+[1 of 6] Processing bar
+/--- Shape for bar
 provides:
-requires: A -> THIS:A
-               A{bar}
-[1 of 1] Compiling A[abstract sig]  ( bar/A.hsig, nothing )
-==== Package foo ====
-Shape for foo
+requires: A -> A{bar}
+\---
+  [1 of 1] Compiling A[sig]           ( bar/A.hsig, nothing )
+[2 of 6] Processing foo
+/--- Shape for foo
 provides:
-requires: A -> THIS:A
-               A{foo}
-[1 of 1] Compiling A[abstract sig]  ( foo/A.hsig, nothing )
-==== Package impl ====
-Shape for impl
-provides: A -> THIS:A
-               THIS:A1.A{THIS:A1.foo}, THIS:A2.A{THIS:A2.bar}
-          A1 -> THIS:A1
-                A{A, A, bar, foo}
-          A2 -> THIS:A2
-                A{A, A, bar, foo}
-requires:
-[1 of 3] Compiling A1               ( impl/A1.hs, nothing )
-[2 of 3] Compiling A2               ( impl/A2.hs, nothing )
-[3 of 3] Compiling A                ( impl/A.hs, nothing )
-==== Package barimpl ====
-Shape for barimpl
-provides: A -> impl():A
-               impl():A1.A{impl():A1.foo}, impl():A2.A{impl():A2.bar}
-          A1 -> impl():A1
-                A{A, A, bar, foo}
-          A2 -> impl():A2
-                A{A, A, bar, foo}
-requires:
-[1 of 2] Including impl
-[2 of 2] Including bar
-==== Package fooimpl ====
-Shape for fooimpl
-provides: A -> impl():A
-               impl():A1.A{impl():A1.foo}, impl():A2.A{impl():A2.bar}
-          A1 -> impl():A1
-                A{A, A, bar, foo}
-          A2 -> impl():A2
-                A{A, A, bar, foo}
-requires:
-[1 of 2] Including impl
-[2 of 2] Including foo
-==== Package foobarimpl ====
-Shape for foobarimpl
-provides: A -> impl():A
-               impl():A1.A{impl():A1.foo}, impl():A2.A{impl():A2.bar}
-          A1 -> impl():A1
-                A{A, A, bar, foo}
-          A2 -> impl():A2
-                A{A, A, bar, foo}
-requires:
-[1 of 3] Including impl
-[2 of 3] Including foo
-[3 of 3] Including bar
+requires: A -> A{foo}
+\---
+  [1 of 1] Compiling A[sig]           ( foo/A.hsig, nothing )
+[3 of 6] Processing impl
+  Instantiating impl
+  [1 of 3] Compiling A1               ( impl/A1.hs, bkp05-out/impl/A1.o )
+  [2 of 3] Compiling A2               ( impl/A2.hs, bkp05-out/impl/A2.o )
+  [3 of 3] Compiling A                ( impl/A.hs, bkp05-out/impl/A.o )
+[4 of 6] Processing barimpl
+  Instantiating barimpl
+  [1 of 2] Including impl
+  [2 of 2] Including bar
+    Instantiating bar(impl:A)
+    [1 of 1] Compiling A[sig]           ( bar/A.hsig, nothing )
+
+bkp05.bkp:2:5: error: Not in scope: type constructor or class ‘A’
+
+bkp05.bkp:2:5: error: Not in scope: data constructor ‘A’
