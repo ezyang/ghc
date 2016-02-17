@@ -182,7 +182,7 @@ shIncludeGraph uid lpkg = setPackageSh lpkg . setUnitIdSh uid $ do
             c <- T.mapM convertModuleU provs_u
             h <- T.mapM convertModuleU holeMap
             u <- convertUnitIdU uid_u
-            pprTrace "go" (ppr a $$ ppr c $$ ppr h $$ ppr u0 $$ ppr u) $ return ()
+            -- pprTrace "go" (ppr a $$ ppr c $$ ppr h $$ ppr u0 $$ ppr u) $ return ()
             return (Map.union provs_all provs_u)
     _ <- liftIO $ foldM go Map.empty unifs
 
@@ -337,7 +337,7 @@ shModGraph uid lpkg = setPackageSh lpkg . setUnitIdSh uid $ do
     let decls = hsunitBody (unLoc lpkg)
     dflags <- getDynFlags
 
-    --  1. Create a HsSrcFile/HsBootFile summary for every
+    --  1. Create a HsSrcFile/HsigFile summary for every
     --  explicitly mentioned module/signature.
     --  TODO: chase deps, so that we don't have to assume all
     --  modules/signatures are mentioned.
@@ -378,6 +378,8 @@ summariseRequirement dflags mod_name = do
     mod <- liftIO $ addHomeModuleToFinder hsc_env mod_name location
 
     loc <- getSrcSpanSh
+    extra_sig_imports <- liftIO $ findExtraSigImports hsc_env HsigFile mod_name
+
     return ModSummary {
         ms_mod = mod,
         ms_hsc_src = HsigFile,
@@ -386,7 +388,7 @@ summariseRequirement dflags mod_name = do
         ms_obj_date = Nothing,
         ms_iface_date = hi_timestamp,
         ms_srcimps = [],
-        ms_textual_imps = [],
+        ms_textual_imps = extra_sig_imports,
         ms_parsed_mod = Just (HsParsedModule {
                 hpm_module = L loc (HsModule {
                         hsmodName = Just (L loc mod_name),
@@ -475,6 +477,8 @@ hsModuleToModSummary dflags hsc_src modname
                                          implicit_prelude imps
         convImport (L _ i) = (fmap sl_fs (ideclPkgQual i), ideclName i)
 
+    extra_sig_imports <- liftIO $ findExtraSigImports hsc_env hsc_src modname
+
     -- So that Finder can find it, even though it doesn't exist...
     this_mod <- liftIO $ addHomeModuleToFinder hsc_env modname location
     return ModSummary {
@@ -490,7 +494,11 @@ hsModuleToModSummary dflags hsc_src modname
                 },
             ms_hspp_buf = Nothing,
             ms_srcimps = map convImport src_idecls,
-            ms_textual_imps = map convImport (implicit_imports ++ ordinary_imps),
+            ms_textual_imps = map convImport (implicit_imports ++ ordinary_imps)
+                           -- We have to do something special here:
+                           -- due to merging, requirements may end up with
+                           -- extra imports
+                           ++ extra_sig_imports,
             -- This is our hack to get the parse tree to the right spot
             ms_parsed_mod = Just (HsParsedModule {
                     hpm_module = hsmod,
@@ -501,6 +509,55 @@ hsModuleToModSummary dflags hsc_src modname
             ms_obj_date = Nothing, -- TODO do this, but problem: hi_timestamp is BOGUS
             ms_iface_date = hi_timestamp
         }
+
+findExtraSigImports hsc_env hsc_src modname = do
+    -- Gotta work hard.
+    -- TODO: but only when I'm type-checking
+    let dflags = hsc_dflags hsc_env
+        reqmap = requirementsMap dflags
+    extra_requirements <-
+      case hsc_src of
+        HsigFile | Just reqs <- Map.lookup modname reqmap -> do
+            all_deps <- forM reqs $ \(req :: Module) -> do
+                -- NB: we NEED the transitive closure of local imports!!!
+                (deps, _) <- initIfaceCheck hsc_env . withException $
+                            (computeDependencies (text "requirement deps" <+> ppr modname)
+                            False req)
+                -- Now we must reflect upon the substitution in req
+                -- in order to determine the meaning of the dependencies.
+                let hmap = Map.fromList (unitIdInsts (moduleUnitId req))
+                -- m -> M
+                --  means that if we see an m in the dep list, it is a hole.
+                --  Consequently, we have a dependency on M
+                let go (_, True) = [] -- ignore boots
+                    go (mod_name, False)
+                        | Just mod <- Map.lookup mod_name hmap
+                        = uniqSetToList (moduleFreeHoles mod)
+                        | otherwise
+                        = [] -- not a requirement
+                return (concatMap go (dep_mods deps))
+            return (concat all_deps)
+        _ -> return []
+
+    return [ (Nothing, noLoc mod_name) | mod_name <- extra_requirements ]
+
+-- resolveImport :: ModuleName -> 
+
+-- To get truly accurate dependency information, we need to
+-- determine what the requirements of every external import are.
+importRequirements hsc_env mod_name = do
+    let dflags = hsc_dflags hsc_env
+    found <- findImportedModule hsc_env mod_name Nothing
+    case found of
+        Found _ mod -> do
+            -- OK, this is pretty good, now we just consult the
+            -- free hole variables to find out what it requires, assuming
+            -- that it's an external one (if it's internal one
+            -- the natural import graph will handle it)
+            if thisPackage dflags == moduleUnitId mod
+                then return []
+                else return (uniqSetToList (unitIdFreeHoles (moduleUnitId mod)))
+        _ -> return []
 
 {-
 ************************************************************************

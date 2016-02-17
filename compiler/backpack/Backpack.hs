@@ -269,17 +269,21 @@ doBackpack src_filename = do
             liftIO $ throwOneError (mkPlainErrMsg dflags span err)
         POk _ pkgname_bkp -> do
             -- OK, so we have an LHsUnit PackageName, but we want an
-            -- LHsUnit ComponentId.  So let's rename it
+            -- LHsUnit ComponentId.  So let's rename it.
+            --
+            -- NB: If we top-sort here you can put these in whatever order
+            -- you want, but includes have to be acyclic!
             let bkp = renameHsUnits dflags (packageNameMap pkgname_bkp) pkgname_bkp
             initBkpM src_filename bkp $
-                forM_ (zip [1..] bkp) $ \(i, pkg) -> do
-                    let comp_name = unLoc (hsunitName (unLoc pkg))
+                forM_ (zip [1..] bkp) $ \(i, lunit) -> do
+                    let comp_name = unLoc (hsunitName (unLoc lunit))
                         is_primary = hsComponentId comp_name == primary_name
                     msgTopPackage (i,length bkp) comp_name
                     innerBkpM $ do
                         -- Figure out if we should type-check or
-                        -- compile
-                        uid0 <- runShM $ shComputeUnitId pkg
+                        -- compile.  This is the "pre-shaping" pass
+                        -- described in the paper.
+                        uid0 <- runShM $ shComputeUnitId lunit
                         -- This test is necessary to see if we're
                         -- compiling the primary for a specific instantiation
                         -- (See test bkpcabal01)
@@ -290,7 +294,7 @@ doBackpack src_filename = do
                             uid = unsafeNewUnitId (unitIdComponentId uid0) insts
                         if isEmptyUniqSet (unitIdFreeHoles uid)
                             then if hsComponentId comp_name == ComponentId (fsLit "main")
-                                    then compileExe pkg
+                                    then compileExe lunit
                                     else compileUnit uid
                             else typecheckUnit (hsComponentId comp_name)
 
@@ -382,6 +386,7 @@ getSource cid = do
 typecheckUnit :: ComponentId -> BkpM ()
 typecheckUnit cid = do
     lunit <- getSource cid
+    -- TODO: Computing this twice is a little goofy
     uid <- runShM $ shComputeUnitId lunit
     buildUnit TcSession uid lunit
 
@@ -430,6 +435,7 @@ buildUnit session uid lunit = do
     conf <- withBkpSession uid mod_map req_map session $ do
         dflags <- getDynFlags
         mod_graph <- runShM $ shModGraph uid lunit
+        -- pprTrace "mod_graph" (ppr mod_graph) $ return ()
 
         hsc_env <- getSession
         case session of

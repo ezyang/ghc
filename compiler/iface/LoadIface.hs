@@ -25,6 +25,7 @@ module LoadIface (
         loadDecls,      -- Should move to TcIface and be renamed
         initExternalPackageState,
         computeInterface,
+        computeDependencies,
         computeExports,
 
         ifaceStats, pprModIface, pprModIfaceSimple, showIface
@@ -525,7 +526,7 @@ computeInterfaceAnd def_action indef_action doc_str hi_boot_file mod = do
         Succeeded (iface0, path) | moduleIsDefinite mod -> do
             return (Succeeded (def_action iface0, path))
         _ -> do
-            -- Now try for a fat interface
+            -- Now try for an indefinite interface
             let imod = generalizeHoleModule mod
             r <- findAndReadIface doc_str imod hi_boot_file
             case r of
@@ -545,6 +546,13 @@ computeInterface =
     computeInterfaceAnd id
         (\uid iface -> do hsc_env <- getTopEnv
                           liftIO (rnModIface hsc_env uid iface))
+
+computeDependencies :: SDoc -> IsBootInterface -> Module
+                    -> TcRnIf gbl lcl (MaybeErr MsgDoc (Dependencies, FilePath))
+computeDependencies =
+    computeInterfaceAnd mi_deps
+        -- TODO: Do nothing?!  Should be OK for now.
+        (\uid iface -> return (mi_deps iface))
 
 -- | Like 'computeInterface', but it only returns the exports of the
 -- interface (and doesn't bother renaming the rest of the interface.)

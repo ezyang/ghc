@@ -27,4 +27,3 @@ test('bkp20', expect_broken(0), backpack_compile, ['-ddump-shape']) # essentiall
 test('bkp21', normal, backpack_compile, ['-ddump-shape'])
 # canonicalization, SCC-planning
 test('bkp22', expect_broken(0), backpack_compile, ['-ddump-shape'])
-test('bkp23', expect_broken(0), backpack_compile, ['-ddump-shape'])
