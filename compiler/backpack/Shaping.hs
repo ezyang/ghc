@@ -1008,10 +1008,12 @@ shPackage uid
          sh0 <- foldM shIncludeSummary emptyShape include_graph
          sh <- foldM shModSummary sh0 mod_graph
          -- Dump the shape if we're asked to
+         {-
          shDump (vcat [ text "/--- Shape for" <+> ppr (hsPackageName hscid)
                       , ppr sh
                       , text "\\---"
                       ])
+         -}
 
          return sh
 shPackage _ _ _

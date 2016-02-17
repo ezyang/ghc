@@ -1,18 +1,9 @@
 [1 of 5] Processing h
-/--- Shape for h
-provides:
-requires: H -> T{T, T1}
-\---
   [1 of 1] Compiling H[sig]           ( h/H.hsig, nothing )
 [2 of 5] Processing t-impl
   Instantiating t-impl
   [1 of 1] Compiling T                ( t-impl/T.hs, bkpfail05-out/t-impl/T.o )
 [3 of 5] Processing p
-/--- Shape for p
-provides: T -> t-impl:T
-               T{T, T2}
-requires: H -> t-impl:T.T{T, T1, T2}
-\---
   [1 of 1] Compiling H[sig]           ( p/H.hsig, nothing )
 [4 of 5] Processing h-impl
   Instantiating h-impl

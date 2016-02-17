@@ -1,70 +1,24 @@
 [1 of 6] Processing p
-/--- Shape for p
-provides: M -> p(hole:A, hole:B):M
-               M{M, M}
-requires: A -> A{A}
-          B -> B{B, B}
-\---
   [1 of 3] Compiling A[sig]           ( p/A.hsig, nothing )
   [2 of 3] Compiling B[sig]           ( p/B.hsig, nothing )
   [3 of 3] Compiling M                ( p/M.hs, nothing )
 [2 of 6] Processing q1
-/--- Shape for q1
-provides: M -> p(hole:A, hole:B):M
-               M{M, M}
-          Q -> q1(hole:A, hole:B):Q
-               f
-requires: A -> A{A}
-          B -> B{B, B}
-\---
   [1 of 3] Compiling A[sig]           ( q1/A.hsig, nothing )
   [2 of 3] Compiling B[sig]           ( q1/B.hsig, nothing )
   [3 of 3] Compiling Q                ( q1/Q.hs, nothing )
 [3 of 6] Processing q2
-/--- Shape for q2
-provides: M -> p(hole:A, hole:B):M
-               M{M, M}
-          Q -> q2(hole:A, hole:B):Q
-               f
-requires: A -> A{A}
-          B -> B{B, B}
-\---
   [1 of 3] Compiling A[sig]           ( q2/A.hsig, nothing )
   [2 of 3] Compiling B[sig]           ( q2/B.hsig, nothing )
   [3 of 3] Compiling Q                ( q2/Q.hs, nothing )
 [4 of 6] Processing q3
-/--- Shape for q3
-provides: M -> p(hole:A, hole:B):M
-               M{M, M}
-          Q -> q3(hole:A, hole:B):Q
-               f
-requires: A -> A{A}
-          B -> B{B, B}
-\---
   [1 of 3] Compiling A[sig]           ( q3/A.hsig, nothing )
   [2 of 3] Compiling B[sig]           ( q3/B.hsig, nothing )
   [3 of 3] Compiling Q                ( q3/Q.hs, nothing )
 [5 of 6] Processing q4
-/--- Shape for q4
-provides: M -> p(hole:A, hole:B):M
-               M{M, M}
-          Q -> q4(hole:A, hole:B):Q
-               f
-requires: A -> A{A}
-          B -> B{B, B}
-\---
   [1 of 3] Compiling A[sig]           ( q4/A.hsig, nothing )
   [2 of 3] Compiling B[sig]           ( q4/B.hsig, nothing )
   [3 of 3] Compiling Q                ( q4/Q.hs, nothing )
 [6 of 6] Processing q5
-/--- Shape for q5
-provides: M -> p(hole:A, hole:B):M
-               M{M, M}
-          Q -> q5(hole:A, hole:B):Q
-               f
-requires: A -> A{A}
-          B -> B{B, B}
-\---
   [1 of 3] Compiling A[sig]           ( q5/A.hsig, nothing )
   [2 of 3] Compiling B[sig]           ( q5/B.hsig, nothing )
   [3 of 3] Compiling Q                ( q5/Q.hs, nothing )

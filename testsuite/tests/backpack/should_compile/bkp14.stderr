@@ -1,8 +1,4 @@
 [1 of 3] Processing p
-/--- Shape for p
-provides:
-requires: H -> T{T}, f
-\---
   [1 of 1] Compiling H[sig]           ( p/H.hsig, nothing )
 [2 of 3] Processing impl
   Instantiating impl

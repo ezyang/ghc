@@ -1,10 +1,4 @@
 [1 of 2] Processing p
-/--- Shape for p
-provides: A -> p(hole:H, hole:H2):A
-               Z{Z, Z}
-requires: H -> S{S}
-          H2 -> T{T}
-\---
   [1 of 3] Compiling H[sig]           ( p/H.hsig, nothing )
   [2 of 3] Compiling H2[sig]          ( p/H2.hsig, nothing )
   [3 of 3] Compiling A                ( p/A.hs, nothing )

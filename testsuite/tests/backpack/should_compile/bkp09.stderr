@@ -2,23 +2,10 @@
 bkp09.bkp:1:26: warning:
     -XDatatypeContexts is deprecated: It was widely considered a misfeature, and has been removed from the Haskell language.
 [1 of 5] Processing p
-/--- Shape for p
-provides:
-requires: H -> Bloop{Bloop, GMap, xa, y}, Elem{Elem}, X{X}, F{F, F}, Foo{Foo, Foo}, S{S, R}, T{T, T, S}, x
-\---
   [1 of 1] Compiling H[sig]           ( p/H.hsig, nothing )
 [2 of 5] Processing q
-/--- Shape for q
-provides:
-requires: H -> Bloop{Bloop, GMap, xa, y}, Elem{Elem}, X{X}, F{F, F}, Foo{Foo, Foo}, S{S, R}, T{T, T, S}, x
-\---
   [1 of 1] Compiling H[sig]           ( q/H.hsig, nothing )
 [3 of 5] Processing r
-/--- Shape for r
-provides: M -> r(hole:H):M
-               hole:H.GMap{GMap, GMapBool}, a, b, c, d
-requires: H -> Bloop{Bloop, GMap, xa, y}, Elem{Elem}, X{X}, F{F, F}, Foo{Foo, Foo}, S{S, R}, T{T, S, T}, x
-\---
   [1 of 2] Compiling H[sig]           ( r/H.hsig, nothing )
   [2 of 2] Compiling M                ( r/M.hs, nothing )
 [4 of 5] Processing h-impl

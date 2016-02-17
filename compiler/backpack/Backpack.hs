@@ -437,6 +437,7 @@ buildUnit session uid lunit = do
         mod_graph <- runShM $ shModGraph uid lunit
         -- pprTrace "mod_graph" (ppr mod_graph) $ return ()
 
+        {-
         hsc_env <- getSession
         case session of
             TcSession -> do
@@ -445,6 +446,7 @@ buildUnit session uid lunit = do
                 sh_subst <- liftIO $ computeShapeSubst hsc_env sh
                 updateEpsGhc_ (\eps -> eps { eps_shape = sh_subst } )
             _ -> return ()
+            -}
 
         msg <- mkBackpackMsg
         ok <- load' LoadAllTargets (Just msg) mod_graph

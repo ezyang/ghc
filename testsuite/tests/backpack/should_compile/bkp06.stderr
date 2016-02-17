@@ -1,22 +1,8 @@
 [1 of 3] Processing p
-/--- Shape for p
-provides:
-requires: A1 -> A{A, A, foo, bar}
-          A2 -> hole:A1.A{foo}
-\---
   [1 of 2] Compiling A1[sig]          ( p/A1.hsig, nothing )
   [2 of 2] Compiling A2[sig]          ( p/A2.hsig, nothing )
 [2 of 3] Processing q
-/--- Shape for q
-provides:
-requires: A2 -> A{A, A, foo, bar}
-\---
   [1 of 1] Compiling A2[sig]          ( q/A2.hsig, nothing )
 [3 of 3] Processing r
-/--- Shape for r
-provides:
-requires: A1 -> A{A, A, bar, foo}
-          A2 -> hole:A1.A{A, A, bar, foo}
-\---
   [1 of 2] Compiling A1[sig]          ( r/A1.hsig, nothing )
   [2 of 2] Compiling A2[sig]          ( r/A2.hsig, nothing )

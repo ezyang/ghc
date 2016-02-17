@@ -1,0 +1,16 @@
+[1 of 2] Processing h
+  [1 of 1] Compiling H[sig]           ( h/H.hsig, nothing )
+[2 of 2] Processing p
+  [1 of 3] Compiling B                ( p/B.hs, nothing )
+  [2 of 3] Compiling H[sig]           ( p/H.hsig, nothing )
+  [3 of 3] Compiling A                ( p/A.hs, nothing )
+ghc-stage2: panic! (the 'impossible' happened)
+  (GHC version 8.1.20160202 for x86_64-unknown-linux):
+	ASSERT failed!
+  CallStack (from ImplicitParams):
+  assertPprPanic, called at compiler/rename/RnNames.hs:799:111 in ghc:RnNames
+  combine, called at compiler/rename/RnNames.hs:790:30 in ghc:RnNames
+  T T Nothing Nothing
+
+Please report this as a GHC bug:  http://www.haskell.org/ghc/reportabug
+

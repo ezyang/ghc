@@ -1,27 +1,10 @@
 [1 of 4] Processing ab-sigs
-/--- Shape for ab-sigs
-provides:
-requires: A -> A{A}
-          B -> B{B}
-\---
   [1 of 2] Compiling A[sig]           ( ab-sigs/A.hsig, nothing )
   [2 of 2] Compiling B[sig]           ( ab-sigs/B.hsig, nothing )
 [2 of 4] Processing ab
-/--- Shape for ab
-provides: A -> ab(hole:B):A
-               A{A, A}
-requires: A -> ab(hole:B):A.A{A}
-          B -> B{B}
-\---
   [1 of 2] Compiling B[sig]           ( ab/B.hsig, nothing )
   [2 of 2] Compiling A                ( ab/A.hs, nothing )
 [3 of 4] Processing ba
-/--- Shape for ba
-provides: B -> ba(hole:A):B
-               B{B, B}
-requires: A -> A{A}
-          B -> ba(hole:A):B.B{B}
-\---
   [1 of 2] Compiling A[sig]           ( ba/A.hsig, nothing )
   [2 of 2] Compiling B                ( ba/B.hs, nothing )
 [4 of 4] Processing ab-rec

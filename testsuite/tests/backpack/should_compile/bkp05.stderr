@@ -1,14 +1,6 @@
 [1 of 6] Processing bar
-/--- Shape for bar
-provides:
-requires: A -> A{bar}
-\---
   [1 of 1] Compiling A[sig]           ( bar/A.hsig, nothing )
 [2 of 6] Processing foo
-/--- Shape for foo
-provides:
-requires: A -> A{foo}
-\---
   [1 of 1] Compiling A[sig]           ( foo/A.hsig, nothing )
 [3 of 6] Processing impl
   Instantiating impl

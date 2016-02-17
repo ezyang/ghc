@@ -16,9 +16,7 @@ test('bkp10', normal, backpack_compile, ['-ddump-shape'])
 # Duplicate renaming destination, planning to implement later
 test('bkp11', normal, backpack_compile_fail, ['-ddump-shape'])
 test('bkp12', normal, backpack_compile, ['-ddump-shape'])
-test('bkp13', normal, backpack_compile, ['-ddump-shape'])
 test('bkp14', normal, backpack_compile, ['-ddump-shape'])
-test('bkp15', normal, backpack_compile, ['-ddump-shape'])
 test('bkp16', normal, backpack_compile, ['']) # too chatty
 test('bkp17', normal, backpack_compile, ['-ddump-shape'])
 test('bkp18', normal, backpack_compile, ['-ddump-shape'])
