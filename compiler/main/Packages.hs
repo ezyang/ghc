@@ -275,7 +275,11 @@ data PackageState = PackageState {
   moduleToPkgConfAll    :: ModuleToPkgConfAll,
 
   -- | A map, like 'moduleToPkgConfAll', but controlling plugin visibility.
-  pluginModuleToPkgConfAll    :: ModuleToPkgConfAll
+  pluginModuleToPkgConfAll    :: ModuleToPkgConfAll,
+
+  -- | A map saying, for each requirement, what interfaces must be merged
+  -- together when we use them.  Previously called "requirementsMap"
+  requirementContext :: Map ModuleName [Module]
   }
 
 emptyPackageState :: PackageState
@@ -285,7 +289,8 @@ emptyPackageState = PackageState {
     preloadPackages = [],
     explicitPackages = [],
     moduleToPkgConfAll = Map.empty,
-    pluginModuleToPkgConfAll = Map.empty
+    pluginModuleToPkgConfAll = Map.empty,
+    requirementContext = Map.empty
     }
 
 type InstalledPackageIndex = Map UnitId PackageConfig
@@ -1114,6 +1119,28 @@ mkPackageState dflags0 dbs preload0 = do
         where add pn_map p
                 = Map.insert (packageName p) (unitIdComponentId (packageConfigId p)) pn_map
 
+  -- The explicitPackages accurately reflects the set of packages we have turned
+  -- on; as such, it also is the only way one can come up with requirements.
+  -- The requirement context is directly based off of this: we simply
+  -- look for nested unit IDs that are directly fed holes: the requirements
+  -- of those units are precisely the ones we need to track
+  let explicit_pkgs = foldUFM (\pkg xs ->
+                            if elemUFM (packageConfigId pkg) vis_map
+                                then packageConfigId pkg : xs
+                                else xs) [] pkg_db
+      collectHoles uid@(UnitId{}) =
+        Map.unions $ local ++ recurse
+       where
+        local = [ Map.singleton (moduleName mod) (Set.singleton (mkModule uid mod_name))
+                | (mod_name, mod) <- unitIdInsts uid
+                , isHoleModule mod ]
+        recurse = [ collectHoles (moduleUnitId mod)
+                  | (mod_name, mod) <- unitIdInsts uid ]
+      collectHoles (UnitIdVar _) = Map.empty
+      req_ctx = Map.map (Set.toList)
+              $ Map.unionsWith Set.union (map collectHoles explicit_pkgs)
+
+
   let preload2 = preload1
 
   let
@@ -1135,14 +1162,12 @@ mkPackageState dflags0 dbs preload0 = do
 
   let pstate = PackageState{
     preloadPackages     = dep_preload,
-    explicitPackages    = foldUFM (\pkg xs ->
-                            if elemUFM (packageConfigId pkg) vis_map
-                                then packageConfigId pkg : xs
-                                else xs) [] pkg_db,
+    explicitPackages    = explicit_pkgs,
     pkgIdMap            = pkg_db,
     moduleToPkgConfAll  = mkModuleToPkgConfAll dflags pkg_db vis_map,
     pluginModuleToPkgConfAll = mkModuleToPkgConfAll dflags pkg_db plugin_vis_map,
-    packageNameMap          = pkgname_map
+    packageNameMap          = pkgname_map,
+    requirementContext = req_ctx
     }
   return (pstate, new_dep_preload)
 
