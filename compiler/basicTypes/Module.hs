@@ -470,6 +470,9 @@ data UnitId = UnitId {
         unitIdVar :: Int
     } deriving (Typeable)
 
+instance Show UnitId where
+    show = unitIdString
+
 -- These are ONLY used to get Uniques.  If you want to actually make
 -- symbols, these are NOT what you want.  This is totally internal to GHC.
 --

@@ -69,6 +69,7 @@ import FastString
 import ErrUtils         ( debugTraceMsg, MsgDoc )
 import Exception
 import Unique
+import UniqSet
 
 import System.Directory
 import System.FilePath as FilePath
@@ -240,7 +241,7 @@ type PackageConfigMap = UnitIdMap PackageConfig
 -- should also be apply, and (3) what package name is associated with the
 -- key, if it might be hidden
 type VisibilityMap =
-    UnitIdMap (Bool, [(ModuleName, ModuleName)], FastString)
+    Map UnitId (Bool, [(ModuleName, ModuleName)], FastString)
 
 -- | Map from 'ModuleName' to 'Module' to all the origins of the bindings
 -- in scope.  The 'PackageConf' is not cached, mostly for convenience reasons
@@ -539,16 +540,20 @@ applyTrustFlag dflags unusable pkgs flag =
     -- we trust all matching packages. Maybe should only trust first one?
     -- and leave others the same or set them untrusted
     TrustPackage str ->
-       case selectPackages (matchingStr str) pkgs unusable of
+       case selectPackages (PackageArg str) pkgs unusable of
          Left ps       -> trustFlagErr dflags flag ps
          Right (ps,qs) -> return (map trust ps ++ qs)
           where trust p = p {trusted=True}
 
     DistrustPackage str ->
-       case selectPackages (matchingStr str) pkgs unusable of
+       case selectPackages (PackageArg str) pkgs unusable of
          Left ps       -> trustFlagErr dflags flag ps
          Right (ps,qs) -> return (map distrust ps ++ qs)
           where distrust p = p {trusted=False}
+
+
+--  is_indefinite = not (isEmptyUniqSet (unitIdFreeHoles (thisPackage dflags)))
+
 
 applyPackageFlag
    :: DynFlags
@@ -563,12 +568,12 @@ applyPackageFlag
 applyPackageFlag dflags unusable no_hide_others pkgs vm flag =
   case flag of
     ExposePackage _ arg (ModRenaming b rns) ->
-       case selectPackages (matching arg) pkgs unusable of
+       case selectPackages arg pkgs unusable of
          Left ps         -> packageFlagErr dflags flag ps
          Right (p:_,_) -> return vm'
           where
            n = fsPackageName p
-           vm' = addToUFM_C edit vm_cleared (packageConfigId p) (b, rns, n)
+           vm' = Map.insertWith edit (packageConfigId p) (b, rns, n) vm_cleared
            edit (b, rns, n) (b', rns', _) = (b || b', rns ++ rns', n)
            -- In the old days, if you said `ghc -package p-0.1 -package p-0.2`
            -- (or if p-0.1 was registered in the pkgdb as exposed: True),
@@ -591,23 +596,24 @@ applyPackageFlag dflags unusable no_hide_others pkgs vm flag =
            -- -hide-all-packages/-hide-all-plugin-packages depending on what
            -- flag is in question.
            vm_cleared | no_hide_others = vm
-                      | otherwise = filterUFM_Directly
-                            (\k (_,_,n') -> k == getUnique (packageConfigId p)
+                      | otherwise = Map.filterWithKey
+                            (\k (_,_,n') -> k == packageConfigId p
                                                 || n /= n') vm
          _ -> panic "applyPackageFlag"
 
     HidePackage str ->
-       case selectPackages (matchingStr str) pkgs unusable of
+       case selectPackages (PackageArg str) pkgs unusable of
          Left ps       -> packageFlagErr dflags flag ps
          Right (ps,_) -> return vm'
-          where vm' = delListFromUFM vm (map packageConfigId ps)
+          where vm' = foldl' (flip Map.delete) vm (map packageConfigId ps)
 
-selectPackages :: (PackageConfig -> Bool) -> [PackageConfig]
+selectPackages :: PackageArg -> [PackageConfig]
                -> UnusablePackages
                -> Either [(PackageConfig, UnusablePackageReason)]
                   ([PackageConfig], [PackageConfig])
-selectPackages matches pkgs unusable
-  = let (ps,rest) = partition matches pkgs
+selectPackages arg pkgs unusable
+  = let matches = matching arg
+        (ps,rest) = partition matches pkgs
     in if null ps
         then Left (filter (matches.fst) (Map.elems unusable))
         -- NB: packages from later package databases are LATER
@@ -621,12 +627,12 @@ matchingStr str p
         =  str == sourcePackageIdString p
         || str == packageNameString p
 
-matchingId :: String -> PackageConfig -> Bool
-matchingId str p = str == unitIdString (packageConfigId p)
+matchingId :: UnitId -> PackageConfig -> Bool
+matchingId uid p = uid == packageConfigId p
 
 matching :: PackageArg -> PackageConfig -> Bool
 matching (PackageArg str) = matchingStr str
-matching (UnitIdArg str)  = matchingId str
+matching (UnitIdArg uid)  = matchingId uid
 
 sortByVersion :: [PackageConfig] -> [PackageConfig]
 sortByVersion = sortBy (flip (comparing packageVersion))
@@ -729,7 +735,7 @@ findWiredInPackages dflags pkgs vis_map = do
            let all_ps = [ p | p <- pkgs, p `matches` wired_pkg ]
                all_exposed_ps =
                     [ p | p <- all_ps
-                        , elemUFM (packageConfigId p) vis_map ] in
+                        , Map.member (packageConfigId p) vis_map ] in
            case all_exposed_ps of
             [] -> case all_ps of
                        []   -> notfound
@@ -804,9 +810,9 @@ findWiredInPackages dflags pkgs vis_map = do
 
 updateVisibilityMap :: WiredPackagesMap -> VisibilityMap -> VisibilityMap
 updateVisibilityMap wiredInMap vis_map = foldl' f vis_map (Map.toList wiredInMap)
-  where f vm (from, to) = case lookupUFM vis_map from of
+  where f vm (from, to) = case Map.lookup from vis_map of
                     Nothing -> vm
-                    Just r -> addToUFM vm to r
+                    Just r -> Map.insert to r vm
 
 
 -- ----------------------------------------------------------------------------
@@ -885,6 +891,217 @@ ignorePackages flags pkgs = Map.fromList (concatMap doit flags)
         -- because a common usage is to -ignore-package P as
         -- a preventative measure just in case P exists.
 
+
+{-
+
+mergeDatabases :: DynFlags -> [IgnorePackageFlag] -> [(FilePath, [PackageConfig])]
+              -> IO (Map UnitId PackageConfig, UnusablePackages)
+mergeDatabases dflags ignore_flags dbs = foldM merge (Map.empty, Map.empty) dbs
+  where
+      merge (pkg_map, prev_unusable) (db_path, db) = do
+            debugTraceMsg dflags 2 $
+                text "loading package database" <+> text db_path
+            forM_ (Set.toList shadow_set) $ \pkg ->
+                debugTraceMsg dflags 2 $
+                    text "package" <+> ppr pkg <+>
+                    text "shadows a previously defined package"
+            reportUnusable dflags unusable
+            -- NB: an unusable unit ID can become usable again
+            -- if it's validly specified in a later package stack.
+            -- Keep unusable up-to-date!
+            return (pkg_map', (prev_unusable `Map.difference` pkg_map')
+                                    `Map.union` unusable)
+        where -- The set of UnitIds which appear in both
+              -- db and pkgs (to be shadowed from pkgs)
+              shadow_set :: Set UnitId
+              shadow_set = foldr ins Set.empty db
+                where ins pkg s
+                        -- If the package from the upper database is
+                        -- in the lower database, and the ABIs don't
+                        -- match...
+                        | Just old_pkg <- Map.lookup (unitId pkg) pkg_map
+                        , abiHash old_pkg /= abiHash pkg
+                        -- ...add this unit ID to the set of unit IDs
+                        -- which (transitively) should be shadowed from
+                        -- the lower database.
+                        = Set.insert (unitId pkg) s
+                        | otherwise
+                        = s
+              -- Remove shadow_set from pkg_map...
+              shadowed_pkgs0 :: [PackageConfig]
+              shadowed_pkgs0 = filter (not . (`Set.member` shadow_set) . unitId)
+                                      (Map.elems pkg_map)
+              -- ...and then remove anything transitively broken
+              -- this way.
+              shadowed = findBroken True shadowed_pkgs0 Map.empty
+              shadowed_pkgs :: [PackageConfig]
+              shadowed_pkgs = filter (not . (`Map.member` shadowed) . unitId)
+                                     shadowed_pkgs0
+
+              -- Apply ignore flags to db (TODO: could extend command line
+              -- flag format to support per-database ignore now!  More useful
+              -- than what we have now.)
+              ignored = ignorePackages ignore_flags db
+              db2 = filter (not . (`Map.member` ignored) . unitId) db
+
+              -- Look for broken packages (either from ignore, or possibly
+              -- because the db was broken to begin with)
+              mk_pkg_map = Map.fromList . map (\p -> (unitId p, p))
+              broken = findBroken False db2 (mk_pkg_map shadowed_pkgs)
+              db3 = filter (not . (`Map.member` broken) . unitId) db2
+
+              unusable = shadowed `Map.union` ignored
+                                  `Map.union` broken
+
+              -- Now merge the sets together (NB: later overrides
+              -- earlier!)
+              pkg_map' :: Map UnitId PackageConfig
+              pkg_map' = mk_pkg_map (shadowed_pkgs ++ db3)
+
+resolvePackageFlag :: DynFlags
+                   -> UnusablePackages
+                   -> [PackageConfig]
+                   -> PackageFlag
+                   -> IO (UnitId, ModRenaming)
+resolvePackageFlag dflags unusable pkgs flag =
+  case flag of
+    ExposePackage _ arg rn ->
+      case selectPackages arg pkgs unusable of
+        Left ps -> packageFlagErr dflags flag ps
+        Right (p:_,_) -> return (packageConfigId p, rn)
+    HidePackage str -> error "-hide-package not supported"
+
+resolveWiredInPackages :: DynFlags
+                       -> UniqSet UnitId
+                       -> [PackageConfig]
+                       -> IO ([PackageConfig], WiredPackagesMap)
+resolveWiredInPackages dflags exposed_pkgs pkgs = do
+  --
+  -- Now we must find our wired-in packages, and rename them to
+  -- their canonical names (eg. base-1.0 ==> base).
+  --
+  let
+        matches :: PackageConfig -> String -> Bool
+        pc `matches` pid = packageNameString pc == pid
+
+        -- find which package corresponds to each wired-in package
+        -- delete any other packages with the same name
+        -- update the package and any dependencies to point to the new
+        -- one.
+        --
+        -- When choosing which package to map to a wired-in package
+        -- name, we try to pick the latest version of exposed packages.
+        -- However, if there are no exposed wired in packages available
+        -- (e.g. -hide-all-packages was used), we can't bail: we *have*
+        -- to assign a package for the wired-in package: so we try again
+        -- with hidden packages included to (and pick the latest
+        -- version).
+        --
+        -- You can also override the default choice by using -ignore-package:
+        -- this works even when there is no exposed wired in package
+        -- available.
+        --
+        findWiredInPackage :: [PackageConfig] -> String
+                           -> IO (Maybe PackageConfig)
+        findWiredInPackage pkgs wired_pkg =
+           let all_ps = [ p | p <- pkgs, p `matches` wired_pkg ]
+               all_exposed_ps =
+                    [ p | p <- all_ps
+                        , elementOfUniqSet (packageConfigId p) exposed_pkgs ] in
+           case all_exposed_ps of
+            [] -> case all_ps of
+                       []   -> notfound
+                       many -> pick (head (sortByVersion many))
+            many -> pick (head (sortByVersion many))
+          where
+                notfound = do
+                          debugTraceMsg dflags 2 $
+                            text "wired-in package "
+                                 <> text wired_pkg
+                                 <> text " not found."
+                          return Nothing
+                pick :: PackageConfig
+                     -> IO (Maybe PackageConfig)
+                pick pkg = do
+                        debugTraceMsg dflags 2 $
+                            text "wired-in package "
+                                 <> text wired_pkg
+                                 <> text " mapped to "
+                                 <> ppr (unitId pkg)
+                        return (Just pkg)
+
+
+  mb_wired_in_pkgs <- mapM (findWiredInPackage pkgs) wired_in_pkgids
+  let
+        wired_in_pkgs = catMaybes mb_wired_in_pkgs
+        wired_in_ids = map unitId wired_in_pkgs
+
+        -- this is old: we used to assume that if there were
+        -- multiple versions of wired-in packages installed that
+        -- they were mutually exclusive.  Now we're assuming that
+        -- you have one "main" version of each wired-in package
+        -- (the latest version), and the others are backward-compat
+        -- wrappers that depend on this one.  e.g. base-4.0 is the
+        -- latest, base-3.0 is a compat wrapper depending on base-4.0.
+        {-
+        deleteOtherWiredInPackages pkgs = filterOut bad pkgs
+          where bad p = any (p `matches`) wired_in_pkgids
+                      && package p `notElem` map fst wired_in_ids
+        -}
+
+        wiredInMap :: Map UnitId UnitId
+        wiredInMap = foldl' add_mapping Map.empty pkgs
+          where add_mapping m pkg
+                  | let key = unitId pkg
+                  , key `elem` wired_in_ids
+                  = Map.insert key (stringToUnitId (packageNameString pkg)) m
+                  | otherwise = m
+
+        updateWiredInDependencies pkgs = map (upd_deps . upd_pkg) pkgs
+          where upd_pkg pkg
+                  | unitId pkg `elem` wired_in_ids
+                  = pkg {
+                      unitId = let PackageName fs = packageName pkg
+                               in fsToUnitId fs
+                    }
+                  | otherwise
+                  = pkg
+                upd_deps pkg = pkg {
+                      depends = map upd_wired_in (depends pkg),
+                      exposedModules
+                        = map (\(k,v) -> (k, fmap upd_wired_in_mod v))
+                              (exposedModules pkg)
+                    }
+                upd_wired_in_mod (Module uid m) = Module (upd_wired_in uid) m
+                upd_wired_in key
+                    | Just key' <- Map.lookup key wiredInMap = key'
+                    | otherwise = key
+
+
+  return (updateWiredInDependencies pkgs, wiredInMap)
+
+mkPackageState'
+    :: DynFlags
+    -> [(FilePath, [PackageConfig])]     -- initial databases
+    -> [UnitId]              -- preloaded packages
+    -> IO (PackageState,
+           [UnitId])         -- new packages to preload
+
+mkPackageState' dflags0 dbs preload0 = do
+  dflags <- interpretPackageEnv dflags0
+  let this_package = thisPackage dflags
+      ignore_flags = reverse (ignorePackageFlags dflags)
+  (pkg_map1, unusable) <- mergeDatabases dflags ignore_flags dbs
+  pkgs1 <- foldM (applyTrustFlag dflags unusable)
+                 (Map.elems pkg_map1) (reverse (trustFlags dflags))
+  when (not (gopt Opt_HideAllPackages dflags)) $
+    error "Operation without -hide-all-packages not yet supported"
+  let other_flags = reverse (packageFlags dflags)
+  resolved_flags <- mapM (resolvePackageFlag dflags unusable pkgs1) other_flags
+  (pkgs2, ) <- resolveWiredInPackages dflags (mkUniqSet (map fst resolved_flags)) pkgs1
+  undefined
+-}
+
 -- -----------------------------------------------------------------------------
 -- When all the command-line options are in, we can process our package
 -- settings and populate the package state.
@@ -898,15 +1115,6 @@ mkPackageState
 
 mkPackageState dflags0 dbs preload0 = do
   dflags <- interpretPackageEnv dflags0
-
-  -- Register all unit IDs
-  {-
-  forM_ dbs $ \(_, ps) ->
-    forM_ ps $ \p ->
-      forM_ (unitIdMap p) $ \(uid, IndefiniteUnitId cid insts) -> do
-        new_uid <- newUnitId dflags cid insts
-        ASSERT2( uid == new_uid, ppr uid <+> ppr new_uid ) return ()
-        -}
 
   -- Compute the unit ID
   let this_package = thisPackage dflags
@@ -1047,10 +1255,11 @@ mkPackageState dflags0 dbs preload0 = do
                     else foldl' calcInitial emptyUFM pkgs1
       vis_map1 = foldUFM (\p vm ->
                             if exposed p
-                               then addToUFM vm (packageConfigId p)
-                                             (True, [], fsPackageName p)
+                               then Map.insert (packageConfigId p)
+                                               (True, [], fsPackageName p)
+                                               vm
                                else vm)
-                         emptyUFM initial
+                         Map.empty initial
 
   --
   -- Compute a visibility map according to the command-line flags (-package,
@@ -1076,9 +1285,9 @@ mkPackageState dflags0 dbs preload0 = do
     case pluginPackageFlags dflags of
         -- common case; try to share the old vis_map
         [] | not hide_plugin_pkgs -> return vis_map
-           | otherwise -> return emptyUFM
+           | otherwise -> return Map.empty
         _ -> do let plugin_vis_map1
-                        | hide_plugin_pkgs = emptyUFM
+                        | hide_plugin_pkgs = Map.empty
                         -- Use the vis_map PRIOR to wired in,
                         -- because otherwise applyPackageFlag
                         -- won't work.
@@ -1105,6 +1314,9 @@ mkPackageState dflags0 dbs preload0 = do
   -- should contain at least rts & base, which is why we pretend that
   -- the command line contains -package rts & -package base.
   --
+  -- NB: preload is not important when we're just type checking.
+  -- TODO: The code here seems a bit dodgy; we shouldn't use matching
+  --
   let preload1 = [ let key = unitId p
                    in fromMaybe key (Map.lookup key wired_map)
                  | f <- other_flags, p <- get_exposed f ]
@@ -1125,7 +1337,7 @@ mkPackageState dflags0 dbs preload0 = do
   -- look for nested unit IDs that are directly fed holes: the requirements
   -- of those units are precisely the ones we need to track
   let explicit_pkgs = foldUFM (\pkg xs ->
-                            if elemUFM (packageConfigId pkg) vis_map
+                            if Map.member (packageConfigId pkg) vis_map
                                 then packageConfigId pkg : xs
                                 else xs) [] pkg_db
       collectHoles uid@(UnitId{}) =
@@ -1175,6 +1387,10 @@ mkPackageState dflags0 dbs preload0 = do
 -- -----------------------------------------------------------------------------
 -- | Makes the mapping from module to package info
 
+-- Slight irritation: we proceed by leafing through everything
+-- in the installed package database, which makes handling indefinite
+-- packages a bit bothersome.
+
 mkModuleToPkgConfAll
   :: DynFlags
   -> PackageConfigMap
@@ -1183,6 +1399,8 @@ mkModuleToPkgConfAll
 mkModuleToPkgConfAll dflags pkg_db vis_map =
     foldl' extend_modmap emptyMap (eltsUFM pkg_db)
  where
+  is_indefinite = not (isEmptyUniqSet (unitIdFreeHoles (thisPackage dflags)))
+
   emptyMap = Map.empty
   sing pk m _ = Map.singleton (mkModule pk m)
   addListTo = foldl' merge
@@ -1191,7 +1409,7 @@ mkModuleToPkgConfAll dflags pkg_db vis_map =
   extend_modmap modmap pkg = addListTo modmap theBindings
    where
     theBindings :: [(ModuleName, Map Module ModuleOrigin)]
-    theBindings | Just (b,rns,_) <- lookupUFM vis_map (packageConfigId pkg)
+    theBindings | Just (b,rns,_) <- Map.lookup (packageConfigId pkg) vis_map
                               = newBindings b rns
                 | otherwise   = newBindings False []
 
@@ -1218,23 +1436,6 @@ mkModuleToPkgConfAll dflags pkg_db vis_map =
            Just (Module pk' m') ->
             let pkg' = pkg_lookup pk'
             in (pk', m', pkg', fromReexportedModules e pkg')
-{-
-||||||| merged common ancestors
-     ExposedModule m exposedReexport _exposedSignature <- exposed_mods
-     let (pk', m', pkg', origin') =
-          case exposedReexport of
-           Nothing -> (pk, m, pkg, fromExposedModules e)
-           Just (OriginalModule pk' m') ->
-            let pkg' = pkg_lookup pk'
-            in (pk', m', pkg', fromReexportedModules e pkg')
-=======
-     (m, (Module pk' m')) <- exposed_mods
-     let pkg' = if pk' == pk then pkg else pkg_lookup pk'
-         origin' = if pk' == pk && m == m'
-                    then fromExposedModules e
-                    else fromReexportedModules e pkg'
->>>>>>> WIP: Backpack!
--}
      return (m, sing pk' m' pkg' origin')
 
     esmap :: UniqFM (Map Module ModuleOrigin)

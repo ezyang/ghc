@@ -1146,7 +1146,7 @@ isNoLink _      = False
 -- is used.
 data PackageArg =
       PackageArg String    -- ^ @-package@, by 'PackageName'
-    | UnitIdArg String     -- ^ @-package-id@, by 'UnitId'
+    | UnitIdArg UnitId     -- ^ @-package-id@, by 'UnitId'
   deriving (Eq, Show)
 
 -- | Represents the renaming that may be associated with an exposed
@@ -3872,17 +3872,17 @@ parseModuleName = fmap mkModuleName
                 $ munch1 (\c -> isAlphaNum c || c `elem` "_.")
 
 parsePackageFlag :: String                 -- the flag
-                 -> (String -> PackageArg) -- type of argument
+                 -> ReadP PackageArg       -- type of argument
                  -> String                 -- string to parse
                  -> PackageFlag
-parsePackageFlag flag constr str
+parsePackageFlag flag arg_parse str
  = case filter ((=="").snd) (readP_to_S parse str) of
     [(r, "")] -> r
     _ -> throwGhcException $ CmdLineError ("Can't parse package flag: " ++ str)
   where doc = flag ++ " " ++ str
         parse = do
-            pkg <- tok $ munch1 (\c -> isAlphaNum c || c `elem` ":-_.")
-            let mk_expose = ExposePackage doc (constr pkg)
+            pkg_arg <- tok arg_parse
+            let mk_expose = ExposePackage doc pkg_arg
             ( do _ <- tok $ string "with"
                  fmap (mk_expose . ModRenaming True) parseRns
              <++ fmap (mk_expose . ModRenaming False) parseRns
@@ -3907,13 +3907,13 @@ exposePackage, exposePackageId, hidePackage,
 exposePackage p = upd (exposePackage' p)
 exposePackageId p =
   upd (\s -> s{ packageFlags =
-    parsePackageFlag "-package-id" UnitIdArg p : packageFlags s })
+    parsePackageFlag "-package-id" parseUnitIdArg p : packageFlags s })
 exposePluginPackage p =
   upd (\s -> s{ pluginPackageFlags =
-    parsePackageFlag "-plugin-package" PackageArg p : pluginPackageFlags s })
+    parsePackageFlag "-plugin-package" parsePackageArg p : pluginPackageFlags s })
 exposePluginPackageId p =
   upd (\s -> s{ pluginPackageFlags =
-    parsePackageFlag "-plugin-package-id" UnitIdArg p : pluginPackageFlags s })
+    parsePackageFlag "-plugin-package-id" parseUnitIdArg p : pluginPackageFlags s })
 hidePackage p =
   upd (\s -> s{ packageFlags = HidePackage p : packageFlags s })
 ignorePackage p =
@@ -3927,7 +3927,15 @@ distrustPackage p = exposePackage p >>
 exposePackage' :: String -> DynFlags -> DynFlags
 exposePackage' p dflags
     = dflags { packageFlags =
-            parsePackageFlag "-package" PackageArg p : packageFlags dflags }
+            parsePackageFlag "-package" parsePackageArg p : packageFlags dflags }
+
+parsePackageArg :: ReadP PackageArg
+parsePackageArg =
+    fmap PackageArg (munch1 (\c -> isAlphaNum c || c `elem` ":-_."))
+
+parseUnitIdArg :: ReadP PackageArg
+parseUnitIdArg =
+    fmap UnitIdArg parseUnitId
 
 setUnitId :: String -> DynFlags -> DynFlags
 setUnitId p s =  s{ thisPackage =
