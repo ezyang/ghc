@@ -45,6 +45,7 @@ module Module
         stringToUnitId,
         unitIdString,
         stableUnitIdCmp,
+        indefiniteUnitId,
 
         -- * Wired-in UnitIds
         -- $wired_in_packages
@@ -469,6 +470,9 @@ data UnitId = UnitId {
     | UnitIdVar {
         unitIdVar :: Int
     } deriving (Typeable)
+
+indefiniteUnitId :: UnitId -> Bool
+indefiniteUnitId = not . isEmptyUniqSet . unitIdFreeHoles
 
 instance Show UnitId where
     show = unitIdString

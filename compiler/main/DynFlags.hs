@@ -1148,6 +1148,9 @@ data PackageArg =
       PackageArg String    -- ^ @-package@, by 'PackageName'
     | UnitIdArg UnitId     -- ^ @-package-id@, by 'UnitId'
   deriving (Eq, Show)
+instance Outputable PackageArg where
+    ppr (PackageArg pn) = text "package" <+> text pn
+    ppr (UnitIdArg uid) = text "unit" <+> ppr uid
 
 -- | Represents the renaming that may be associated with an exposed
 -- package, e.g. the @rns@ part of @-package "foo (rns)"@.
@@ -1165,6 +1168,8 @@ data ModRenaming = ModRenaming {
     modRenamings :: [(ModuleName, ModuleName)] -- ^ Bring module @m@ into scope
                                                --   under name @n@.
   } deriving (Eq)
+instance Outputable ModRenaming where
+    ppr (ModRenaming b rns) = ppr b <+> parens (ppr rns)
 
 -- | Flags for manipulating the set of non-broken packages.
 newtype IgnorePackageFlag = IgnorePackage String -- ^ @-ignore-package@
@@ -1183,6 +1188,10 @@ data PackageFlag
   deriving (Eq)
 -- NB: equality instance is used by InteractiveUI to test if
 -- package flags have changed.
+
+instance Outputable PackageFlag where
+    ppr (ExposePackage n arg rn) = text n <> braces (ppr arg <+> ppr rn)
+    ppr (HidePackage str) = text "-hide-package" <+> text str
 
 defaultHscTarget :: Platform -> HscTarget
 defaultHscTarget = defaultObjectTarget
