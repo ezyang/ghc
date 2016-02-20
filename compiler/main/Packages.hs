@@ -43,6 +43,7 @@ module Packages (
         packageHsLibs,
 
         -- * Utils
+        unwireUnitId,
         pprFlag,
         pprPackages,
         pprPackagesSimple,
@@ -66,7 +67,7 @@ import Maybes
 
 import System.Environment ( getEnv )
 import FastString
-import ErrUtils         ( debugTraceMsg, MsgDoc )
+import ErrUtils         ( debugTraceMsg, MsgDoc, printInfoForUser )
 import Exception
 import Unique
 import UniqSet
@@ -292,6 +293,10 @@ data PackageState = PackageState {
   -- users refer to packages in Backpack includes.
   packageNameMap            :: Map PackageName ComponentId,
 
+  -- | A mapping from wired in names to the original names from the
+  -- package database.
+  unwireMap :: Map UnitId UnitId,
+
   -- | The packages we're going to link in eagerly.  This list
   -- should be in reverse dependency order; that is, a package
   -- is always mentioned before the packages it depends on.
@@ -318,6 +323,7 @@ emptyPackageState :: PackageState
 emptyPackageState = PackageState {
     pkgIdMap = emptyUFM,
     packageNameMap = Map.empty,
+    unwireMap = Map.empty,
     preloadPackages = [],
     explicitPackages = [],
     moduleToPkgConfAll = Map.empty,
@@ -674,6 +680,8 @@ applyPackageFlag dflags unusable no_hide_others pkgs vm flag =
            -- -hide-all-packages/-hide-all-plugin-packages depending on what
            -- flag is in question.
            vm_cleared | no_hide_others = vm
+                      -- NB: renamings never clear
+                      | (_:_) <- rns = vm
                       | otherwise = Map.filterWithKey
                             (\k uv -> k == packageConfigId p
                                    || First (Just n) /= uv_package_name uv) vm
@@ -1066,6 +1074,8 @@ mkPackageState dflags0 dbs preload0 = do
 
   let other_flags = reverse (packageFlags dflags)
       ignore_flags = reverse (ignorePackageFlags dflags)
+  debugTraceMsg dflags 2 $
+      text "package flags" <+> ppr other_flags
 
   let merge (pkg_map, prev_unusable) (db_path, db) = do
             debugTraceMsg dflags 2 $
@@ -1265,17 +1275,27 @@ mkPackageState dflags0 dbs preload0 = do
       else closeDeps dflags pkg_db (zip preload3 (repeat Nothing))
   let new_dep_preload = filter (`notElem` preload0) dep_preload
 
+  let mod_map = mkModuleToPkgConfAll dflags pkg_db vis_map
+  when (dopt Opt_D_dump_mod_map dflags) $
+      printInfoForUser (dflags { pprCols = 200 })
+                       alwaysQualify (pprModuleMap mod_map)
+
   let pstate = PackageState{
     preloadPackages     = dep_preload,
     explicitPackages    = explicit_pkgs,
     pkgIdMap            = pkg_db,
-    moduleToPkgConfAll  = mkModuleToPkgConfAll dflags pkg_db vis_map,
+    moduleToPkgConfAll  = mod_map,
     pluginModuleToPkgConfAll = mkModuleToPkgConfAll dflags pkg_db plugin_vis_map,
     packageNameMap          = pkgname_map,
+    unwireMap = Map.fromList [ (v,k) | (k,v) <- Map.toList wired_map ],
     requirementContext = req_ctx
     }
   return (pstate, new_dep_preload)
 
+
+unwireUnitId :: DynFlags -> UnitId -> UnitId
+unwireUnitId dflags uid =
+    fromMaybe uid (Map.lookup uid (unwireMap (pkgState dflags)))
 
 -- -----------------------------------------------------------------------------
 -- | Makes the mapping from module to package info
@@ -1676,9 +1696,9 @@ pprPackagesSimple = pprPackagesWith pprIPI
                        in e <> t <> text "  " <> ftext i
 
 -- | Show the mapping of modules to where they come from.
-pprModuleMap :: DynFlags -> SDoc
-pprModuleMap dflags =
-  vcat (map pprLine (Map.toList (moduleToPkgConfAll (pkgState dflags))))
+pprModuleMap :: ModuleToPkgConfAll -> SDoc
+pprModuleMap mod_map =
+  vcat (map pprLine (Map.toList mod_map))
     where
       pprLine (m,e) = ppr m $$ nest 50 (vcat (map (pprEntry m) (Map.toList e)))
       pprEntry :: Outputable a => ModuleName -> (Module, a) -> SDoc

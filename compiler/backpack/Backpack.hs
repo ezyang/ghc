@@ -366,12 +366,18 @@ withBkpSession uid include_graph mod_map req_map session_type do_this = do
                         then outputFile dflags
                         else Nothing,
         -- Synthesized the flags
-        packageFlags = packageFlags dflags ++ map (\is -> ExposePackage "(auto)" (UnitIdArg (is_uid is)) (is_renaming is)) include_graph,
+        packageFlags = packageFlags dflags ++ map (\is ->
+            ExposePackage
+                (showSDoc dflags (text "-unit-id" <+> ppr (unwireUnitId dflags (is_uid is)) <+> ppr (is_renaming is)))
+                (UnitIdArg (unwireUnitId dflags (is_uid is))) (is_renaming is)) include_graph,
         -- Manually configure the module map, because it's too much of
         -- a pain to synthesize a series of package flags to do this
-        packageModuleMap = mod_map,
+        -- packageModuleMap = mod_map,
         requirementsMap = req_map
-      } )) $ do_this
+      } )) $ do
+        dflags <- getSessionDynFlags
+        setSessionDynFlags dflags
+        do_this
 
 withBkpExeSession :: IncludeGraph -> BkpM a -> BkpM a
 withBkpExeSession include_graph do_this = do
@@ -470,12 +476,11 @@ buildUnit session uid lunit = do
             obj_files = concatMap getOfiles linkables
 
         let indef_deps =
-                      map (generalizeHoleUnitId . is_uid)
+                      map (unwireUnitId dflags . generalizeHoleUnitId . is_uid)
                     -- TODO: THIS IS WRONG
                     -- The actual problem is that wired in packages like
                     -- ghc-prim need to be "unwired" so that the resolution
                     -- mechanism can handle them properly
-                    . filter (not . Map.null . is_requires)
                     $ include_graph
             cand_compat_pn = PackageName (case unitIdComponentId uid of
                                                     ComponentId fs -> fs)
@@ -499,7 +504,8 @@ buildUnit session uid lunit = do
             -- this is NOT the build plan
             depends = case session of
                         TcSession -> indef_deps
-                        _ -> deps ++ [ moduleUnitId mod
+                        _ -> map (unwireUnitId dflags)
+                                $ deps ++ [ moduleUnitId mod
                                           | (_, mod) <- insts
                                           , not (isHoleModule mod) ],
             -- instantiatedDepends = deps,
