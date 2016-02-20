@@ -1,8 +1,13 @@
 [1 of 3] Processing p
+unit p(hole:A)
   [1 of 1] Compiling A[sig]           ( p/A.hsig, nothing )
 [2 of 3] Processing q
+unit q(hole:A)
   [1 of 1] Compiling A[sig]           ( q/A.hsig, nothing )
 [3 of 3] Processing r
+unit r(hole:A)
+- include q(hole:A) []
+- include p(hole:A) []
   [1 of 2] Compiling A[sig]           ( r/A.hsig, nothing )
 
 bkpfail04.bkp:7:9: error:

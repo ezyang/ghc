@@ -135,7 +135,7 @@ data IncludeSummary = IncludeSummary {
 
 instance Outputable IncludeSummary where
     ppr IncludeSummary{ is_uid = pk, is_inst_provides = provs, is_inst_requires = reqs }
-        = text "include" <+> ppr pk <+> ppr provs <+> text "requires" <+> ppr reqs
+        = text "include" <+> ppr pk <+> ppr provs
 
 type IncludeGraph = [IncludeSummary]
 
@@ -207,7 +207,9 @@ shIncludeGraph uid lpkg = setPackageSh lpkg . setUnitIdSh uid $ do
         unroll _ = error "cycles not supported"
     graph <- mapM unroll top_graph
 
-    shDump (ppr graph)
+    shDump $ vcat [ text "unit" <+> ppr uid
+                  , vcat (map (\is -> text "-" <+> ppr is) graph)
+                  ]
     return graph
 
 -- | Convert an 'IncludeDecl' into an 'IncludeSummary', applying any

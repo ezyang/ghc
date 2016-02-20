@@ -1,14 +1,20 @@
 [1 of 3] Processing r
+unit r(hole:H)
   [1 of 2] Compiling H[sig]           ( r/H.hsig, nothing )
   [2 of 2] Compiling M                ( r/M.hs, nothing )
 [2 of 3] Processing h-impl
   Instantiating h-impl
+unit h-impl
   [1 of 2] Compiling A                ( h-impl/A.hs, bkp18-out/h-impl/A.o )
   [2 of 2] Compiling H                ( h-impl/H.hs, bkp18-out/h-impl/H.o )
 [3 of 3] Processing s
   Instantiating s
+unit s
+- include h-impl [(H, h-impl:H), (A, h-impl:A)]
+- include r(h-impl:H) [(M, r(h-impl:H):M)]
   [1 of 2] Including h-impl
   [2 of 2] Including r
     Instantiating r(h-impl:H)
+unit r(h-impl:H)
     [1 of 2] Compiling H[sig]           ( r/H.hsig, nothing )
     [2 of 2] Compiling M                ( r/M.hs, bkp18-out/r/r-5FYQgnNkfSvBT5yogOxPpf/M.o )

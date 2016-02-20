@@ -1,12 +1,18 @@
 [1 of 3] Processing q
   Instantiating q
+unit q
   [1 of 1] Compiling H                ( q/H.hs, bkp08-out/q/H.o )
 [2 of 3] Processing r
+unit r(hole:H)
   [1 of 1] Compiling H[sig]           ( r/H.hsig, nothing )
 [3 of 3] Processing p
   Instantiating p
+unit p
+- include q [(H, q:H)]
+- include r(q:H) []
   [1 of 2] Including q
   [2 of 2] Including r
     Instantiating r(q:H)
+unit r(q:H)
     [1 of 1] Compiling H[sig]           ( r/H.hsig, nothing )
   [1 of 1] Compiling M                ( p/M.hs, bkp08-out/p/M.o )
