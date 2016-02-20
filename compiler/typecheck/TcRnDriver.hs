@@ -47,6 +47,7 @@ import DynamicLoading ( loadPlugins )
 import Plugins ( tcPlugin )
 #endif
 
+import Packages
 import DynFlags
 import StaticFlags
 import HsSyn
@@ -889,7 +890,7 @@ mergeRequirements :: HscEnv -> TcGblEnv -> TcM TcGblEnv
 mergeRequirements hsc_env tcg_env
     | HsigFile <- tcg_src tcg_env = do
         let dflags = hsc_dflags hsc_env
-            req_map = requirementsMap dflags
+            req_map = requirementContext (pkgState dflags)
             reqs = case Map.lookup (moduleName (tcg_mod tcg_env)) req_map of
                     Nothing -> []
                     Just rs -> rs

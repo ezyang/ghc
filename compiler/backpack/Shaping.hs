@@ -458,12 +458,6 @@ hsModuleToModSummary dflags hsc_src modname
     let normal_imports = map convImport (implicit_imports ++ ordinary_imps)
     required_by_imports <- fmap concat $ forM normal_imports $ \(mb_pkg, L _ imp) -> do
 
-        -- TODO: terrible code duplication (see other
-        -- use of findImportedModule)
-        case Map.lookup imp (packageModuleMap dflags) of
-            Just mod | thisPackage dflags /= moduleUnitId mod  ->
-                        return (uniqSetToList (moduleFreeHoles mod))
-            Nothing -> do
                 found <- liftIO $ findImportedModule hsc_env imp mb_pkg
                 case found of
                     Found _ mod | thisPackage dflags /= moduleUnitId mod ->
@@ -506,7 +500,7 @@ findExtraSigImports hsc_env hsc_src modname = do
     -- Gotta work hard.
     -- TODO: but only when I'm type-checking
     let dflags = hsc_dflags hsc_env
-        reqmap = requirementsMap dflags
+        reqmap = requirementContext (pkgState dflags)
     extra_requirements <-
       case hsc_src of
         HsigFile | Just reqs <- Map.lookup modname reqmap -> do

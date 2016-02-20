@@ -369,11 +369,7 @@ withBkpSession uid include_graph mod_map req_map session_type do_this = do
         packageFlags = packageFlags dflags ++ map (\is ->
             ExposePackage
                 (showSDoc dflags (text "-unit-id" <+> ppr (unwireUnitId dflags (is_uid is)) <+> ppr (is_renaming is)))
-                (UnitIdArg (unwireUnitId dflags (is_uid is))) (is_renaming is)) include_graph,
-        -- Manually configure the module map, because it's too much of
-        -- a pain to synthesize a series of package flags to do this
-        -- packageModuleMap = mod_map,
-        requirementsMap = req_map
+                (UnitIdArg (unwireUnitId dflags (is_uid is))) (is_renaming is)) include_graph
       } )) $ do
         dflags <- getSessionDynFlags
         setSessionDynFlags dflags

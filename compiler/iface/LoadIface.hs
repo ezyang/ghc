@@ -279,16 +279,10 @@ loadSrcInterface_maybe doc mod want_boot maybe_pkg
        ; case lookupUFM (tcg_ifaces tcg_env) mod of
             Just iface -> return (Succeeded iface)
             Nothing -> do {
-       -- (2) packageModuleMap is used by Backpack as a convenient way
-       -- to setup the set of visible modules twiddled by include flags,
-       -- since it's annoying to go through Packages to do it.
-       ; case Map.lookup mod (packageModuleMap dflags) of
-            Just mod -> do initIfaceTcRn $ loadInterface doc mod (ImportByUser want_boot)
-            Nothing -> do {
          res <- liftIO $ findImportedModule hsc_env mod maybe_pkg
        ; case res of
            Found _ mod -> initIfaceTcRn $ loadInterface doc mod (ImportByUser want_boot)
-           err         -> return (Failed (cannotFindInterface (hsc_dflags hsc_env) mod err)) }}}
+           err         -> return (Failed (cannotFindInterface (hsc_dflags hsc_env) mod err)) }}
 
 -- | Load interface directly for a fully qualified 'Module'.  (This is a fairly
 -- rare operation, but in particular it is used to load orphan modules

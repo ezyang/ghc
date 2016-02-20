@@ -766,10 +766,6 @@ data DynFlags = DynFlags {
         -- ^ The @-trust@ and @-distrust@ flags
   packageEnv            :: Maybe FilePath,
         -- ^ Filepath to the package environment file (if overriding default)
-  packageModuleMap      :: Map ModuleName Module,
-        -- ^ Backpack programmable mapping of module names to modules
-  requirementsMap       :: Map ModuleName [Module],
-        -- ^ Backpack programmable mapping of module names to requirements
 
   -- Package state
   -- NB. do not modify this field, it is calculated by
@@ -1525,8 +1521,6 @@ defaultDynFlags mySettings =
         ignorePackageFlags      = [],
         trustFlags              = [],
         packageEnv              = Nothing,
-        packageModuleMap        = Map.empty,
-        requirementsMap         = Map.empty,
         pkgDatabase             = Nothing,
         -- This gets filled in with GHC.setSessionDynFlags
         pkgState                = emptyPackageState,

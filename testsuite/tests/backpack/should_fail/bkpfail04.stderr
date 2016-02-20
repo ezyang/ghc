@@ -12,10 +12,10 @@ unit r(hole:A)
 
 bkpfail04.bkp:7:9: error:
     Type constructor ‘A’ has conflicting definitions
-    when merging p(hole:A):A into the local requirements,
-    Requirement so far: data A = A {bar :: Bool}
-      from q(hole:A):A
-    New requirement: data A = A {hole:A.foo :: Int}
+    when merging q(hole:A):A into the local requirements,
+    Requirement so far: data A = A {foo :: Int}
+      from p(hole:A):A
+    New requirement: data A = A {hole:A.bar :: Bool}
     The constructors do not match:
       The record label lists for ‘A’ differ
       The types for ‘A’ differ
