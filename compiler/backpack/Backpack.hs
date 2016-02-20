@@ -310,14 +310,10 @@ data SessionType = ExeSession | TcSession | CompSession
 -- based on the 'IncludeGraph', and (3) setting up 'sigOf' properly.
 withBkpSession :: UnitId        -- unit ID that we are going to tc/compile
                -> IncludeGraph
-               -> Map ModuleName Module
-                                -- module mapping saying what is in scope
-               -> Map ModuleName [Module]
-                                -- module mapping for requirements
                -> SessionType   -- what kind of session are we doing
                -> BkpM a        -- actual action to run
                -> BkpM a
-withBkpSession uid include_graph mod_map req_map session_type do_this = do
+withBkpSession uid include_graph session_type do_this = do
     dflags <- getDynFlags
     let cid@(ComponentId cid_fs) = unitIdComponentId uid
         is_primary = cid == thisComponentId dflags
@@ -359,9 +355,6 @@ withBkpSession uid include_graph mod_map req_map session_type do_this = do
         objectDir   = Just (outdir objectDir),
         hiDir       = Just (outdir hiDir),
         stubDir     = Just (outdir stubDir),
-        -- sigOf is sometimes used to trigger some alternate codepaths, so it's
-        -- important to have this be something accurate.
-        -- sigOf       = Map.fromList insts,
         -- Unset output-file for non exe builds
         outputFile  = if session_type == ExeSession
                         then outputFile dflags
@@ -373,13 +366,12 @@ withBkpSession uid include_graph mod_map req_map session_type do_this = do
                 (UnitIdArg (unwireUnitId dflags (is_uid is))) (is_renaming is)) include_graph
       } )) $ do
         dflags <- getSessionDynFlags
-        setSessionDynFlags dflags
+        _ <- setSessionDynFlags dflags
         do_this
 
 withBkpExeSession :: IncludeGraph -> BkpM a -> BkpM a
 withBkpExeSession include_graph do_this = do
-    let mod_map = Map.unions (map is_inst_provides include_graph)
-    withBkpSession mainUnitId include_graph mod_map Map.empty ExeSession do_this
+    withBkpSession mainUnitId include_graph ExeSession do_this
 
 getSource :: ComponentId -> BkpM (LHsUnit HsComponentId)
 getSource cid = do
@@ -413,9 +405,6 @@ buildUnit session uid lunit = do
 
     -- The compilation dependencies are just the appropriately filled
     -- in unit IDs which must be compiled before we can compile.
-    --
-    -- TODO: it seems better if we preemptively do this, and use
-    -- this as the "shadow set" of unit IDs we're going to do.
     let insts = unitIdInsts uid
         hsubst = listToUFM insts
         deps = map (renameHoleUnitId hsubst) raw_deps
@@ -426,19 +415,11 @@ buildUnit session uid lunit = do
         _ -> forM_ (zip [1..] deps) $ \(i, dep) ->
                 compileInclude (length deps) (i, dep)
 
-    -- Compute the in-scope provisions and requirements
-    let raw_provs = map is_inst_provides include_graph
-        raw_reqs  = map is_inst_requires include_graph
-        provs = map (fmap (renameHoleModule hsubst)) raw_provs
-        reqs  = map (fmap ((:[]) . renameHoleModule hsubst)) raw_reqs
-        mod_map = Map.unions provs
-        req_map = Map.unionsWith (++) reqs
-
     mb_old_eps <- case session of
                     TcSession -> fmap Just getEpsGhc
                     _ -> return Nothing
 
-    conf <- withBkpSession uid include_graph mod_map req_map session $ do
+    conf <- withBkpSession uid include_graph session $ do
         dflags <- getDynFlags
         mod_graph <- runShM $ shModGraph uid lunit
         -- pprTrace "mod_graph" (ppr mod_graph) $ return ()
@@ -474,10 +455,6 @@ buildUnit session uid lunit = do
 
         let indef_deps =
                       map (unwireUnitId dflags . generalizeHoleUnitId . is_uid)
-                    -- TODO: THIS IS WRONG
-                    -- The actual problem is that wired in packages like
-                    -- ghc-prim need to be "unwired" so that the resolution
-                    -- mechanism can handle them properly
                     $ include_graph
             cand_compat_pn = PackageName (case unitIdComponentId uid of
                                                     ComponentId fs -> fs)
@@ -498,24 +475,17 @@ buildUnit session uid lunit = do
             -- Slight inefficiency here haha
             exposedModules = map (\(m,n) -> (m,Just n)) mods,
             hiddenModules = [], -- TODO: doc only
-            -- this is NOT the build plan
             depends = case session of
                         TcSession -> indef_deps
                         _ -> map (unwireUnitId dflags)
                                 $ deps ++ [ moduleUnitId mod
                                           | (_, mod) <- insts
                                           , not (isHoleModule mod) ],
-            -- instantiatedDepends = deps,
             ldOptions = case session of
                             TcSession -> []
                             _ -> obj_files,
             importDirs = [ hi_dir ],
             exposed = False,
-            {-
-            indefinite = case session of
-                            TcSession -> True
-                            _ -> False,
-                            -}
             -- nope
             hsLibraries = [],
             extraLibraries = [],
@@ -587,11 +557,3 @@ compileInclude n (i, uid) = do
             -- Nope, compile it
             innerBkpM $ compileUnit uid
         Just _ -> return ()
-
-{-
--- | Given a 'ComponentId', create a new 'ComponentId' for a private
--- subcomponent named 'ComponentName' contained within it.
-addComponentName :: ComponentId -> ComponentName -> ComponentId
-addComponentName (ComponentId cid) (ComponentName n) =
-    ComponentId (concatFS [cid, fsLit "-", n])
-    -}
