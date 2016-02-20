@@ -24,6 +24,7 @@ module GhcMake(
         summariseModule,
         hscSourceToIsBoot,
         findExtraSigImports,
+        implicitRequirements,
 
         noModError, cyclicModuleErr
     ) where
@@ -1987,6 +1988,9 @@ summariseModule hsc_env old_summary_map is_boot (L loc wanted_mod)
 
         hi_timestamp <- maybeGetIfaceDate dflags location
 
+        extra_sig_imports <- findExtraSigImports hsc_env hsc_src mod_name
+        required_by_imports <- implicitRequirements hsc_env the_imps
+
         return (Just (Right (ModSummary { ms_mod       = mod,
                               ms_hsc_src   = hsc_src,
                               ms_location  = location,
@@ -1995,7 +1999,7 @@ summariseModule hsc_env old_summary_map is_boot (L loc wanted_mod)
                               ms_hspp_buf  = Just buf,
                               ms_parsed_mod = Nothing,
                               ms_srcimps      = srcimps,
-                              ms_textual_imps = the_imps,
+                              ms_textual_imps = the_imps ++ extra_sig_imports ++ required_by_imports,
                               ms_hs_date   = src_timestamp,
                               ms_iface_date = hi_timestamp,
                               ms_obj_date  = obj_timestamp })))
@@ -2136,4 +2140,19 @@ findExtraSigImports hsc_env hsc_src modname = do
         _ -> return []
 
     return [ (Nothing, noLoc mod_name) | mod_name <- extra_requirements ]
+
+
+implicitRequirements :: HscEnv
+                     -> [(Maybe FastString, Located ModuleName)]
+                     -> IO [(Maybe FastString, Located ModuleName)]
+implicitRequirements hsc_env normal_imports
+  = fmap concat $
+    forM normal_imports $ \(mb_pkg, L _ imp) -> do
+                found <- findImportedModule hsc_env imp mb_pkg
+                case found of
+                    Found _ mod | thisPackage dflags /= moduleUnitId mod ->
+                        return [ (Nothing, noLoc mn)
+                               | mn <- uniqSetToList (moduleFreeHoles mod) ]
+                    _ -> return []
+  where dflags = hsc_dflags hsc_env
 
