@@ -1080,7 +1080,7 @@ type PackageCacheFormat = GhcPkg.InstalledPackageInfo
                             PackageName
                             UnitId
                             ModuleName
-                            OriginalModule
+                            Module
 
 convertPackageInfoToCacheFormat :: InstalledPackageInfo -> PackageCacheFormat
 convertPackageInfoToCacheFormat pkg =
@@ -1125,10 +1125,6 @@ instance GhcPkg.BinaryStringRep PackageIdentifier where
                 . simpleParse . fromStringRep
   toStringRep = toStringRep . display
 
-instance GhcPkg.BinaryStringRep UnitId where
-  fromStringRep = mkUnitId . fromStringRep
-  toStringRep (SimpleUnitId (ComponentId cid_str)) = toStringRep cid_str
-
 instance GhcPkg.BinaryStringRep ModuleName where
   fromStringRep = ModuleName.fromString . fromStringRep
   toStringRep   = toStringRep . display
@@ -1137,14 +1133,17 @@ instance GhcPkg.BinaryStringRep String where
   fromStringRep = fromUTF8 . BS.unpack
   toStringRep   = BS.pack . toUTF8
 
-instance GhcPkg.DbUnitIdModuleRep ComponentId UnitId ModuleName OriginalModule where
-  fromDbModule (GhcPkg.DbModule uid mod_name) = OriginalModule uid mod_name
-  toDbModule (OriginalModule uid mod_name) = GhcPkg.DbModule uid mod_name
+instance GhcPkg.DbUnitIdModuleRep ComponentId UnitId ModuleName Module where
+  fromDbModule (GhcPkg.DbModule uid mod_name) = Module uid mod_name
+  toDbModule (Module uid mod_name) = GhcPkg.DbModule uid mod_name
+  toDbModule (ModuleVar mod_name) = GhcPkg.DbModule (SimpleUnitId (ComponentId "hole")) mod_name
   fromDbUnitId (GhcPkg.DbUnitId cid []) = SimpleUnitId cid
-  fromDbUnitId (GhcPkg.DbUnitId _ _) = error "unsupported"
+  fromDbUnitId (GhcPkg.DbUnitId cid insts) = UnitId cid (mkModSubst insts)
   fromDbUnitId (GhcPkg.DbUnitIdVar _) = error "unsupported"
   -- fromDbUnitId (GhcPkg.DbDefiniteUnitId bs) = SimpleUnitId (ComponentId (fromStringRep bs))
   toDbUnitId (SimpleUnitId cid) = GhcPkg.DbUnitId cid []
+  toDbUnitId (UnitId cid insts) = GhcPkg.DbUnitId cid (modSubstToList insts)
+  toDbUnitId (UnitIdVar _) = error "unsupported"
   -- toDbUnitId (SimpleUnitId (ComponentId cid_str)) = GhcPkg.DbDefiniteUnitId (toStringRep cid_str)
 
 -- -----------------------------------------------------------------------------
@@ -1749,7 +1748,7 @@ checkExposedModules db_stack pkg =
   where
     checkExposedModule (ExposedModule modl reexport) = do
       let checkOriginal = checkModuleFile pkg modl
-          checkReexport = checkOriginalModule "module reexport" db_stack pkg
+          checkReexport = checkModule "module reexport" db_stack pkg
       maybe checkOriginal checkReexport reexport
 
 -- | Validates the existence of an appropriate @hi@ file associated with
@@ -1787,13 +1786,14 @@ checkDuplicateModules pkg
 -- implementation, then we should also check that the original module in
 -- question is NOT a signature (however, if it is a reexport, then it's fine
 -- for the original module to be a signature.)
-checkOriginalModule :: String
-                    -> PackageDBStack
-                    -> InstalledPackageInfo
-                    -> OriginalModule
-                    -> Validate ()
-checkOriginalModule field_name db_stack pkg
-    (OriginalModule definingPkgId definingModule) =
+checkModule :: String
+            -> PackageDBStack
+            -> InstalledPackageInfo
+            -> Module
+            -> Validate ()
+checkModule _ _ _ (ModuleVar _) = error "Impermissible reexport"
+checkModule field_name db_stack pkg
+    (Module definingPkgId definingModule) =
   let mpkg = if definingPkgId == installedUnitId pkg
               then Just pkg
               else PackageIndex.lookupUnitId ipix definingPkgId
