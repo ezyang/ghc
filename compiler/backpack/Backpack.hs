@@ -308,6 +308,7 @@ data SessionType = ExeSession | TcSession | CompSession
 -- (2) configuring the module map, so we know what modules are in scope,
 -- based on the 'IncludeGraph', and (3) setting up 'sigOf' properly.
 withBkpSession :: UnitId        -- unit ID that we are going to tc/compile
+               -> IncludeGraph
                -> Map ModuleName Module
                                 -- module mapping saying what is in scope
                -> Map ModuleName [Module]
@@ -315,7 +316,7 @@ withBkpSession :: UnitId        -- unit ID that we are going to tc/compile
                -> SessionType   -- what kind of session are we doing
                -> BkpM a        -- actual action to run
                -> BkpM a
-withBkpSession uid mod_map req_map session_type do_this = do
+withBkpSession uid include_graph mod_map req_map session_type do_this = do
     dflags <- getDynFlags
     let cid@(ComponentId cid_fs) = unitIdComponentId uid
         is_primary = cid == thisComponentId dflags
@@ -364,6 +365,8 @@ withBkpSession uid mod_map req_map session_type do_this = do
         outputFile  = if session_type == ExeSession
                         then outputFile dflags
                         else Nothing,
+        -- Synthesized the flags
+        packageFlags = packageFlags dflags ++ map (\is -> ExposePackage "(auto)" (UnitIdArg (is_uid is)) (is_renaming is)) include_graph,
         -- Manually configure the module map, because it's too much of
         -- a pain to synthesize a series of package flags to do this
         packageModuleMap = mod_map,
@@ -373,7 +376,7 @@ withBkpSession uid mod_map req_map session_type do_this = do
 withBkpExeSession :: IncludeGraph -> BkpM a -> BkpM a
 withBkpExeSession include_graph do_this = do
     let mod_map = Map.unions (map is_inst_provides include_graph)
-    withBkpSession mainUnitId mod_map Map.empty ExeSession do_this
+    withBkpSession mainUnitId include_graph mod_map Map.empty ExeSession do_this
 
 getSource :: ComponentId -> BkpM (LHsUnit HsComponentId)
 getSource cid = do
@@ -432,7 +435,7 @@ buildUnit session uid lunit = do
                     TcSession -> fmap Just getEpsGhc
                     _ -> return Nothing
 
-    conf <- withBkpSession uid mod_map req_map session $ do
+    conf <- withBkpSession uid include_graph mod_map req_map session $ do
         dflags <- getDynFlags
         mod_graph <- runShM $ shModGraph uid lunit
         -- pprTrace "mod_graph" (ppr mod_graph) $ return ()

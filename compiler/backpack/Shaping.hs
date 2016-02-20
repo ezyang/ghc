@@ -82,6 +82,9 @@ data IncludeSummary = IncludeSummary {
         -- So if we "include p requires (H)" and we happen to
         -- know that H is q:H, then is_uid is p(q:H).
         is_uid :: UnitId,
+        -- The renaming associated with this include.  Does NOT
+        -- include requirement renaming.
+        is_renaming :: ModRenaming,
         -- is_provides and is_requires record the RENAMED but
         -- UN-INSTANTIATED names for modules.  So with
         -- "include p requires (H)", the recorded requirement
@@ -204,42 +207,7 @@ shIncludeGraph uid lpkg = setPackageSh lpkg . setUnitIdSh uid $ do
         unroll _ = error "cycles not supported"
     graph <- mapM unroll top_graph
 
-    {-
-    -- This was the old algorithm
-    {-
-    -- If we want includes to be instantiatable by locally defined
-    -- modules, we need to also consider local module definitions in
-    -- our substitution.
-    let get_decl (L _ (DeclD ModuleD (L _ modname) _mb_hsmod)) = do
-          Just (modname, mkModule uid modname)
-        get_decl _ = Nothing
-        mods = catMaybes (map get_decl decls)
-    -}
-    -- Based on the 'UnitId', compute an initial substitution to apply
-    -- to the includes.  If we're just type-checking, this will start
-    -- off as the identity substitution.
-    let hsubst0 = unitIdHoleSubst uid
-    -- Processing the include graph in topological order, "fill" requirements
-    -- by using the substitution, updating the summary, and then add
-    -- provisions as things that can be used by later includes in the topsort.
-    let go (gr, hsubst) (AcyclicSCC is0) = -- loc?
-          -- Substitute the provisions and unit ID
-          let rn_provs = fmap (renameHoleModule hsubst) (is_provides is0)
-              rn_reqs  = fmap (renameHoleModule hsubst) (is_requires is0)
-              uid = renameHoleUnitId hsubst (is_uid is0)
-              is = is0 { is_inst_provides = rn_provs
-                       , is_inst_requires = rn_reqs
-                       , is_uid = uid }
-              -- Update the substitution with the provisions
-              hsubst' = addListToHoleSubst hsubst (Map.toList rn_provs)
-              -- TODO: assert fixpoint not necessary
-          in return (is:gr, hsubst')
-        go (gr, hsubst) (CyclicSCC iss) = error "cycles not supported"
-    let top_graph = topSortIncludeGraph graph0
-    (rev_graph, _) <- foldM go ([], hsubst0) top_graph
-    let graph = reverse rev_graph
-    -}
-    -- shDump (ppr graph)
+    shDump (ppr graph)
     return graph
 
 -- | Convert an 'IncludeDecl' into an 'IncludeSummary', applying any
@@ -247,7 +215,7 @@ shIncludeGraph uid lpkg = setPackageSh lpkg . setUnitIdSh uid $ do
 -- NOT substitute holes; that is done later in 'shIncludeGraph'.
 summariseInclude :: Located (IncludeDecl HsComponentId) -> ShM IncludeSummary
 summariseInclude (L loc IncludeDecl { idInclude = L _ name
-                                          , idInclSpec = mb_inclspec }) = do
+                                    , idInclSpec = mb_inclspec }) = do
     ipkg <- lookupUnit (hsComponentId name)
     let hsubst = mkInclSpecSubst mb_inclspec
         provs0 = fmap (renameHoleModule hsubst) (shcProvides ipkg)
@@ -266,6 +234,12 @@ summariseInclude (L loc IncludeDecl { idInclude = L _ name
     let uid = renameHoleUnitId hsubst (shcUnitId ipkg)
     return IncludeSummary {
         is_loc = loc,
+        is_renaming = case mb_inclspec of
+                        Nothing -> ModRenaming True []
+                        Just (L _ InclSpec{ isProvides = Nothing }) -> ModRenaming True []
+                        Just (L _ InclSpec{ isProvides = Just lrns })
+                            -> ModRenaming False (map (\(L _ (Renaming from to)) -> (from, to)) lrns)
+                            ,
         -- Not substituted yet, we will do this shortly
         is_uid = uid,
         is_provides = provs,

@@ -21,3 +21,4 @@ test('bkp21', normal, backpack_compile, ['-ddump-shape'])
 # Canonicalization, SCC-planning
 test('bkp22', normal, backpack_compile_fail, ['-ddump-shape'])
 test('bkp23', normal, backpack_compile, ['-ddump-shape'])
+test('bkp24', normal, backpack_compile, ['-ddump-shape'])
