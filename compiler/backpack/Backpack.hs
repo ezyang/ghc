@@ -287,6 +287,7 @@ doBackpack src_filename = do
                         -- This test is necessary to see if we're
                         -- compiling the primary for a specific instantiation
                         -- (See test bkpcabal01)
+                        -- TODO: obsolete this test
                         let insts = if not (Map.null (sigOf dflags))
                                             && is_primary
                                         then Map.toList (sigOf dflags)
@@ -360,7 +361,7 @@ withBkpSession uid include_graph mod_map req_map session_type do_this = do
         stubDir     = Just (outdir stubDir),
         -- sigOf is sometimes used to trigger some alternate codepaths, so it's
         -- important to have this be something accurate.
-        sigOf       = Map.fromList insts,
+        -- sigOf       = Map.fromList insts,
         -- Unset output-file for non exe builds
         outputFile  = if session_type == ExeSession
                         then outputFile dflags

@@ -51,8 +51,8 @@ generalizeHoleUnitId =
 -- For example, @p(A -> M):A@ canonicalizes to @M@.  Useful for making
 -- sure the interface you've loaded as the right @mi_module@.
 canonicalizeModule :: DynFlags -> Module -> Module
--- Kind of hack to make "not-actually Backpack signatures" work
 canonicalizeModule dflags m
+    -- Kind of hack to make "not-actually Backpack signatures" work
     | moduleUnitId m == thisPackage dflags
     , Just sof <- getSigOf dflags (moduleName m)
     = sof

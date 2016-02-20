@@ -1633,6 +1633,7 @@ downsweep hsc_env old_summaries excl_mods allow_dup_roots
         -- (But not when we're type checking!)
         calcDeps summ
           | HsigFile <- ms_hsc_src summ
+          -- NB: never the case for /instantiations/; those are out-of-band
           , Just m <- getSigOf (hsc_dflags hsc_env) (moduleName (ms_mod summ))
           , moduleUnitId m == thisPackage (hsc_dflags hsc_env)
                       = (noLoc (moduleName m), NotBoot) : msDeps summ

@@ -2532,21 +2532,7 @@ showModMsg dflags target recomp mod_summary
  where
     mod     = moduleName (ms_mod mod_summary)
     mod_str = showPpr dflags mod
-                ++ hscSourceString' dflags mod (ms_hsc_src mod_summary)
-
--- | Variant of hscSourceString which prints more information for signatures.
--- This can't live in DriverPhases because this would cause a module loop.
-hscSourceString' :: DynFlags -> ModuleName -> HscSource -> String
-hscSourceString' _ _ HsSrcFile   = ""
-hscSourceString' _ _ HsBootFile  = "[boot]"
--- TODO: print more info or make this more sophisticated
-hscSourceString' dflags mod HsigFile = "[sig]"
-     {-
-     "[" ++ (maybe "abstract sig"
-               (("sig of "++).showPpr dflags)
-               (getSigOf dflags mod)) ++ "]"
-               -}
-    -- NB: -sig-of could be missing if we're just typechecking
+                ++ hscSourceString (ms_hsc_src mod_summary)
 
 {-
 ************************************************************************
