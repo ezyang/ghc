@@ -451,13 +451,7 @@ hsModuleToModSummary dflags hsc_src modname
     extra_sig_imports <- liftIO $ findExtraSigImports hsc_env hsc_src modname
 
     let normal_imports = map convImport (implicit_imports ++ ordinary_imps)
-    required_by_imports <- fmap concat $ forM normal_imports $ \(mb_pkg, L _ imp) -> do
-
-                found <- liftIO $ findImportedModule hsc_env imp mb_pkg
-                case found of
-                    Found _ mod | thisPackage dflags /= moduleUnitId mod ->
-                        return (uniqSetToList (moduleFreeHoles mod))
-                    _ -> return []
+    required_by_imports <- liftIO $ implicitRequirements hsc_env normal_imports
 
     -- So that Finder can find it, even though it doesn't exist...
     this_mod <- liftIO $ addHomeModuleToFinder hsc_env modname location
@@ -479,7 +473,7 @@ hsModuleToModSummary dflags hsc_src modname
                            -- due to merging, requirements may end up with
                            -- extra imports
                            ++ extra_sig_imports
-                           ++ [ (Nothing, noLoc mn) | mn <- required_by_imports ],
+                           ++ required_by_imports,
             -- This is our hack to get the parse tree to the right spot
             ms_parsed_mod = Just (HsParsedModule {
                     hpm_module = hsmod,
@@ -490,6 +484,7 @@ hsModuleToModSummary dflags hsc_src modname
             ms_obj_date = Nothing, -- TODO do this, but problem: hi_timestamp is BOGUS
             ms_iface_date = hi_timestamp
         }
+
 
 {-
 ************************************************************************

@@ -41,7 +41,7 @@ import Module           ( ModuleName )
 import Config
 import Constants
 import HscTypes
-import Packages         ( pprPackages, pprPackagesSimple, pprModuleMap )
+import Packages         ( pprPackages, pprPackagesSimple )
 import DriverPhases
 import BasicTypes       ( failed )
 import StaticFlags
