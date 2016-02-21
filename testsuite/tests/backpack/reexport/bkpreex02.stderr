@@ -6,6 +6,14 @@
   [1 of 1] Compiling TImpl            ( timpl/TImpl.hs, nothing )
 [3 of 5] Processing q
   [1 of 3] Compiling T[sig]           ( q/T.hsig, nothing )
+  [2 of 3] Compiling H[sig]           ( q/H.hsig, nothing )
+  [3 of 3] Compiling A                ( q/A.hs, nothing )
 
-bkpreex02.bkp:12:5: error:
-    Explicit exports not supported in hsig files
+bkpreex02.bkp:18:15: error:
+    • Couldn't match expected type ‘hole:T.T’
+                  with actual type ‘T’
+      NB: ‘T’ is defined at bkpreex02.bkp:9:9-18
+          ‘hole:T.T’ is defined at bkpreex02.bkp:3:9-14
+    • In the first argument of ‘f’, namely ‘T’
+      In the expression: f T
+      In an equation for ‘x’: x = f T

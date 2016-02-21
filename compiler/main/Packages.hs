@@ -1223,8 +1223,8 @@ mkPackageState dflags0 dbs preload0 = do
   -- should contain at least rts & base, which is why we pretend that
   -- the command line contains -package rts & -package base.
   --
-  -- NB: preload is not important when we're just type checking.
-  -- TODO: The code here seems a bit dodgy; we shouldn't use matching
+  -- NB: preload IS important even for type-checking, because we
+  -- need the correct include path to be set.
   --
   let preload1 = [ let key = unitId p
                    in fromMaybe key (Map.lookup key wired_map)
@@ -1266,11 +1266,7 @@ mkPackageState dflags0 dbs preload0 = do
                      $ (basicLinkedPackages ++ preload2)
 
   -- Close the preload packages with their dependencies
-  let is_indefinite = isIndefinite dflags
-  dep_preload <-
-    if is_indefinite
-      then return [] -- no preloads in this case
-      else closeDeps dflags pkg_db (zip preload3 (repeat Nothing))
+  dep_preload <- closeDeps dflags pkg_db (zip preload3 (repeat Nothing))
   let new_dep_preload = filter (`notElem` preload0) dep_preload
 
   let mod_map = mkModuleToPkgConfAll dflags pkg_db vis_map

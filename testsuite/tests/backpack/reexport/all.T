@@ -7,4 +7,4 @@ setTestOpts(only_compiler_types(['ghc']))
 
 test('bkpreex01', normal, backpack_typecheck_fail, [''])
 test('bkpreex02', normal, backpack_typecheck_fail, [''])
-test('bkpreex03', normal, backpack_typecheck_fail, [''])
+test('bkpreex03', normal, backpack_typecheck, [''])

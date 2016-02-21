@@ -2,6 +2,4 @@
   [1 of 4] Compiling M1               ( p/M1.hs, nothing )
   [2 of 4] Compiling M2               ( p/M2.hs, nothing )
   [3 of 4] Compiling A[sig]           ( p/A.hsig, nothing )
-
-bkpreex03.bkp:6:5: error:
-    Explicit exports not supported in hsig files
+  [4 of 4] Compiling A[sig]           ( p/A.hsig, nothing )
