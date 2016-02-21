@@ -74,6 +74,7 @@ import Hooks
 import FieldLabel
 import ShUnitId
 import ShUnify
+import UniqSet
 
 import Control.Monad
 import Data.IORef
@@ -514,10 +515,11 @@ computeInterfaceAnd ::
 computeInterfaceAnd def_action indef_action doc_str hi_boot_file mod = do
     -- First try for a fully compiled interface
     r <- findAndReadIface doc_str mod hi_boot_file
+    dflags <- getDynFlags
     case r of
         Succeeded (iface0, path) | moduleIsDefinite mod -> do
             return (Succeeded (def_action iface0, path))
-        _ -> do
+        _ | not (isEmptyUniqSet (unitIdFreeHoles (thisPackage dflags))) -> do
             -- Now try for an indefinite interface
             let imod = generalizeHoleModule mod
             r <- findAndReadIface doc_str imod hi_boot_file
@@ -526,6 +528,7 @@ computeInterfaceAnd def_action indef_action doc_str hi_boot_file mod = do
                     r <- indef_action (moduleUnitId mod) iface0
                     return (Succeeded (r, path))
                 Failed err -> return (Failed err)
+        Failed err -> return (Failed err)
 
 -- | This is an improved version of 'findAndReadIface' which can also
 -- handle the case when a user requests p(A -> HOLE:B):M but we only
