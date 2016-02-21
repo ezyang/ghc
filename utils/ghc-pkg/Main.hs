@@ -1037,11 +1037,11 @@ changeDBDir verbosity cmds db = do
   updateDBCache verbosity db
  where
   do_cmd (RemovePackage p) = do
-    let file = location db </> display (installedUnitId p) <.> "conf"
+    let file = location db </> hashUnitId (installedUnitId p) <.> "conf"
     when (verbosity > Normal) $ infoLn ("removing " ++ file)
     removeFileSafe file
   do_cmd (AddPackage p) = do
-    let file = location db </> display (installedUnitId p) <.> "conf"
+    let file = location db </> hashUnitId (installedUnitId p) <.> "conf"
     when (verbosity > Normal) $ infoLn ("writing " ++ file)
     writeUTF8File file (showInstalledPackageInfo p)
   do_cmd (ModifyPackage p) =
