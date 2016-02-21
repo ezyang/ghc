@@ -10,6 +10,27 @@ unit p(hole:H)
 - include t-impl [(T, t-impl:T)]
 - include h(hole:H) []
   [1 of 1] Compiling H[sig]           ( p/H.hsig, nothing )
+[4 of 5] Processing h-impl
+  Instantiating h-impl
+unit h-impl
+- include t-impl [(T, t-impl:T)]
+  [1 of 1] Including t-impl
+  [1 of 1] Compiling H                ( h-impl/H.hs, bkpfail05-out/h-impl/H.o )
+[5 of 5] Processing q
+  Instantiating q
+unit q
+- include h-impl [(H, h-impl:H)]
+- include p(h-impl:H) []
+  [1 of 2] Including h-impl
+  [2 of 2] Including p
+    Instantiating p(h-impl:H)
+unit p(h-impl:H)
+- include t-impl [(T, t-impl:T)]
+- include h(hole:H) []
+    [1 of 2] Including t-impl
+    [2 of 2] Including h
+      Instantiating h(h-impl:H)
+unit h(h-impl:H)
+      [1 of 1] Compiling H[sig]           ( h/H.hsig, nothing )
 
-bkpfail05.bkp:13:5: error:
-    Explicit exports not supported in hsig files
+bkpfail05.bkp:2:5: error: Not in scope: data constructor ‘T1’
