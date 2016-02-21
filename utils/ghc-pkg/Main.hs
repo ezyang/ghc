@@ -26,6 +26,7 @@ import Distribution.ParseUtils
 import Distribution.Package hiding (installedUnitId)
 import Distribution.Text
 import Distribution.Version
+import Distribution.Backpack (unitIdFreeHoles)
 import Distribution.Simple.Utils (fromUTF8, toUTF8, writeUTF8File, readUTF8File)
 import System.FilePath as FilePath
 import qualified System.FilePath.Posix as FilePath.Posix
@@ -51,6 +52,7 @@ import System.IO.Error
 import GHC.IO.Exception (IOErrorType(InappropriateType))
 import Data.List
 import Control.Concurrent
+import qualified Data.Set as Set
 
 import qualified Data.ByteString.Char8 as BS
 
@@ -1614,7 +1616,8 @@ checkPackageConfig pkg verbosity db_stack
   checkDuplicateModules pkg
   checkExposedModules db_stack pkg
   checkOtherModules pkg
-  mapM_ (checkHSLib verbosity (libraryDirs pkg)) (hsLibraries pkg)
+  let has_code = Set.null (unitIdFreeHoles (installedUnitId pkg))
+  when has_code $ mapM_ (checkHSLib verbosity (libraryDirs pkg)) (hsLibraries pkg)
   -- ToDo: check these somehow?
   --    extra_libraries :: [String],
   --    c_includes      :: [String],
