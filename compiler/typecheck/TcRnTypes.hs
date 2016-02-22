@@ -495,6 +495,10 @@ data TcGblEnv
         tcg_dfun_n  :: TcRef OccSet,
           -- ^ Allows us to choose unique DFun names.
 
+        tcg_merged :: [(Module, Fingerprint)],
+          -- ^ The requirements we merged with; we always have to recompile
+          -- if any of these changed.
+
         -- The next fields accumulate the payload of the module
         -- The binds, rules and foreign-decl fields are collected
         -- initially in un-zonked form and are finally zonked in tcRnSrcDecls

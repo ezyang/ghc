@@ -916,7 +916,8 @@ mergeRequirements hsc_env tcg_env
             -- messages
             let rdr_env = mkGlobalRdrEnv (gresFromAvails Nothing (mi_exports iface))
             tcg_env <- return tcg_env {
-                    tcg_rdr_env = tcg_rdr_env tcg_env `plusGlobalRdrEnv` rdr_env
+                    tcg_rdr_env = tcg_rdr_env tcg_env `plusGlobalRdrEnv` rdr_env,
+                    tcg_merged = (req, mi_mod_hash iface) : tcg_merged tcg_env
                 }
             tcg_env <- mergeRequirement merged (mi_module iface) tcg_env tc_iface
             -- TODO: update depends with a new field specifically for sig-of

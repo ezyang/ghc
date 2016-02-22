@@ -170,6 +170,7 @@ mkIfaceTc hsc_env maybe_old_fingerprint safe_mode mod_details
                       tcg_imports = imports,
                       tcg_rdr_env = rdr_env,
                       tcg_fix_env = fix_env,
+                      tcg_merged = merged,
                       tcg_warns = warns,
                       tcg_hpc = other_hpc_info,
                       tcg_th_splice_used = tc_splice_used,
@@ -181,7 +182,7 @@ mkIfaceTc hsc_env maybe_old_fingerprint safe_mode mod_details
           let hpc_info = emptyHpcInfo other_hpc_info
           used_th <- readIORef tc_splice_used
           dep_files <- (readIORef dependent_files)
-          usages <- mkUsageInfo hsc_env semantic_mod (imp_mods imports) used_names dep_files
+          usages <- mkUsageInfo hsc_env semantic_mod (imp_mods imports) used_names dep_files merged
           mkIface_ hsc_env maybe_old_fingerprint
                    this_mod hsc_src
                    used_th deps rdr_env

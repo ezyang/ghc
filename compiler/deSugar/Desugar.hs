@@ -65,6 +65,9 @@ import UniqFM
 import ListSetOps
 import Fingerprint
 import Maybes
+import Packages
+import UniqSet
+import ShUnitId
 
 import Data.Function
 import Data.List
@@ -111,8 +114,8 @@ mkDependencies
 mkUsedNames :: TcGblEnv -> NameSet
 mkUsedNames TcGblEnv{ tcg_dus = dus } = allUses dus
 
-mkUsageInfo :: HscEnv -> Module -> ImportedMods -> NameSet -> [FilePath] -> IO [Usage]
-mkUsageInfo hsc_env this_mod dir_imp_mods used_names dependent_files
+mkUsageInfo :: HscEnv -> Module -> ImportedMods -> NameSet -> [FilePath] -> [(Module, Fingerprint)] -> IO [Usage]
+mkUsageInfo hsc_env this_mod dir_imp_mods used_names dependent_files merged
   = do
     eps <- hscEPS hsc_env
     hashes <- mapM getFileHash dependent_files
@@ -121,6 +124,12 @@ mkUsageInfo hsc_env this_mod dir_imp_mods used_names dependent_files
     let usages = mod_usages ++ [ UsageFile { usg_file_path = f
                                            , usg_file_hash = hash }
                                | (f, hash) <- zip dependent_files hashes ]
+                            ++ [ UsagePackageModule{ usg_mod = mod,
+                                                     usg_mod_hash = hash,
+                                                     -- TODO: check this
+                                                     usg_safe = False
+                                                   }
+                               | (mod, hash) <- merged ]
     usages `seqList` return usages
     -- seq the list of Usages returned: occasionally these
     -- don't get evaluated for a while and we can end up hanging on to
@@ -275,6 +284,7 @@ deSugar hsc_env
                             tcg_fix_env      = fix_env,
                             tcg_inst_env     = inst_env,
                             tcg_fam_inst_env = fam_inst_env,
+                            tcg_merged       = merged,
                             tcg_warns        = warns,
                             tcg_anns         = anns,
                             tcg_binds        = binds,
@@ -361,7 +371,7 @@ deSugar hsc_env
         ; used_th <- readIORef tc_splice_used
         ; dep_files <- readIORef dependent_files
         ; safe_mode <- finalSafeMode dflags tcg_env
-        ; usages <- mkUsageInfo hsc_env mod (imp_mods imports) used_names dep_files
+        ; usages <- mkUsageInfo hsc_env mod (imp_mods imports) used_names dep_files merged
         -- id_mod /= mod when we are processing an hsig, but hsigs
         -- never desugared and compiled (there's no code!)
         ; MASSERT ( id_mod == mod )
