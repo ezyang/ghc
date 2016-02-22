@@ -161,6 +161,7 @@ initTc hsc_env hsc_src keep_rn_syntax mod loc do_this
                 tcg_fords          = [],
                 tcg_vects          = [],
                 tcg_patsyns        = [],
+                tcg_merged         = [],
                 tcg_dfun_n         = dfun_n_var,
                 tcg_keep           = keep_var,
                 tcg_doc_hdr        = Nothing,
