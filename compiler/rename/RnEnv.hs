@@ -1233,6 +1233,14 @@ data HsSigCtxt
   | RoleAnnotCtxt NameSet    -- A role annotation, with the names of all types
                              -- in the group
 
+instance Outputable HsSigCtxt where
+    ppr (TopSigCtxt ns) = text "TopSigCtxt" <+> ppr ns
+    ppr (LocalBindCtxt ns) = text "LocalBindCtxt" <+> ppr ns
+    ppr (ClsDeclCtxt n) = text "ClsDeclCtxt" <+> ppr n
+    ppr (InstDeclCtxt ns) = text "InstDeclCtxt" <+> ppr ns
+    ppr (HsBootCtxt) = text "HsBootCtxt"
+    ppr (RoleAnnotCtxt ns) = text "RoleAnnotCtxt" <+> ppr ns
+
 lookupSigOccRn :: HsSigCtxt
                -> Sig RdrName
                -> Located RdrName -> RnM (Located Name)
