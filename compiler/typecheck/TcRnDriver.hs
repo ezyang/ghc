@@ -30,6 +30,8 @@ module TcRnDriver (
         rnTopSrcDecls,
         checkBootDecl, checkHiBootIface',
         checkHsigIface',
+        findExtraSigImports,
+        implicitRequirements,
     ) where
 
 #ifdef GHCI
@@ -116,6 +118,9 @@ import Util
 import Bag
 import Inst (tcGetInsts)
 import qualified GHC.LanguageExtensions as LangExt
+
+import Finder
+import UniqSet
 
 import Control.Monad
 
@@ -350,8 +355,17 @@ tcRnModuleTcRnM hsc_env hsc_src
         whenWOptM Opt_WarnImplicitPrelude $
              when (notNull prel_imports) $ addWarn (implicitPreludeWarn) ;
 
+        -- TODO This is a little skeevy; maybe handle a bit more directly
+        let { simplifyImport (L _ idecl) = (fmap sl_fs (ideclPkgQual idecl), ideclName idecl) } ;
+        raw_sig_imports <- liftIO $ findExtraSigImports hsc_env hsc_src (moduleName this_mod) ;
+        raw_req_imports <- liftIO $ implicitRequirements hsc_env (map simplifyImport (prel_imports ++ import_decls)) ;
+        let { mkImport (Nothing, L _ mod_name) = noLoc $ (simpleImportDecl mod_name) {
+                ideclHiding = Just (False, noLoc [])
+                } ;
+              mkImport _ = panic "mkImport" } ;
+
         tcg_env <- {-# SCC "tcRnImports" #-}
-                   tcRnImports hsc_env (prel_imports ++ import_decls) ;
+                   tcRnImports hsc_env (prel_imports ++ import_decls ++ map mkImport (raw_sig_imports ++ raw_req_imports)) ;
 
           -- If the whole module is warned about or deprecated
           -- (via mod_deprec) record that in tcg_warns. If we do thereby add
@@ -2685,3 +2699,57 @@ loadTcPlugins hsc_env =
   where
     load_plugin (_, plug, opts) = tcPlugin plug opts
 #endif
+
+
+
+
+
+
+findExtraSigImports :: HscEnv -> HscSource -> ModuleName
+                    -> IO [(Maybe FastString, Located ModuleName)]
+findExtraSigImports hsc_env hsc_src modname = do
+    -- Gotta work hard.
+    -- TODO: but only when I'm type-checking
+    let dflags = hsc_dflags hsc_env
+        reqmap = requirementContext (pkgState dflags)
+    extra_requirements <-
+      case hsc_src of
+        HsigFile | Just reqs <- Map.lookup modname reqmap -> do
+            all_deps <- forM reqs $ \(req :: Module) -> do
+                -- NB: we NEED the transitive closure of local imports!!!
+                (deps, _) <- initIfaceCheck hsc_env . withException $
+                            (computeDependencies (text "requirement deps" <+> ppr modname)
+                            False req)
+                -- Now we must reflect upon the substitution in req
+                -- in order to determine the meaning of the dependencies.
+                let hmap = Map.fromList (unitIdInsts (moduleUnitId req))
+                -- m -> M
+                --  means that if we see an m in the dep list, it is a hole.
+                --  Consequently, we have a dependency on M
+                let go (_, True) = [] -- ignore boots
+                    go (mod_name, False)
+                        | Just mod <- Map.lookup mod_name hmap
+                        = uniqSetToList (moduleFreeHoles mod)
+                        | otherwise
+                        = [] -- not a requirement
+                return (concatMap go (dep_mods deps))
+            return (concat all_deps)
+        _ -> return []
+
+    return [ (Nothing, noLoc mod_name) | mod_name <- extra_requirements ]
+
+
+implicitRequirements :: HscEnv
+                     -> [(Maybe FastString, Located ModuleName)]
+                     -> IO [(Maybe FastString, Located ModuleName)]
+implicitRequirements hsc_env normal_imports
+  = fmap concat $
+    forM normal_imports $ \(mb_pkg, L _ imp) -> do
+                found <- findImportedModule hsc_env imp mb_pkg
+                case found of
+                    Found _ mod | thisPackage dflags /= moduleUnitId mod ->
+                        return [ (Nothing, noLoc mn)
+                               | mn <- uniqSetToList (moduleFreeHoles mod) ]
+                    _ -> return []
+  where dflags = hsc_dflags hsc_env
+
