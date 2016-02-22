@@ -251,20 +251,23 @@ data UnitVisibility = UnitVisibility
     , uv_renamings :: [(ModuleName, ModuleName)]
     , uv_package_name :: First FastString
     , uv_requirements :: Map ModuleName (Set Module)
+    , uv_explicit :: Bool
     }
 instance Outputable UnitVisibility where
     ppr (UnitVisibility {
         uv_expose_all = b,
         uv_renamings = rns,
         uv_package_name = First mb_pn,
-        uv_requirements = reqs
-    }) = ppr (b, rns, mb_pn, reqs)
+        uv_requirements = reqs,
+        uv_explicit = explicit
+    }) = ppr (b, rns, mb_pn, reqs, explicit)
 instance Monoid UnitVisibility where
     mempty = UnitVisibility
              { uv_expose_all = False
              , uv_renamings = []
              , uv_package_name = First Nothing
              , uv_requirements = Map.empty
+             , uv_explicit = False
              }
     mappend uv1 uv2
         = UnitVisibility
@@ -272,6 +275,7 @@ instance Monoid UnitVisibility where
           , uv_renamings = uv_renamings uv1 ++ uv_renamings uv2
           , uv_package_name = mappend (uv_package_name uv1) (uv_package_name uv2)
           , uv_requirements = Map.unionWith Set.union (uv_requirements uv1) (uv_requirements uv2)
+          , uv_explicit = uv_explicit uv1 || uv_explicit uv2
           }
 
 -- | Map from 'ModuleName' to 'Module' to all the origins of the bindings
@@ -656,6 +660,7 @@ applyPackageFlag dflags unusable no_hide_others pkgs vm flag =
                 , uv_renamings = rns
                 , uv_package_name = First (Just n)
                 , uv_requirements = reqs
+                , uv_explicit = True
                 }
            vm' = Map.insertWith mappend (packageConfigId p) uv vm_cleared
            -- In the old days, if you said `ghc -package p-0.1 -package p-0.2`
@@ -1165,7 +1170,8 @@ mkPackageState dflags0 dbs preload0 = do
                                                  uv_expose_all = True,
                                                  uv_renamings = [],
                                                  uv_package_name = First (Just (fsPackageName p)),
-                                                 uv_requirements = Map.empty
+                                                 uv_requirements = Map.empty,
+                                                 uv_explicit = False
                                                }
                                                vm
                                else vm)
@@ -1227,14 +1233,7 @@ mkPackageState dflags0 dbs preload0 = do
   -- NB: preload IS important even for type-checking, because we
   -- need the correct include path to be set.
   --
-  let preload1 = [ let key = unitId p
-                   in fromMaybe key (Map.lookup key wired_map)
-                 | f <- other_flags, p <- get_exposed f ]
-
-      get_exposed (ExposePackage _ a _) = take 1 . sortByVersion
-                                      . filter (matching a)
-                                      $ pkgs1
-      get_exposed _                 = []
+  let preload1 = Map.keys (Map.filter uv_explicit vis_map)
 
   let pkg_db = extendPackageConfigMap emptyPackageConfigMap pkgs2
       pkgname_map = foldl add Map.empty pkgs2
