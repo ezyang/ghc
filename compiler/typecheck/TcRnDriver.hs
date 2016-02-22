@@ -938,7 +938,9 @@ mergeRequirement merged id_mod tcg_env
 
         ; failIfErrsM
 
-        ; return tcg_env { tcg_exports = mergeAvails (tcg_exports tcg_env) sig_exports } }
+        ; return tcg_env
+            { tcg_exports = mergeAvails (tcg_exports tcg_env) sig_exports
+            , tcg_dus = tcg_dus tcg_env `plusDU` usesOnly (availsToNameSetWithSelectors sig_exports) } }
   where
     merge_ty tcg_env@TcGblEnv{ tcg_type_env = local_type_env } sig_thing
         | isImplicitTyThing sig_thing
