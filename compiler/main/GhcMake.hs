@@ -69,6 +69,7 @@ import SysTools
 import UniqFM
 import Util
 import qualified GHC.LanguageExtensions as LangExt
+import TcRnDriver (findExtraSigImports, implicitRequirements)
 
 import Data.Either ( rights, partitionEithers )
 import qualified Data.Map as Map
@@ -2106,53 +2107,3 @@ cyclicModuleErr mss
     ppr_ms :: ModSummary -> SDoc
     ppr_ms ms = quotes (ppr (moduleName (ms_mod ms))) <+>
                 (parens (text (msHsFilePath ms)))
-
-
-findExtraSigImports :: HscEnv -> HscSource -> ModuleName
-                    -> IO [(Maybe FastString, Located ModuleName)]
-findExtraSigImports hsc_env hsc_src modname = do
-    -- Gotta work hard.
-    -- TODO: but only when I'm type-checking
-    let dflags = hsc_dflags hsc_env
-        reqmap = requirementContext (pkgState dflags)
-    extra_requirements <-
-      case hsc_src of
-        HsigFile | Just reqs <- Map.lookup modname reqmap -> do
-            all_deps <- forM reqs $ \(req :: Module) -> do
-                -- NB: we NEED the transitive closure of local imports!!!
-                (deps, _) <- initIfaceCheck hsc_env . withException $
-                            (computeDependencies (text "requirement deps" <+> ppr modname)
-                            False req)
-                -- Now we must reflect upon the substitution in req
-                -- in order to determine the meaning of the dependencies.
-                let hmap = Map.fromList (unitIdInsts (moduleUnitId req))
-                -- m -> M
-                --  means that if we see an m in the dep list, it is a hole.
-                --  Consequently, we have a dependency on M
-                let go (_, True) = [] -- ignore boots
-                    go (mod_name, False)
-                        | Just mod <- Map.lookup mod_name hmap
-                        = uniqSetToList (moduleFreeHoles mod)
-                        | otherwise
-                        = [] -- not a requirement
-                return (concatMap go (dep_mods deps))
-            return (concat all_deps)
-        _ -> return []
-
-    return [ (Nothing, noLoc mod_name) | mod_name <- extra_requirements ]
-
-
-implicitRequirements :: HscEnv
-                     -> [(Maybe FastString, Located ModuleName)]
-                     -> IO [(Maybe FastString, Located ModuleName)]
-implicitRequirements hsc_env normal_imports
-  = fmap concat $
-    forM normal_imports $ \(mb_pkg, L _ imp) -> do
-                found <- findImportedModule hsc_env imp mb_pkg
-                case found of
-                    Found _ mod | thisPackage dflags /= moduleUnitId mod ->
-                        return [ (Nothing, noLoc mn)
-                               | mn <- uniqSetToList (moduleFreeHoles mod) ]
-                    _ -> return []
-  where dflags = hsc_dflags hsc_env
-
