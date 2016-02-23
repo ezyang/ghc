@@ -281,8 +281,11 @@ checkHsigIface' gr
                 -- In this case, we have to just lookup the identifier in
                 -- the backing implementation and make sure it matches.
                 | [GRE { gre_name = name' }]
-                    <- lookupGlobalRdrEnv gr (nameOccName name)
-                , name == name' -> return ()
+                    <- lookupGlobalRdrEnv gr (nameOccName name) ->
+                    if name == name'
+                        then return ()
+                        else addErrAt (nameSrcSpan name)
+                                (missingBootThing False name "exported with the same original name by")
                 -- TODO: Possibly give a different error if the identifier
                 -- is exported, but it's a different original name
                 | otherwise -> addErrAt (nameSrcSpan name)
@@ -309,7 +312,11 @@ checkHsigIface' gr
     -- something
     check_inst :: ClsInst -> TcM ()
     check_inst sig_inst
-        = do eps <- getEps
+        = do -- NB: Have to tug on the interface, not necessarily
+             -- tugged... but it didn't work?
+             mapM_ tcLookupImported_maybe (nameSetElems (orphNamesOfClsInst sig_inst))
+             -- NOW get the EPS.
+             eps <- getEps
              when (not (memberInstEnv (eps_inst_env eps) sig_inst)) $
                 addErrTc (instMisMatch False sig_inst)
              -- NB: This doesn't work because it consults the HPT,
@@ -936,7 +943,7 @@ mergeRequirement merged id_mod tcg_env
         (ModDetails { md_insts = sig_insts, md_fam_insts = sig_fam_insts,
                       md_types = sig_type_env, md_exports = sig_exports })
   = do  { traceTc "mergeRequirement" $ vcat
-             [ ppr sig_type_env, ppr sig_insts, ppr sig_exports]
+             [ ppr id_mod, ppr sig_type_env, ppr sig_insts, ppr sig_exports]
 
         -- This is a bit subtle.  We must merge in EVERYTHING from the type
         -- environment, not just exported entities.  Why?  The fix for #9858
