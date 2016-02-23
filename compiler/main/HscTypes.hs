@@ -498,6 +498,7 @@ lookupHptByModule :: HomePackageTable -> Module -> Maybe HomeModInfo
 lookupHptByModule hpt mod
   = case lookupUFM hpt (moduleName mod) of
       Just hm | mi_module (hm_iface hm) == mod -> Just hm
+              | otherwise -> Nothing
       _otherwise                               -> Nothing
 
 -- | Information about modules in the package being compiled
@@ -2219,6 +2220,11 @@ data Usage
         -- contents don't change.  This previously lead to odd
         -- recompilation behaviors; see #8114
   }
+  -- | A requirement which was merged into this one.
+  | UsageMergedRequirement {
+        usg_mod :: Module,
+        usg_mod_hash :: Fingerprint
+  }
     deriving( Eq )
         -- The export list field is (Just v) if we depend on the export list:
         --      i.e. we imported the module directly, whether or not we
@@ -2253,6 +2259,11 @@ instance Binary Usage where
         put_ bh (usg_file_path usg)
         put_ bh (usg_file_hash usg)
 
+    put_ bh usg@UsageMergedRequirement{} = do
+        putByte bh 3
+        put_ bh (usg_mod      usg)
+        put_ bh (usg_mod_hash usg)
+
     get bh = do
         h <- getByte bh
         case h of
@@ -2273,6 +2284,10 @@ instance Binary Usage where
             fp   <- get bh
             hash <- get bh
             return UsageFile { usg_file_path = fp, usg_file_hash = hash }
+          3 -> do
+            mod <- get bh
+            hash <- get bh
+            return UsageMergedRequirement { usg_mod = mod, usg_mod_hash = hash }
           i -> error ("Binary.get(Usage): " ++ show i)
 
 {-
@@ -2526,8 +2541,7 @@ showModMsg dflags target recomp mod_summary
                   HscInterpreted | recomp
                              -> text "interpreted"
                   HscNothing -> text "nothing"
-                  _ | HsigFile == ms_hsc_src mod_summary -> text "nothing"
-                    | otherwise -> text (normalise $ msObjFilePath mod_summary),
+                  _ -> text (normalise $ msObjFilePath mod_summary),
               char ')']
  where
     mod     = moduleName (ms_mod mod_summary)

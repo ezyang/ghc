@@ -1175,6 +1175,28 @@ needInterface mod continue
                   -- import and it's been deleted
       Succeeded iface -> continue iface
 
+needRawInterface :: Module -> (ModIface -> IfG RecompileRequired)
+                 -> IfG RecompileRequired
+needRawInterface mod continue
+  = do  -- Load the imported interface if possible
+    let doc_str = sep [text "need RAW version info for", ppr mod]
+    traceHiDiffs (text "Checking usages for module" <+> ppr mod)
+
+    mb_iface <- computeInterface doc_str False mod
+        -- Load the interface, but don't complain on failure;
+        -- Instead, get an Either back which we can test
+
+    case mb_iface of
+      Failed _ -> do
+        traceHiDiffs (sep [text "Couldn't load interface for module",
+                           ppr mod])
+        return MustCompile
+                  -- Couldn't find or parse a module mentioned in the
+                  -- old interface file.  Don't complain: it might
+                  -- just be that the current module doesn't need that
+                  -- import and it's been deleted
+      Succeeded (iface, _) -> continue iface
+
 
 -- | Given the usage information extracted from the old
 -- M.hi file for the module being compiled, figure out
@@ -1190,6 +1212,11 @@ checkModUsage _this_pkg UsagePackageModule{
         -- individual entity usages, so if the ABI hash changes we must
         -- recompile.  This is safe but may entail more recompilation when
         -- a dependent package has changed.
+
+checkModUsage _ UsageMergedRequirement{ usg_mod = mod, usg_mod_hash = old_mod_hash }
+  = needRawInterface mod $ \iface -> do
+    let reason = moduleNameString (moduleName mod) ++ " changed (raw)"
+    checkModuleFingerprint reason old_mod_hash (mi_mod_hash iface)
 
 checkModUsage this_pkg UsageHomeModule{
                                 usg_mod_name = mod_name,

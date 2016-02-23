@@ -777,7 +777,8 @@ findAndReadIface doc_str mod hi_boot_file
                                                            (ml_hi_file loc)
 
                        -- See Note [Home module load error]
-                       if thisPackage dflags == moduleUnitId mod &&
+                       -- TODO: cache properly then remove this
+                       if False && thisPackage dflags == moduleUnitId mod &&
                           not (isOneShot (ghcMode dflags))
                            then return (Failed (homeModError mod loc))
                            else do r <- read_file file_path
@@ -1002,6 +1003,8 @@ pprUsage usage@UsageHomeModule{}
 pprUsage usage@UsageFile{}
   = hsep [text "addDependentFile",
           doubleQuotes (text (usg_file_path usage))]
+pprUsage usage@UsageMergedRequirement{}
+  = hsep [text "merged", ppr (usg_mod usage), ppr (usg_mod_hash usage)]
 
 pprUsageImport :: Outputable a => Usage -> (Usage -> a) -> SDoc
 pprUsageImport usage usg_mod'

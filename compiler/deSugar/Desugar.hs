@@ -121,14 +121,14 @@ mkUsageInfo hsc_env this_mod dir_imp_mods used_names dependent_files merged
     hashes <- mapM getFileHash dependent_files
     let mod_usages = mk_mod_usage_info (eps_PIT eps) hsc_env this_mod
                                        dir_imp_mods used_names
+    let isIndefinite = not (isEmptyUniqSet (moduleFreeHoles this_mod))
     let usages = mod_usages ++ [ UsageFile { usg_file_path = f
                                            , usg_file_hash = hash }
                                | (f, hash) <- zip dependent_files hashes ]
-                            ++ [ UsagePackageModule{ usg_mod = mod,
-                                                     usg_mod_hash = hash,
-                                                     -- TODO: check this
-                                                     usg_safe = False
-                                                   }
+                            -- TODO: isIndefinite?!
+                            ++ [ UsageMergedRequirement { usg_mod = if isIndefinite then generalizeHoleModule mod else mod,
+                                                          usg_mod_hash = hash
+                                                        }
                                | (mod, hash) <- merged ]
     usages `seqList` return usages
     -- seq the list of Usages returned: occasionally these
