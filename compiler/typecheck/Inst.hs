@@ -23,6 +23,7 @@ module Inst (
        tcExtendLocalInstEnv,
        instCallConstraints, newMethodFromName,
        tcSyntaxName,
+       addLocalInst,
 
        -- Simple functions over evidence variables
        tyCoVarsOfWC,

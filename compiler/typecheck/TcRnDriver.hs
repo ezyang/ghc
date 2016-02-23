@@ -73,6 +73,7 @@ import TcEnv
 import TcRules
 import TcForeign
 import TcInstDcls
+import Inst
 import TcIface
 import TcMType
 import TcType
@@ -947,14 +948,18 @@ mergeRequirement merged id_mod tcg_env
         -- about renaming these!)
         ; tcg_env <- foldM merge_ty tcg_env (typeEnvElts sig_type_env)
 
-        -- TODO: sig_fam_insts?!
+        ; (inst_env', cls_insts') <- foldlM addLocalInst
+                                        (tcg_inst_env tcg_env, tcg_insts tcg_env)
+                                        sig_insts
 
-        -- instances, and exports
+        -- TODO: family instances
 
         ; failIfErrsM
 
         ; return tcg_env
             { tcg_exports = mergeAvails (tcg_exports tcg_env) sig_exports
+            , tcg_inst_env = inst_env'
+            , tcg_insts = cls_insts'
             , tcg_dus = tcg_dus tcg_env `plusDU` usesOnly (availsToNameSetWithSelectors sig_exports) } }
   where
     merge_ty tcg_env@TcGblEnv{ tcg_type_env = local_type_env } sig_thing

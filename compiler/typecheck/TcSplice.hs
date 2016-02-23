@@ -1877,6 +1877,7 @@ reifyModule (TH.Module (TH.PkgName pkgString) (TH.ModName mString)) = do
       usageToModule _ (UsageFile {}) = Nothing
       usageToModule this_pkg (UsageHomeModule { usg_mod_name = mn }) = Just $ mkModule this_pkg mn
       usageToModule _ (UsagePackageModule { usg_mod = m }) = Just m
+      usageToModule _ (UsageMergedRequirement { usg_mod = m}) = Just m
 
 ------------------------------
 mkThAppTs :: TH.Type -> [TH.Type] -> TH.Type
