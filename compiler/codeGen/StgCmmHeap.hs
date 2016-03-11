@@ -44,6 +44,7 @@ import Module
 import FastString( mkFastString, fsLit )
 import Constants
 import Util
+import DynFlags
 
 import Control.Monad (when)
 
@@ -505,6 +506,11 @@ do_checks checkStack checkYield alloc do_gc = do
   dflags <- getDynFlags
   gc_id <- newLabelC
 
+  let
+    -- Yielding if HpLim == 0
+    yielding = CmmMachOp mo_wordEq
+                        [CmmReg (CmmGlobal HpLim), CmmLit zeroCLit]
+
   when checkStack $
      emit =<< mkCmmIfGoto sp_oflo gc_id
 
@@ -539,10 +545,6 @@ do_checks checkStack checkYield alloc do_gc = do
     -- HpLim points to the LAST WORD of valid allocation space.
     hp_oflo = CmmMachOp mo_wordUGt
                   [CmmReg hpReg, CmmReg (CmmGlobal HpLim)]
-
-    -- Yielding if HpLim == 0
-    yielding = CmmMachOp (mo_wordEq dflags)
-                        [CmmReg (CmmGlobal HpLim), CmmLit (zeroCLit dflags)]
 
     alloc_n = mkAssign (CmmGlobal HpAlloc) alloc_lit
 

@@ -718,9 +718,9 @@ GarbageCollect (rtsBool force_major_gc,
       debugTrace(DEBUG_sched, "performing heap census");
       RELEASE_SM_LOCK;
 #ifdef PROFILING
-      heapCensus(collect_gen, cap, gct->gc_start_cpu);
+      heapCensus(N, cap, gct->gc_start_cpu);
 #else
-      heapCensus(collect_gen, gct->gc_start_cpu);
+      heapCensus(N, gct->gc_start_cpu);
 #endif
       ACQUIRE_SM_LOCK;
   }

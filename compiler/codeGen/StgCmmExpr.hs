@@ -161,7 +161,7 @@ cgLetNoEscapeClosure bndr cc_slot _unused_cc args body
   = do  { arg_regs <- forkProc $ do	
 		{ restoreCurrentCostCentre cc_slot
 		; arg_regs <- bindArgsToRegs args
-                ; void $ noEscapeHeapCheck args_regs (cgExpr body)
+                ; noEscapeHeapCheck arg_regs (cgExpr body)
 		; return arg_regs }
 	; return $ lneIdInfo bndr arg_regs}
 
@@ -574,7 +574,7 @@ maybeAltHeapCheck NoGcInAlts      _    code = code
 maybeAltHeapCheck (GcInAlts regs) mlbl code =
   case mlbl of
      Nothing -> altHeapCheck regs code
-     Just retry_lbl -> altHeapCheckReturnsTo regs retry_lbl code
+     Just retry_lbl -> altHeapCheckReturnsTo False regs retry_lbl code
 
 -----------------------------------------------------------------------------
 -- 	Tail calls

@@ -2149,46 +2149,55 @@ stg_traceEventzh
 // Note: use W_ for the CC and CCS pointers, since they are
 // not garbage collected
 
-stg_newCCzh ()
+stg_newCCzh
 {
 #ifdef PROFILING
     W_ cc;
-    (cc) = ccall newCostCentre();
-    return (cc);
+    (cc) = foreign "C" newCostCentre() [];
+    RET_N(cc);
 #else
-    return (NULL);
+    RET_N(0);
 #endif
 }
 
-stg_setCCSOfzh ( W_ ccs, P_ closure )
+stg_setCCSOfzh
 {
+    W_ ccs, closure;
+    ccs = R1;
+    closure = R2;
 #ifdef PROFILING
     // XXX Synchronization???
     SET_HDR(closure, %INFO_PTR(closure), ccs);
-    return ();
 #else
-    return ();
 #endif
+    jump %ENTRY_CODE(Sp(0));
 }
 
-stg_pushCCzh ( W_ ccs, W_ cc )
+stg_pushCCzh
 {
+    W_ ccs, cc;
+    ccs = R1;
+    cc = R2;
 #ifdef PROFILING
     W_ nccs;
-    (nccs) = ccall pushCostCentre(ccs, cc);
-    return (nccs);
+    (nccs) = foreign "C" pushCostCentre(ccs, cc) [];
+    RET_N(nccs);
 #else
-    return (NULL);
+    RET_N(0);
 #endif
 }
 
 // Invariant: type == 0 || type == 1
-stg_listenCCSzh ( W_ ccs, W_ type, W_ limit, gcptr cb )
+stg_listenCCSzh
 {
+    W_ ccs, type, limit;
+    P_ cb;
+    ccs = R1;
+    type = R2;
+    limit = R3;
+    cb = R4;
 #ifdef PROFILING
     P_ p;
-
-    ALLOC_PRIM (SIZEOF_StgListener);
 
     p = Hp - SIZEOF_StgListener + WDS(1);
     SET_HDR(p, stg_LISTENER_info, CCS_SYSTEM);
@@ -2206,39 +2215,42 @@ stg_listenCCSzh ( W_ ccs, W_ type, W_ limit, gcptr cb )
             StgListener_link(p) = W_[alloc_listener_list];
             W_[alloc_listener_list] = p;
         } else {
-            ccall barf("strange listener type %d", type) never returns;
+            foreign "C" barf("strange listener type %d", type) never returns;
         }
     }
     RELEASE_LOCK(sm_mutex);
 
-    return (p);
+    RET_P(p);
 #else
-    return (); // XXX wrong!
+    RET_P(cb);
 #endif
 }
 
-stg_unlistenCCSzh ( P_ p )
+stg_unlistenCCSzh
 {
+    P_ p;
+    p = R1;
 #ifdef PROFILING
     // If a listener gets removed, it stubbed out with an indirection.
     // We could use the lockClosure machinery for locking.
 
     ACQUIRE_LOCK(sm_mutex);
     if (StgHeader_info(p) == stg_LISTENER_info) {
-        ccall removeListener(p "ptr");
+        foreign "C" removeListener(p "ptr") [];
     }
     RELEASE_LOCK(sm_mutex);
-
-    return ();
 #else
-    return ();
 #endif
+    jump %ENTRY_CODE(Sp(0));
 }
 
-stg_withCCSzh( W_ ccs, P_ io )
+stg_withCCSzh
 {
+    W_ ccs, io;
+    ccs = R1;
+    io = R2;
 #ifdef PROFILING
-    STK_CHK_GEN();
+    STK_CHK_GEN( WDS(2), R2_PTR, stg_withCCSzh );
     Sp(-1) = CCCS;
     Sp(-2) = stg_restore_cccs_info;
     Sp_adj(-2);
@@ -2248,15 +2260,17 @@ stg_withCCSzh( W_ ccs, P_ io )
 
     TICK_UNKNOWN_CALL();
     TICK_SLOW_CALL_v();
-    jump stg_ap_v_fast [R1];
+    jump stg_ap_v_fast;
 }
 
-stg_queryCCSzh (W_ ccs, W_ type) {
+stg_queryCCSzh {
+    W_ ccs, type;
+    ccs = R1;
+    type = R1;
 #ifdef PROFILING
     W_ r;
-    (r) = ccall queryCCS(ccs, type);
-    return (r);
+    (r) = foreign "C" queryCCS(ccs, type) [];
 #else
-    return (-1);
 #endif
+    jump %ENTRY_CODE(Sp(0));
 }
