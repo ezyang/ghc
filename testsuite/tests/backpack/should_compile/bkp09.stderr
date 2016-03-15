@@ -31,10 +31,10 @@ unit r(h-impl:H)
     [1 of 2] Including q
       Instantiating q(h-impl:H)
 unit q(h-impl:H)
-      [1 of 1] Compiling H[sig]           ( q/H.hsig, nothing )
+      [1 of 1] Compiling H[sig]           ( q/H.hsig, bkp09-out/q/q-5FYQgnNkfSvBT5yogOxPpf/H.o )
     [2 of 2] Including p
       Instantiating p(h-impl:H)
 unit p(h-impl:H)
-      [1 of 1] Compiling H[sig]           ( p/H.hsig, nothing )
-    [1 of 2] Compiling H[sig]           ( r/H.hsig, nothing )
+      [1 of 1] Compiling H[sig]           ( p/H.hsig, bkp09-out/p/p-5FYQgnNkfSvBT5yogOxPpf/H.o )
+    [1 of 2] Compiling H[sig]           ( r/H.hsig, bkp09-out/r/r-5FYQgnNkfSvBT5yogOxPpf/H.o )
     [2 of 2] Compiling M                ( r/M.hs, bkp09-out/r/r-5FYQgnNkfSvBT5yogOxPpf/M.o )

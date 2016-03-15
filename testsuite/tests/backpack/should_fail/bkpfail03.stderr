@@ -13,4 +13,4 @@
     [2 of 2] Compiling M2[sig]          ( q/M2.hsig, nothing )
 
 bkpfail03.bkp:3:9: error:
-    ‘M’ is exported by the hsig file, but not exported by the module
+    ‘M’ is exported by the hsig file, but not exported with the same original name by the module

@@ -31,6 +31,6 @@ unit p(h-impl:H)
     [2 of 2] Including h
       Instantiating h(h-impl:H)
 unit h(h-impl:H)
-      [1 of 1] Compiling H[sig]           ( h/H.hsig, nothing )
+      [1 of 1] Compiling H[sig]           ( h/H.hsig, bkpfail05-out/h/h-5FYQgnNkfSvBT5yogOxPpf/H.o )
 
 bkpfail05.bkp:2:5: error: Not in scope: data constructor ‘T1’
