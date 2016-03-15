@@ -1,0 +1,18 @@
+unit p where
+    signature H where
+        data H = H
+    module A where
+        import H
+        data A = A H
+
+unit q where
+    module H where
+        data S = S
+
+unit r where
+    include q
+    include p
+    signature H2 where
+    module B where
+        import A
+        x = A H
