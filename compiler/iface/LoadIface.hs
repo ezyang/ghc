@@ -25,6 +25,7 @@ module LoadIface (
         loadDecls,      -- Should move to TcIface and be renamed
         initExternalPackageState,
         computeInterface,
+        computeRequirement,
         computeDependencies,
         computeExports,
 
@@ -524,10 +525,15 @@ computeInterfaceAnd def_action indef_action doc_str hi_boot_file mod = do
             let imod = generalizeHoleModule mod
             r <- findAndReadIface doc_str imod hi_boot_file
             case r of
-                Succeeded (iface0, path) -> do
+                Succeeded (iface0, path)
+                  | moduleUnitId mod == thisPackage dflags ->
+                    -- NO renaming applied for local modules
+                    return (Succeeded (def_action iface0, path))
+                  | otherwise -> do
                     r <- indef_action (moduleUnitId mod) iface0
                     return (Succeeded (r, path))
                 Failed err -> return (Failed err)
+        Succeeded (iface0, path) -> panic "found indefinite interface when searching for definite"
         Failed err -> return (Failed err)
 
 -- | This is an improved version of 'findAndReadIface' which can also
@@ -538,6 +544,13 @@ computeInterfaceAnd def_action indef_action doc_str hi_boot_file mod = do
 computeInterface :: SDoc -> IsBootInterface -> Module
                  -> TcRnIf gbl lcl (MaybeErr MsgDoc (ModIface, FilePath))
 computeInterface =
+    computeInterfaceAnd id
+        (\uid iface -> do hsc_env <- getTopEnv
+                          liftIO (rnModIface hsc_env uid iface))
+
+computeRequirement :: SDoc -> IsBootInterface -> Module
+                 -> TcRnIf gbl lcl (MaybeErr MsgDoc (ModIface, FilePath))
+computeRequirement =
     computeInterfaceAnd id
         (\uid iface -> do hsc_env <- getTopEnv
                           liftIO (rnModIface hsc_env uid iface))

@@ -122,6 +122,7 @@ import qualified GHC.LanguageExtensions as LangExt
 
 import Finder
 import UniqSet
+import ShUnify
 
 import Control.Monad
 
@@ -911,7 +912,8 @@ checkHiBootIface'
 
 mergeRequirements :: HscEnv -> TcGblEnv -> TcM TcGblEnv
 mergeRequirements hsc_env tcg_env
-    | HsigFile <- tcg_src tcg_env = do
+    | HsigFile <- tcg_src tcg_env
+    , not (xopt LangExt.NoSignatureMerging (hsc_dflags hsc_env)) = do
         let dflags = hsc_dflags hsc_env
             req_map = requirementContext (pkgState dflags)
             reqs = case Map.lookup (moduleName (tcg_mod tcg_env)) req_map of
@@ -919,7 +921,7 @@ mergeRequirements hsc_env tcg_env
                     Just rs -> rs
         -- pprTrace "rs" (ppr reqs) $ return ()
         let go (tcg_env, merged) req = setGblEnv tcg_env $ do
-            (iface, _) <- withException (computeInterface (text "merge") False req)
+            (iface, _) <- withException (computeRequirement (text "merge") False req)
             tc_iface <- typecheckIface iface
             -- update the rdr env as we go along so we get better error
             -- messages
@@ -963,7 +965,15 @@ mergeRequirement merged id_mod tcg_env
 
         ; failIfErrsM
 
+        -- The merging operation here is tricky!  The acyclicity check
+        -- says that we don't have to fix up anything that is not locally
+        -- defined... but we may need to fix our local definitions up.
+
+        -- Compute the name unification
+        ; let nsubst = uAvailInfos emptyNameEnv (tcg_exports tcg_env) sig_exports
+
         ; return tcg_env
+            -- THIS IS NOT RIGHT
             { tcg_exports = mergeAvails (tcg_exports tcg_env) sig_exports
             , tcg_inst_env = inst_env'
             , tcg_insts = cls_insts'

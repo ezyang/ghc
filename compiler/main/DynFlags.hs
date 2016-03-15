@@ -3572,6 +3572,7 @@ xFlagsDeps = [
   flagSpec "MagicHash"                        LangExt.MagicHash,
   flagSpec "MonadComprehensions"              LangExt.MonadComprehensions,
   flagSpec "MonadFailDesugaring"              LangExt.MonadFailDesugaring,
+  flagSpec "NoSignatureMerging"               LangExt.NoSignatureMerging,
   flagSpec "MonoLocalBinds"                   LangExt.MonoLocalBinds,
   depFlagSpecCond "MonoPatBinds"              LangExt.MonoPatBinds
     id

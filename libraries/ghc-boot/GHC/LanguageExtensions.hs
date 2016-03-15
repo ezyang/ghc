@@ -125,6 +125,7 @@ data Extension
    | Strict
    | StrictData
    | MonadFailDesugaring
+   | NoSignatureMerging
    deriving (Eq, Enum, Show, Generic)
 
 instance Binary Extension

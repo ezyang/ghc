@@ -64,6 +64,8 @@ import Fingerprint
 import Unique
 import BasicTypes
 
+import qualified GHC.LanguageExtensions as LangExt
+
 -- for the unification
 import qualified UnionFind
 import Data.IORef
@@ -79,6 +81,7 @@ import {-# SOURCE #-} IfaceEnv
 
 -- a bit vexing
 import {-# SOURCE #-} LoadIface
+import DynFlags
 
 import Data.List
 import Control.Monad
@@ -453,6 +456,12 @@ rnFieldLabel (FieldLabel l b sel) = do
 --      be any holes left.
 --
 -- Compare me with 'tcIfaceGlobal'!
+
+-- In effect, this function needs compute the name substitution on the
+-- fly.  What it has is the name that we would like to substitute.
+-- If the name is not a hole name HOLE:M.x (e.g. isHoleModule) then
+-- no renaming can take place (although the inner hole structure must
+-- be updated to account for the hole module renaming.)
 rnIfaceGlobal :: Name -> ShIfM Name
 rnIfaceGlobal n = do
     -- TODO MASSIVE REFACTOR PLEASE
@@ -462,17 +471,28 @@ rnIfaceGlobal n = do
     let m = nameModule n
         m' = renameHoleModule hmap m
     -- pprTrace "rnIfaceGlobal" (ppr m <+> ppr m' <+> ppr n) $ return ()
+    -- NB: eps_shape is blank at the moment
     fmap (substName (eps_shape eps)) $ case () of
-        _ | m == m' -> return n
-          | isHoleModule m && not (isHoleModule m') -> do
+        -- The special cases for NoSignatureMerging are unsound but
+        -- just to keep things working
+        _ | not (xopt LangExt.NoSignatureMerging (hsc_dflags hsc_env))
+          , m == m' -> return n
+          | isHoleModule m
+          , (xopt LangExt.NoSignatureMerging (hsc_dflags hsc_env) || not (isHoleModule m')) -> do
             -- The substution was from HOLE:A.T to p():A.T.
             -- But it's possible that p() actually reexports
-            -- T from somewhere else.  Furthermore, we need
+            -- T from somewhere else.  Do the name
+            -- substitution.  Furthermore, we need
             -- to make sure we pick the accurate name NOW,
             -- or we might accidentally reject a merge.
+            let dflags = hsc_dflags hsc_env
+            let m'' = if isHoleModule m'
+                        -- Pull out the local guy!!
+                        then mkModule (thisPackage dflags) (moduleName m')
+                        else m'
             (exports, _) <- liftIO . initIfaceCheck hsc_env
                                    . withException
-                                   $ computeExports (text "rnIfaceGlobal") False m'
+                                   $ computeExports (text "rnIfaceGlobal") False m''
 
             case lookupExport (nameOccName n) exports of
                 (b:bs) -> ASSERT ( all (b==) bs ) return b
