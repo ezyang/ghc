@@ -1582,7 +1582,7 @@ getPreloadPackagesAnd dflags pkgids =
       preload = preloadPackages state
       pairs = zip pkgids (repeat Nothing)
   in do
-  all_pkgs <- throwErr dflags (foldM (add_package pkg_map) preload pairs)
+  all_pkgs <- throwErr dflags (foldM (add_package dflags pkg_map) preload pairs)
   return (map (getPackageDetails dflags) all_pkgs)
 
 -- Takes a list of packages, and returns the list with dependencies included,
@@ -1592,7 +1592,7 @@ closeDeps :: DynFlags
           -> [(UnitId, Maybe UnitId)]
           -> IO [UnitId]
 closeDeps dflags pkg_map ps
-    = throwErr dflags (closeDepsErr pkg_map ps)
+    = throwErr dflags (closeDepsErr dflags pkg_map ps)
 
 throwErr :: DynFlags -> MaybeErr MsgDoc a -> IO a
 throwErr dflags m
@@ -1600,21 +1600,23 @@ throwErr dflags m
                 Failed e    -> throwGhcExceptionIO (CmdLineError (showSDoc dflags e))
                 Succeeded r -> return r
 
-closeDepsErr :: PackageConfigMap
+closeDepsErr :: DynFlags
+             -> PackageConfigMap
              -> [(UnitId,Maybe UnitId)]
              -> MaybeErr MsgDoc [UnitId]
-closeDepsErr pkg_map ps = foldM (add_package pkg_map) [] ps
+closeDepsErr dflags pkg_map ps = foldM (add_package dflags pkg_map) [] ps
 
 -- internal helper
-add_package :: PackageConfigMap
+add_package :: DynFlags
+            -> PackageConfigMap
             -> [UnitId]
             -> (UnitId,Maybe UnitId)
             -> MaybeErr MsgDoc [UnitId]
-add_package pkg_db ps (p, mb_parent)
+add_package dflags pkg_db ps (p, mb_parent)
   | p `elem` ps = return ps     -- Check if we've already added this package
   | otherwise =
       -- Always assume definite, because that's how preload goes
-      case lookupPackage' False pkg_db p of
+      case lookupPackage' (isIndefinite dflags) pkg_db p of
         Nothing -> Failed (missingPackageMsg p <>
                            missingDependencyMsg mb_parent)
         Just pkg -> do
@@ -1623,7 +1625,7 @@ add_package pkg_db ps (p, mb_parent)
            return (p : ps')
           where
             add_unit_key ps key
-              = add_package pkg_db ps (key, Just p)
+              = add_package dflags pkg_db ps (key, Just p)
 
 missingPackageMsg :: Outputable pkgid => pkgid -> SDoc
 missingPackageMsg p = text "unknown package:" <+> ppr p
