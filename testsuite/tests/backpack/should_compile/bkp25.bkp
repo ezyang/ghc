@@ -1,0 +1,31 @@
+{-# LANGUAGE NoSignatureMerging #-}
+-- This is broken under signature merging
+
+unit p where
+    signature A(A) where
+        data A
+    signature B(A) where
+        import A
+    module P where
+        import A
+        import B
+        type ZZ = A
+
+unit r where
+    module Impl where
+        data A = A
+
+unit q where
+    include p
+    include r
+    signature A(A) where
+        import Impl(A)
+    signature B(A) where
+        import Impl(A)
+    module M where
+        import A
+        import B
+        import P
+        type AA = A
+        f :: ZZ -> AA
+        f x = x
