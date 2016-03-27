@@ -496,7 +496,9 @@ rnIfaceGlobal n = do
 
             case lookupExport (nameOccName n) exports of
                 (b:bs) -> ASSERT ( all (b==) bs ) return b
-                [] -> pprPanic "rnIfaceGlobal" $
+                [] ->
+                    -- We're supposed to check for this earlier
+                    pprPanic "rnIfaceGlobal" $
                          text "could not find" <+> ppr (nameOccName n) <+>
                          text "in" <+> ppr m'
                          <+> parens (text "did find:" <+> ppr exports)

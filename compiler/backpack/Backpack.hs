@@ -20,6 +20,8 @@ import Shaping
 
 import DynFlags
 import TcRnMonad
+import TcRnDriver (checkUnitId)
+import PrelNames (mAIN)
 import Module
 import HscTypes
 import StringBuffer
@@ -408,17 +410,26 @@ buildUnit session uid lunit = do
         hsubst = listToUFM insts
         deps = map (renameHoleUnitId hsubst) raw_deps
 
-    -- Build dependencies
-    case session of
-        TcSession -> return ()
-        _ -> forM_ (zip [1..] deps) $ \(i, dep) ->
-                compileInclude (length deps) (i, dep)
+    -- Build dependencies OR make sure they make sense. BUT NOTE,
+    -- we can only check the ones that are fully filled; the rest
+    -- we have to defer until we've typechecked our local signature.
+    -- TODO: work this into GhcMake!!
+    forM_ (zip [1..] deps) $ \(i, dep) ->
+        case session of
+            TcSession -> return ()
+            _ -> compileInclude (length deps) (i, dep)
 
     mb_old_eps <- case session of
                     TcSession -> fmap Just getEpsGhc
                     _ -> return Nothing
 
     conf <- withBkpSession uid include_graph session $ do
+
+        -- Do it in here so that thisPackage is setup correctly
+        case session of
+            TcSession -> forM_ deps checkInclude
+            _ -> return ()
+
         dflags <- getDynFlags
         mod_graph <- runShM $ shModGraph uid lunit
         -- pprTrace "mod_graph" (ppr mod_graph) $ return ()
@@ -532,6 +543,20 @@ addPackage pkg = do
                         -- dflags <- GHC.getSessionDynFlags
                         -- liftIO $ setUnsafeGlobalDynFlags dflags
                         return ()
+
+checkInclude :: UnitId -> BkpM ()
+checkInclude uid
+  | indefiniteUnitId uid = return ()
+  | otherwise = do
+        level <- getBkpLevel
+        dflags <- getDynFlags
+        liftIO . backpackProgressMsg level dflags
+          $ "Checking " ++ renderWithStyle dflags (ppr uid) backpackStyle
+        -- Fire up the typechecker! It's time for some hairy action.
+        hsc_env <- getSession
+        liftIO . runHsc hsc_env . ioMsgMaybe . liftIO $ initTc hsc_env HsigFile False mAIN {- something bogus -} (error "NO REAL SRC SPAN") $ do
+            checkUnitId uid
+        return ()
 
 compileInclude :: Int -> (Int, UnitId) -> BkpM ()
 compileInclude n (i, uid) = do

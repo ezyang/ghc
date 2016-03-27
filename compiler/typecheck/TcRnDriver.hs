@@ -32,6 +32,7 @@ module TcRnDriver (
         checkHsigIface',
         findExtraSigImports,
         implicitRequirements,
+        checkUnitId,
     ) where
 
 #ifdef GHCI
@@ -2777,3 +2778,18 @@ implicitRequirements hsc_env normal_imports
                     _ -> return []
   where dflags = hsc_dflags hsc_env
 
+
+checkUnitId :: UnitId -> TcM ()
+checkUnitId uid =
+    forM_ (unitIdInsts uid) $ \(mod_name, mod) -> do
+        sig_iface <- initIfaceTcRn $ loadSysInterface (text "checkUnitId impl") mod
+        let gr = mkGlobalRdrEnv
+                      (gresFromAvails Nothing (mi_exports sig_iface))
+
+
+
+        let req = mkModule uid mod_name
+        (iface, _) <- withException (computeRequirement (text "checkUnitId sig") False req)
+        mod_details <- typecheckIface iface
+
+        checkHsigIface' gr mod_details
