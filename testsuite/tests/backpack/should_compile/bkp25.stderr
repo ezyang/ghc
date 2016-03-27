@@ -11,6 +11,7 @@ unit r
 unit q(hole:A, hole:B)
 - include r [(Impl, r:Impl)]
 - include p(hole:A, hole:B) [(P, p(hole:A, hole:B):P)]
+  Checking r
   [1 of 3] Compiling A[sig]           ( q/A.hsig, nothing )
   [2 of 3] Compiling B[sig]           ( q/B.hsig, nothing )
   [3 of 3] Compiling M                ( q/M.hs, nothing )

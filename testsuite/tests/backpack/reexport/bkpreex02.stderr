@@ -5,6 +5,7 @@
   Instantiating timpl
   [1 of 1] Compiling TImpl            ( timpl/TImpl.hs, nothing )
 [3 of 5] Processing q
+  Checking timpl
   [1 of 3] Compiling T[sig]           ( q/T.hsig, nothing )
   [2 of 3] Compiling H[sig]           ( q/H.hsig, nothing )
   [3 of 3] Compiling A                ( q/A.hs, nothing )

@@ -9,6 +9,7 @@ unit t-impl
 unit p(hole:H)
 - include t-impl [(T, t-impl:T)]
 - include h(hole:H) []
+  Checking t-impl
   [1 of 1] Compiling H[sig]           ( p/H.hsig, nothing )
 [4 of 5] Processing h-impl
   Instantiating h-impl
