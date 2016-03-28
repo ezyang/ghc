@@ -11,6 +11,7 @@ https://ghc.haskell.org/trac/ghc/wiki/Commentary/Compiler/TypeChecker
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NondecreasingIndentation #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module TcRnDriver (
 #ifdef GHCI
@@ -1159,7 +1160,7 @@ mergeSigTyCon is_boot tc1 tc2
                 -- TODO: Ick!  Maybe expose a way to override ATs in a TyCon
        setClassTyConATS ats =
          mkClassTyCon (tyConName tc2)
-                      (tyConKind tc2)
+                      (tyConBinders tc2)
                       (tyConTyVars tc2)
                       (tyConRoles tc2)
                       (algTyConRhs tc2)

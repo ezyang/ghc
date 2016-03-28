@@ -1238,7 +1238,7 @@ instance Outputable HsSigCtxt where
     ppr (LocalBindCtxt ns) = text "LocalBindCtxt" <+> ppr ns
     ppr (ClsDeclCtxt n) = text "ClsDeclCtxt" <+> ppr n
     ppr (InstDeclCtxt ns) = text "InstDeclCtxt" <+> ppr ns
-    ppr (HsBootCtxt) = text "HsBootCtxt"
+    ppr (HsBootCtxt ns) = text "HsBootCtxt" <+> ppr ns
     ppr (RoleAnnotCtxt ns) = text "RoleAnnotCtxt" <+> ppr ns
 
 lookupSigOccRn :: HsSigCtxt

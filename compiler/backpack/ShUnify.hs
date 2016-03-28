@@ -63,6 +63,7 @@ import Util
 import Fingerprint
 import Unique
 import BasicTypes
+import IfaceSyn
 
 import qualified GHC.LanguageExtensions as LangExt
 
@@ -528,38 +529,38 @@ rnIfaceDecl d@IfaceId{} = do
                      , ifIdInfo = info
                      }
 rnIfaceDecl d@IfaceData{} = do
-            ty_vars <- mapM rnIfaceTvBndr (ifTyVars d)
+            binders <- mapM rnIfaceTyConBinder (ifBinders d)
             ctxt <- mapM rnIfaceType (ifCtxt d)
             cons <- rnIfaceConDecls (ifCons d)
             parent <- rnIfaceTyConParent (ifParent d)
-            return d { ifTyVars = ty_vars
+            return d { ifBinders = binders
                      , ifCtxt = ctxt
                      , ifCons = cons
                      , ifParent = parent
                      }
 rnIfaceDecl d@IfaceSynonym{} = do
-            ty_vars <- mapM rnIfaceTvBndr (ifTyVars d)
-            syn_kind <- rnIfaceType (ifSynKind d)
+            binders <- mapM rnIfaceTyConBinder (ifBinders d)
+            syn_kind <- rnIfaceType (ifResKind d)
             syn_rhs <- rnIfaceType (ifSynRhs d)
-            return d { ifTyVars = ty_vars
-                     , ifSynKind = syn_kind
+            return d { ifBinders = binders
+                     , ifResKind = syn_kind
                      , ifSynRhs = syn_rhs
                      }
 rnIfaceDecl d@IfaceFamily{} = do
-            ty_vars <- mapM rnIfaceTvBndr (ifTyVars d)
-            fam_kind <- rnIfaceType (ifFamKind d)
+            binders <- mapM rnIfaceTyConBinder (ifBinders d)
+            fam_kind <- rnIfaceType (ifResKind d)
             fam_flav <- rnIfaceFamTyConFlav (ifFamFlav d)
-            return d { ifTyVars = ty_vars
-                     , ifFamKind = fam_kind
+            return d { ifBinders = binders
+                     , ifResKind = fam_kind
                      , ifFamFlav = fam_flav
                      }
 rnIfaceDecl d@IfaceClass{} = do
             ctxt <- mapM rnIfaceType (ifCtxt d)
-            ty_vars <- mapM rnIfaceTvBndr (ifTyVars d)
+            binders <- mapM rnIfaceTyConBinder (ifBinders d)
             ats <- mapM rnIfaceAT (ifATs d)
             sigs <- mapM rnIfaceClassOp (ifSigs d)
             return d { ifCtxt = ctxt
-                     , ifTyVars = ty_vars
+                     , ifBinders = binders
                      , ifATs = ats
                      , ifSigs = sigs
                      }
@@ -573,16 +574,16 @@ rnIfaceDecl d@IfacePatSyn{} =  do
             let rnPat (n, b) = (,) <$> rnIfaceGlobal n <*> pure b
             pat_matcher <- rnPat (ifPatMatcher d)
             pat_builder <- T.traverse rnPat (ifPatBuilder d)
-            pat_univ_tvs <- mapM rnIfaceTvBndr (ifPatUnivTvs d)
-            pat_ex_tvs <- mapM rnIfaceTvBndr (ifPatExTvs d)
+            pat_univ_bndrs <- mapM rnIfaceForAllBndr (ifPatUnivBndrs d)
+            pat_ex_bndrs <- mapM rnIfaceForAllBndr (ifPatExBndrs d)
             pat_prov_ctxt <- mapM rnIfaceType (ifPatProvCtxt d)
             pat_req_ctxt <- mapM rnIfaceType (ifPatReqCtxt d)
             pat_args <- mapM rnIfaceType (ifPatArgs d)
             pat_ty <- rnIfaceType (ifPatTy d)
             return d { ifPatMatcher = pat_matcher
                      , ifPatBuilder = pat_builder
-                     , ifPatUnivTvs = pat_univ_tvs
-                     , ifPatExTvs = pat_ex_tvs
+                     , ifPatUnivBndrs = pat_univ_bndrs
+                     , ifPatExBndrs = pat_ex_bndrs
                      , ifPatProvCtxt = pat_prov_ctxt
                      , ifPatReqCtxt = pat_req_ctxt
                      , ifPatArgs = pat_args
@@ -616,7 +617,7 @@ rnIfaceConDecls (IfAbstractTyCon b) = pure (IfAbstractTyCon b)
 
 rnIfaceConDecl :: Rename IfaceConDecl
 rnIfaceConDecl d = do
-    con_ex_tvs <- mapM rnIfaceTvBndr (ifConExTvs d)
+    con_ex_tvs <- mapM rnIfaceForAllBndr (ifConExTvs d)
     let rnIfConEqSpec (n,t) = (,) n <$> rnIfaceType t
     con_eq_spec <- mapM rnIfConEqSpec (ifConEqSpec d)
     con_ctxt <- mapM rnIfaceType (ifConCtxt d)
@@ -706,6 +707,10 @@ rnIfaceBndr (IfaceTvBndr tv_bndr) = IfaceIdBndr <$> rnIfaceTvBndr tv_bndr
 
 rnIfaceTvBndr :: Rename IfaceTvBndr
 rnIfaceTvBndr (fs, kind) = (,) fs <$> rnIfaceType kind
+
+rnIfaceTyConBinder :: Rename IfaceTyConBinder
+rnIfaceTyConBinder (IfaceAnon fs ty) = IfaceAnon fs <$> rnIfaceType ty
+rnIfaceTyConBinder (IfaceNamed bndr) = IfaceNamed <$> rnIfaceForAllBndr bndr
 
 rnIfaceAlt :: Rename IfaceAlt
 rnIfaceAlt (conalt, names, rhs)
