@@ -817,8 +817,7 @@ pickQualGRE mod gre@(GRE { gre_name = n, gre_lcl = lcl, gre_imp = iss })
   | otherwise           = Just (gre { gre_lcl = lcl', gre_imp = iss' })
   where
     iss' = filter (qualSpecOK mod) iss
-    -- TODO: HELLA SKEEVY but it makes module reexport work
-    lcl' = lcl
+    lcl' = lcl && name_is_from mod n
 
     name_is_from :: ModuleName -> Name -> Bool
     name_is_from mod name = case nameModule_maybe name of
