@@ -1,5 +1,3 @@
-setTestOpts(only_compiler_types(['ghc']))
-
 test('bkpfile01', expect_broken(0), backpack_compile, ['-ddump-shape'])
 
 test('bkp01', extra_clean(['bkp01_out/*']), backpack_compile, ['-ddump-shape -O'])
