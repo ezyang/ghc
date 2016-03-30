@@ -199,7 +199,9 @@ shIncludeGraph uid lpkg = setPackageSh lpkg . setUnitIdSh uid $ do
     let top_graph = topSortIncludeGraph graph1
     -- TODO: Compute loop-breakers to get rid of cycles
         unroll (AcyclicSCC is) = return is
-        unroll _ = error "cycles not supported"
+        unroll _ = do
+            addErrSh (text "cycles not supported")
+            failM
     graph <- mapM unroll top_graph
 
     shDump $ vcat [ text "unit" <+> ppr uid

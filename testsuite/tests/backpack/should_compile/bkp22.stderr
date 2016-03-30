@@ -14,12 +14,5 @@ unit ba(hole:A)
   [2 of 2] Compiling B                ( ba/B.hs, nothing )
 [4 of 4] Processing ab-rec
   Instantiating ab-rec
-ghc-stage2: panic! (the 'impossible' happened)
-  (GHC version 8.1.20160220 for x86_64-unknown-linux):
-	cycles not supported
-CallStack (from ImplicitParams):
-  error, called at compiler/backpack/Shaping.hs:202:20 in ghc:Shaping
-  unroll, called at compiler/backpack/Shaping.hs:203:19 in ghc:Shaping
 
-Please report this as a GHC bug:  http://www.haskell.org/ghc/reportabug
-
+bkp22.bkp:19:1: error: cycles not supported
