@@ -539,8 +539,8 @@ computeInterfaceAnd def_action indef_action doc_str hi_boot_file mod = do
 -- | This is an improved version of 'findAndReadIface' which can also
 -- handle the case when a user requests p(A -> HOLE:B):M but we only
 -- have an interface for p(A -> HOLE:A):M (the indefinite interface.
--- In that case, we load the interface we have, and then *rename* it
--- so it is the correct interface.
+-- In that case, we load the interface we have, *instantiating it*
+-- according to how the holes are specified.
 computeInterface :: SDoc -> IsBootInterface -> Module
                  -> TcRnIf gbl lcl (MaybeErr MsgDoc (ModIface, FilePath))
 computeInterface =
@@ -548,6 +548,11 @@ computeInterface =
         (\uid iface -> do hsc_env <- getTopEnv
                           liftIO (rnModIface hsc_env uid iface))
 
+-- | This is a special version of 'computeInterface' intended for
+-- reading the required interfaces of components.  When you compute
+-- a requirement p[A=<A>, B=<B>, C=<C>]:B, it is assumed that
+-- you have a local A.hi, but not local B.hi (the thing that you
+-- are reading in) or C.hi (not depended upon.)
 computeRequirement :: SDoc -> IsBootInterface -> Module
                  -> TcRnIf gbl lcl (MaybeErr MsgDoc (ModIface, FilePath))
 computeRequirement =
