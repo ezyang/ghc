@@ -452,6 +452,11 @@ addFingerprints hsc_env mb_old_fingerprint iface0 new_decls
           | otherwise
           = ASSERT2( isExternalName name, ppr name )
             let hash | nameModule name /= semantic_mod =  global_hash_fn name
+                     -- Get it from the REAL interface!!
+                     -- This will trigger when we compile an hsig file
+                     -- and we know a backing impl for it.
+                     | semantic_mod /= this_mod
+                     , not (isHoleModule semantic_mod) = global_hash_fn name
                      | otherwise = return (snd (lookupOccEnv local_env (getOccName name)
                            `orElse` pprPanic "urk! lookup local fingerprint"
                                        (ppr name))) -- (undefined,fingerprint0))

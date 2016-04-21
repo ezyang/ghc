@@ -54,6 +54,8 @@ import Name
 import NameSet
 import NameEnv
 import RnEnv
+import RdrName
+import LoadIface
 import Outputable
 import Maybes
 import Unify
@@ -917,7 +919,10 @@ tcDataDefn rec_info     -- Knot-tied; don't look at this eagerly
 
        ; gadt_syntax <- dataDeclChecks tc_name new_or_data stupid_theta cons
 
-       ; tycon <- fixM $ \ tycon -> do
+       ; mb_impl_rdr_env <- fmap tcg_impl_rdr_env getGblEnv
+       ; check_is_abstract_synonym is_boot mb_impl_rdr_env $ do
+
+       { tycon <- fixM $ \ tycon -> do
              { let res_ty = mkTyConApp tycon (mkTyVarTys final_tvs)
              ; data_cons <- tcConDecls new_or_data tycon
                                        (final_tvs, final_bndrs, res_ty) cons
@@ -930,8 +935,48 @@ tcDataDefn rec_info     -- Knot-tied; don't look at this eagerly
                                   (VanillaAlgTyCon tc_rep_nm)
                                   (rti_is_rec rec_info tc_name)
                                   gadt_syntax) }
-       ; return tycon }
+       ; return tycon }}
   where
+    -- Let's say that we're compiling an hsig file to check if
+    -- it matches against an implementation, and it has:
+    --
+    --  signature H
+    --      data A
+    --      f :: A
+    --
+    -- and the implementation is:
+    --
+    --  module H
+    --      type A = Bool
+    --      f :: Bool
+    --
+    -- The original name of A is H:A; so the A in the hsig must
+    -- be ascribed the same original name (it does not matter if
+    -- it's a reexport; in that case, we just use a different
+    -- original name.)  But we must go a step further: to discover
+    -- that f :: A matches f :: Bool, we must in fact know that
+    -- A is in fact a type synonym for Bool.  So IF we see
+    -- an abstract type, AND the underlying implementation is
+    -- a synonym, directly replace it with the synonym.
+    --
+    -- (Be careful about this case!
+    --
+    -- module H
+    --      data B = B
+    --      type A = B
+    --      f :: b )
+    check_is_abstract_synonym is_boot mb_impl_rdr_env m
+      | null cons, is_boot
+      , Just gr <- mb_impl_rdr_env
+      , [GRE{ gre_name = n }] <- lookupGlobalRdrEnv gr (occName tc_name)
+      = do r <- tcLookupImported_maybe n
+           case r of
+            Maybes.Succeeded (ATyCon tc)
+                | isTypeSynonymTyCon tc -> return tc
+            Maybes.Succeeded _ -> m
+            Maybes.Failed err -> failWith err
+      | otherwise
+      = m
     mk_tc_rhs is_boot tycon data_cons
       | null data_cons, is_boot         -- In a hs-boot file, empty cons means
       = return totallyAbstractTyConRhs  -- "don't know"; hence totally Abstract

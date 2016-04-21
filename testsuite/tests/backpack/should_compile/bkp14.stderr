@@ -1,18 +1,17 @@
 [1 of 3] Processing p
-unit p(hole:H)
-  [1 of 1] Compiling H[sig]           ( p/H.hsig, nothing )
+unit p(hole:H, hole:Y)
+  [1 of 3] Compiling H[sig]           ( p/H.hsig, nothing )
+  [2 of 3] Compiling Y[sig]           ( p/Y.hsig, nothing )
+  [3 of 3] Compiling M                ( p/M.hs, nothing )
 [2 of 3] Processing impl
   Instantiating impl
 unit impl
   [1 of 2] Compiling F                ( impl/F.hs, bkp14-out/impl/F.o )
   [2 of 2] Compiling H                ( impl/H.hs, bkp14-out/impl/H.o )
 [3 of 3] Processing q
-  Instantiating q
-unit q
+unit q(hole:Y)
 - include impl [(H, impl:H), (F, impl:F)]
-- include p(impl:H) []
-  [1 of 2] Including impl
-  [2 of 2] Including p
-    Instantiating p(impl:H)
-unit p(impl:H)
-    [1 of 1] Compiling H[sig]           ( p/H.hsig, bkp14-out/p/p-GULbd8Xpcj4IpAVv37waMI/H.o )
+- include p(impl:H, hole:Y) [(M, p(impl:H, hole:Y):M)]
+  Checking impl
+  [1 of 2] Compiling Y[sig]           ( q/Y.hsig, nothing )
+  [2 of 2] Compiling X                ( q/X.hs, nothing )

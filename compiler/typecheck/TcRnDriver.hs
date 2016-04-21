@@ -1219,6 +1219,15 @@ mergeSigTyCon is_boot tc1 tc2
     check (injInfo1 == injInfo2) empty `andThenCheck`
     pure tc2
 
+  -- Only for hsig (since we can't do this soundly for hs-boot
+  -- without assuming a lot from the type system)
+  | not is_boot && isAbstractTyCon tc1 && isTypeSynonymTyCon tc2
+  = check (roles1 == roles2) roles_msg `andThenCheck`
+    pure tc2
+  | not is_boot && isAbstractTyCon tc2 && isTypeSynonymTyCon tc1
+  = check (roles1 == roles2) roles_msg `andThenCheck`
+    pure tc1
+
   | isAlgTyCon tc1 && isAlgTyCon tc2
   , Just env <- eqVarBndrs emptyRnEnv2 (tyConTyVars tc1) (tyConTyVars tc2)
   = ASSERT(tc1 == tc2)
