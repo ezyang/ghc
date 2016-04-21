@@ -8,7 +8,7 @@
   Checking q
   Checking p(q:H)
 ghc-stage2: panic! (the 'impossible' happened)
-  (GHC version 8.1.20160220 for x86_64-unknown-linux):
+  (GHC version 8.1.20160330 for x86_64-unknown-linux):
 	rnIfaceGlobal could not find H in H (did find: [S{S, S}])
 
 Please report this as a GHC bug:  http://www.haskell.org/ghc/reportabug
