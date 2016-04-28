@@ -239,8 +239,15 @@ tcRnSignature hsc_src
                 -- arrange.  (Also, not adding this to the imports would be
                 -- wrong as far as orphan calculation goes.)
                 , tcg_imports = tcg_imports tcg_env `plusImportAvails` avails})
-            } ;
-            _ -> return tcg_env
+            }
+              | inner_mod /= outer_mod
+              -- So we're working on a signature; specifically, we are
+              -- doing a merge.  We don't have an interface to load which
+              -- has the real names, but we do know 
+              , isHoleModule inner_mod -> do
+            { return tcg_env
+            }
+              | otherwise -> return tcg_env
       }
 
 checkHsigIface :: HscEnv -> TcGblEnv -> TcRn ()
@@ -2739,28 +2746,66 @@ loadTcPlugins hsc_env =
 
 
 
-
+-- | For a module @modname@ of type 'HscSource', determine the list
+-- of extra "imports" of other requirements which should be considered part of
+-- the import of the requirement, because it transitively depends on those
+-- requirements by imports of modules from other packages.  The situation
+-- is something like this:
+--
+--      package p where
+--          signature A
+--          signature B
+--              import A
+--
+--      package q where
+--          include p
+--          signature A
+--          signature B
+--
+-- Although q's B does not directly import A, we still have to make sure we
+-- process A first, because the merging process will cause B to indirectly
+-- import A.  This function finds the TRANSITIVE closure of all such imports
+-- we need to make.
 findExtraSigImports :: HscEnv -> HscSource -> ModuleName
                     -> IO [(Maybe FastString, Located ModuleName)]
 findExtraSigImports hsc_env hsc_src modname = do
-    -- Gotta work hard.
-    -- TODO: but only when I'm type-checking
+    -- TODO: This faffing about is only really necessary during typechecking;
+    -- once we know the backing implementation everything can just get
+    -- redirected straight to the implementation so it does not matter that
+    -- there is no hi file for a local requirement.
     let dflags = hsc_dflags hsc_env
         reqmap = requirementContext (pkgState dflags)
     extra_requirements <-
       case hsc_src of
+        -- We only need to do this for hsig files which have merges
+        -- (as specified by the 'requirementContext')
         HsigFile | Just reqs <- Map.lookup modname reqmap -> do
             all_deps <- forM reqs $ \(req :: Module) -> do
+                -- The req is going to look something like:
+                --      p[A=hole:B,B=q[]:C]:A
+                --
                 -- NB: we NEED the transitive closure of local imports!!!
+                -- Fortunately, this is recorded in deps.
                 (deps, _) <- initIfaceCheck hsc_env . withException $
                             (computeDependencies (text "requirement deps" <+> ppr modname)
                             False req)
-                -- Now we must reflect upon the substitution in req
-                -- in order to determine the meaning of the dependencies.
+                -- deps records the TRANSITIVE closure of all local modules
+                -- the module depends on.  This contains too many modules:
+                -- we only care about the LOCAL REQUIREMENTS which are
+                -- going to get merged into our local requirements.  What
+                -- are those?  They are precisely the holes of the component
+                -- this requirement came from which are filled with HOLE.
+                -- So in the req example above, A is a hole, but B is not
+                -- (it's filled.)
+                --
+                -- But you have to be more careful; while A is a hole in *p*,
+                -- it is not a hole in the CURRENT component; it really
+                -- corresponds to B.  So we want to look at the free holes.
                 let hmap = Map.fromList (unitIdInsts (moduleUnitId req))
                 -- m -> M
                 --  means that if we see an m in the dep list, it is a hole.
-                --  Consequently, we have a dependency on M
+                --  Consequently, we have a dependency on all the free holes
+                --  in M.
                 let go (_, True) = [] -- ignore boots
                     go (mod_name, False)
                         | Just mod <- Map.lookup mod_name hmap
@@ -2771,9 +2816,15 @@ findExtraSigImports hsc_env hsc_src modname = do
             return (concat all_deps)
         _ -> return []
 
+    -- Massage the requirements into a convenient form for GhcMake and
+    -- TcRnDriver.
     return [ (Nothing, noLoc mod_name) | mod_name <- extra_requirements ]
 
 
+-- Given a list of 'import M' statements in a module, figure out
+-- any extra implicit requirement imports they may have.  For
+-- example, if they 'import M' and M resolves to p[A=<B>], then
+-- they actually also import the local requirement B.
 implicitRequirements :: HscEnv
                      -> [(Maybe FastString, Located ModuleName)]
                      -> IO [(Maybe FastString, Located ModuleName)]
@@ -2788,7 +2839,10 @@ implicitRequirements hsc_env normal_imports
                     _ -> return []
   where dflags = hsc_dflags hsc_env
 
-
+-- | Given a 'UnitId', make sure it is well typed.  This is because
+-- unit IDs come from Cabal, which does not know if things are well-typed or
+-- not; a component may have been filled with implementations for the holes
+-- that don't actually fulfill the requirements.
 checkUnitId :: UnitId -> TcM ()
 checkUnitId uid =
     forM_ (unitIdInsts uid) $ \(mod_name, mod) -> do
@@ -2798,7 +2852,7 @@ checkUnitId uid =
 
 
 
-        let req = mkModule uid mod_name
+        let req = mkModule uid mod_namE
         (iface, _) <- withException (computeRequirement (text "checkUnitId sig") False req)
         mod_details <- typecheckIface iface
 
