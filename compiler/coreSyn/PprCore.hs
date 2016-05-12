@@ -425,6 +425,7 @@ ppIdInfo id info
     , (has_caf_info,     text "Caf=" <> ppr caf_info)
     , (has_str_info,     text "Str=" <> pprStrictness str_info)
     , (has_unf,          text "Unf=" <> ppr unf_info)
+    , (boot_info,        text "Boot")
     , (not (null rules), text "RULES:" <+> vcat (map pprRule rules))
     ]   -- Inline pragma, occ, demand, one-shot info
         -- printed out with all binders (when debug is on);
@@ -442,6 +443,8 @@ ppIdInfo id info
 
     caf_info = cafInfo info
     has_caf_info = not (mayHaveCafRefs caf_info)
+
+    boot_info = bootInfo info
 
     str_info = strictnessInfo info
     has_str_info = not (isTopSig str_info)

@@ -1462,9 +1462,11 @@ setLocalRdrEnv rdr_env thing_inside
 ************************************************************************
 -}
 
-mkIfLclEnv :: Module -> SDoc -> IfLclEnv
-mkIfLclEnv mod loc = IfLclEnv { if_mod     = mod,
+mkIfLclEnv :: Module -> SDoc -> Bool -> IfLclEnv
+mkIfLclEnv mod loc boot
+                   = IfLclEnv { if_mod     = mod,
                                 if_loc     = loc,
+                                if_boot    = boot,
                                 if_tv_env  = emptyUFM,
                                 if_id_env  = emptyUFM }
 
@@ -1504,7 +1506,7 @@ initIfaceTc iface do_this
                             if_doc = text "initIfaceTc",
                             if_rec_types = Just (mod, readTcRef tc_env_var)
                           } ;
-              ; if_lenv = mkIfLclEnv mod doc
+              ; if_lenv = mkIfLclEnv mod doc (mi_boot iface)
            }
         ; setEnvs (gbl_env, if_lenv) (do_this tc_env_var)
     }
@@ -1512,9 +1514,9 @@ initIfaceTc iface do_this
     mod = mi_module iface
     doc = text "The interface for" <+> quotes (ppr mod)
 
-initIfaceLcl :: Module -> SDoc -> IfL a -> IfM lcl a
-initIfaceLcl mod loc_doc thing_inside
-  = setLclEnv (mkIfLclEnv mod loc_doc) thing_inside
+initIfaceLcl :: Module -> SDoc -> Bool -> IfL a -> IfM lcl a
+initIfaceLcl mod loc_doc hi_boot_file thing_inside
+  = setLclEnv (mkIfLclEnv mod loc_doc hi_boot_file) thing_inside
 
 getIfModule :: IfL Module
 getIfModule = do { env <- getLclEnv; return (if_mod env) }

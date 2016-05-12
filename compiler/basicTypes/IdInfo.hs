@@ -66,6 +66,9 @@ module IdInfo (
 
         -- ** Tick-box Info
         TickBoxOp(..), TickBoxId,
+
+        -- ** Boot Info
+        bootInfo, setBootInfo,
     ) where
 
 import CoreSyn
@@ -91,6 +94,7 @@ infixl  1 `setRuleInfo`,
           `setOneShotInfo`,
           `setOccInfo`,
           `setCafInfo`,
+          `setBootInfo`,
           `setStrictnessInfo`,
           `setDemandInfo`
 
@@ -212,6 +216,7 @@ data IdInfo
         strictnessInfo  :: StrictSig,      --  ^ A strictness signature
 
         demandInfo      :: Demand,       -- ^ ID demand information
+        bootInfo        :: Bool,         -- ^ Is this from a boot interface?
         callArityInfo :: !ArityInfo    -- ^ How this is called.
                                          -- n <=> all calls have at least n arguments
     }
@@ -245,6 +250,8 @@ setCallArityInfo :: IdInfo -> ArityInfo -> IdInfo
 setCallArityInfo info ar  = info { callArityInfo = ar  }
 setCafInfo :: IdInfo -> CafInfo -> IdInfo
 setCafInfo        info caf = info { cafInfo = caf }
+setBootInfo :: IdInfo -> Bool -> IdInfo
+setBootInfo        info boot = info { bootInfo = boot }
 
 setOneShotInfo :: IdInfo -> OneShotInfo -> IdInfo
 setOneShotInfo      info lb = {-lb `seq`-} info { oneShotInfo = lb }
@@ -267,6 +274,7 @@ vanillaIdInfo
             inlinePragInfo      = defaultInlinePragma,
             occInfo             = NoOccInfo,
             demandInfo          = topDmd,
+            bootInfo            = False,
             strictnessInfo      = nopSig,
             callArityInfo     = unknownArity
            }

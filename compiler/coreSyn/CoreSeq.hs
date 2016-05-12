@@ -33,6 +33,7 @@ megaSeqIdInfo info
     seqDemand (demandInfo info)                 `seq`
     seqStrictSig (strictnessInfo info)          `seq`
     seqCaf (cafInfo info)                       `seq`
+    bootInfo info                               `seq`
     seqOneShot (oneShotInfo info)               `seq`
     seqOccInfo (occInfo info)
 

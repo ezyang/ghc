@@ -275,6 +275,11 @@ data IfLclEnv
         -- it means M.f = \x -> x, where M is the if_mod
         if_mod :: Module,
 
+        -- Whether or not the IfaceDecl came from a boot
+        -- file or not; we'll use this to set bootInfo on
+        -- the Id we generate.
+        if_boot :: Bool,
+
         -- The field is used only for error reporting
         -- if (say) there's a Lint error in it
         if_loc :: SDoc,

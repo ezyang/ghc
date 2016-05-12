@@ -1188,16 +1188,18 @@ tcIdDetails _ (IfRecSelId tc naughty)
     tyThingPatSyn _ = panic "tcIdDetails: expecting patsyn"
 
 tcIdInfo :: Bool -> Name -> Type -> IfaceIdInfo -> IfL IdInfo
-tcIdInfo ignore_prags name ty info
-  | ignore_prags = return vanillaIdInfo
-  | otherwise    = case info of
-                        NoInfo       -> return vanillaIdInfo
-                        HasInfo info -> foldlM tcPrag init_info info
-  where
+tcIdInfo ignore_prags name ty info = do
+    lcl_env <- getLclEnv
     -- Set the CgInfo to something sensible but uninformative before
     -- we start; default assumption is that it has CAFs
-    init_info = vanillaIdInfo
-
+    let init_info | if_boot lcl_env = vanillaIdInfo `setBootInfo` True
+                  | otherwise       = vanillaIdInfo
+    if ignore_prags
+        then return init_info
+        else case info of
+                NoInfo -> return init_info
+                HasInfo info -> foldlM tcPrag init_info info
+  where
     tcPrag :: IdInfo -> IfaceInfoItem -> IfL IdInfo
     tcPrag info HsNoCafRefs        = return (info `setCafInfo`   NoCafRefs)
     tcPrag info (HsArity arity)    = return (info `setArityInfo` arity)
