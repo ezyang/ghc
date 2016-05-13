@@ -515,3 +515,5 @@ test('T11811', normal, compile, [''])
 test('T11793', normal, compile, [''])
 test('T11348', normal, compile, [''])
 test('T11947', normal, compile, [''])
+test('T11062', extra_clean(['T11062.hi-boot', 'T11062.o-boot', 'T11062a.hi', 'T11062a.o']),
+     multimod_compile, ['T11062', '-v0'])

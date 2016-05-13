@@ -334,6 +334,15 @@ tcRnModuleTcRnM hsc_env hsc_src
                         tcRnSrcDecls explicit_mod_hdr local_decls ;
         setGblEnv tcg_env               $ do {
 
+                -- Now that any hs-boot'ed type families have been
+                -- defined, check for type-family instance consistency
+        traceRn (text "rn: checking family instance consistency") ;
+        let { imports = tcg_imports tcg_env ;
+              dir_imp_mods = moduleEnvKeys
+                           . imp_mods
+                           $ imports } ;
+        checkFamInstConsistency (imp_finsts imports) dir_imp_mods ;
+
                 -- Process the export list
         traceRn (text "rn4a: before exports");
         (rn_exports, tcg_env) <- rnExports explicit_mod_hdr export_ies tcg_env ;
@@ -447,13 +456,6 @@ tcRnImports hsc_env import_decls
                 -- will be checked when we define them locally.
         ; loadModuleInterfaces (text "Loading orphan modules")
                                (filter (/= this_mod) (imp_orphs imports))
-
-                -- Check type-family consistency
-        ; traceRn (text "rn1: checking family instance consistency")
-        ; let { dir_imp_mods = moduleEnvKeys
-                             . imp_mods
-                             $ imports }
-        ; checkFamInstConsistency (imp_finsts imports) dir_imp_mods ;
 
         ; getGblEnv } }
 
