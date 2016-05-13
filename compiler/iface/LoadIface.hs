@@ -25,6 +25,9 @@ module LoadIface (
         loadDecls,      -- Should move to TcIface and be renamed
         initExternalPackageState,
 
+        -- Extra stuff
+        needWiredInHomeIface, loadWiredInHomeIface,
+
         ifaceStats, pprModIface, showIface
    ) where
 
@@ -423,7 +426,7 @@ loadInterface doc_str mod from
         let
             loc_doc = text file_path
         in
-        initIfaceLcl mod loc_doc (mi_boot iface) $ do
+        initIfaceTc iface loc_doc $ \ tc_env_var -> do
 
         --      Load the new ModIface into the External Package State
         -- Even home-package interfaces loaded by loadInterface
@@ -443,6 +446,11 @@ loadInterface doc_str mod from
 
         ; ignore_prags      <- goptM Opt_IgnoreInterfacePragmas
         ; new_eps_decls     <- loadDecls ignore_prags (mi_decls iface)
+        -- Make sure knot tying works.  This is not /strictly/ necessary,
+        -- but it's nice because we can avoid faulting into the EPS.
+        ; let type_env = mkNameEnv new_eps_decls
+        ; writeMutVar tc_env_var type_env
+
         ; new_eps_insts     <- mapM tcIfaceInst (mi_insts iface)
         ; new_eps_fam_insts <- mapM tcIfaceFamInst (mi_fam_insts iface)
         ; new_eps_rules     <- tcIfaceRules ignore_prags (mi_rules iface)

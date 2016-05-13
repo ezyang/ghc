@@ -1462,10 +1462,11 @@ setLocalRdrEnv rdr_env thing_inside
 ************************************************************************
 -}
 
-mkIfLclEnv :: Module -> SDoc -> Bool -> IfLclEnv
-mkIfLclEnv mod loc boot
+mkIfLclEnv :: Module -> SDoc -> Bool -> IfL TypeEnv -> IfLclEnv
+mkIfLclEnv mod loc boot get_env
                    = IfLclEnv { if_mod     = mod,
                                 if_loc     = loc,
+                                if_self_types = Just (mod, get_env),
                                 if_boot    = boot,
                                 if_tv_env  = emptyUFM,
                                 if_id_env  = emptyUFM }
@@ -1496,27 +1497,15 @@ initIfaceCheck hsc_env do_this
                     }
       initTcRnIf 'i' hsc_env gbl_env () do_this
 
-initIfaceTc :: ModIface
-            -> (TcRef TypeEnv -> IfL a) -> TcRnIf gbl lcl a
+initIfaceTc :: ModIface -> SDoc -> (TcRef TypeEnv -> IfL a) -> IfM lcl a
 -- Used when type-checking checking an up-to-date interface file
 -- No type envt from the current module, but we do know the module dependencies
-initIfaceTc iface do_this
- = do   { tc_env_var <- newTcRef emptyTypeEnv
-        ; let { gbl_env = IfGblEnv {
-                            if_doc = text "initIfaceTc",
-                            if_rec_types = Just (mod, readTcRef tc_env_var)
-                          } ;
-              ; if_lenv = mkIfLclEnv mod doc (mi_boot iface)
-           }
-        ; setEnvs (gbl_env, if_lenv) (do_this tc_env_var)
-    }
+initIfaceTc iface doc do_this
+ = do tc_env_var <- newTcRef emptyTypeEnv
+      let if_lenv = mkIfLclEnv mod doc (mi_boot iface) (readTcRef tc_env_var)
+      setLclEnv if_lenv (do_this tc_env_var)
   where
     mod = mi_module iface
-    doc = text "The interface for" <+> quotes (ppr mod)
-
-initIfaceLcl :: Module -> SDoc -> Bool -> IfL a -> IfM lcl a
-initIfaceLcl mod loc_doc hi_boot_file thing_inside
-  = setLclEnv (mkIfLclEnv mod loc_doc hi_boot_file) thing_inside
 
 getIfModule :: IfL Module
 getIfModule = do { env <- getLclEnv; return (if_mod env) }

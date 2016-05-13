@@ -280,6 +280,12 @@ data IfLclEnv
         -- the Id we generate.
         if_boot :: Bool,
 
+        -- The type environment for the interface being checked.
+        -- This is different from 'if_rec_types', which is used
+        -- to tie the knot for the module *being compiled*; this
+        -- knot tying is just within the interface itself
+        if_self_types :: Maybe (Module, IfL TypeEnv),
+
         -- The field is used only for error reporting
         -- if (say) there's a Lint error in it
         if_loc :: SDoc,
@@ -328,7 +334,7 @@ data DsGblEnv
         , ds_fam_inst_env :: FamInstEnv         -- Like tcg_fam_inst_env
         , ds_unqual  :: PrintUnqualified
         , ds_msgs    :: IORef Messages          -- Warning messages
-        , ds_if_env  :: (IfGblEnv, IfLclEnv)    -- Used for looking up global,
+        , ds_if_env  :: IfGblEnv                -- Used for looking up global,
                                                 -- possibly-imported things
         , ds_dph_env :: GlobalRdrEnv            -- exported entities of 'Data.Array.Parallel.Prim'
                                                 -- iff '-fvectorise' flag was given as well as

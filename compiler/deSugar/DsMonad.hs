@@ -263,12 +263,10 @@ mkDsEnvs :: DynFlags -> Module -> GlobalRdrEnv -> TypeEnv -> FamInstEnv
 mkDsEnvs dflags mod rdr_env type_env fam_inst_env msg_var pmvar
   = let if_genv = IfGblEnv { if_doc       = text "mkDsEnvs",
                              if_rec_types = Just (mod, return type_env) }
-        if_lenv = mkIfLclEnv mod (text "GHC error in desugarer lookup in" <+> ppr mod)
-                             False -- not boot!
         real_span = realSrcLocSpan (mkRealSrcLoc (moduleNameFS (moduleName mod)) 1 1)
         gbl_env = DsGblEnv { ds_mod     = mod
                            , ds_fam_inst_env = fam_inst_env
-                           , ds_if_env  = (if_genv, if_lenv)
+                           , ds_if_env  = if_genv
                            , ds_unqual  = mkPrintUnqualified dflags rdr_env
                            , ds_msgs    = msg_var
                            , ds_dph_env = emptyGlobalRdrEnv
@@ -287,7 +285,7 @@ mkDsEnvs dflags mod rdr_env type_env fam_inst_env msg_var pmvar
 loadModule :: SDoc -> Module -> DsM GlobalRdrEnv
 loadModule doc mod
   = do { env    <- getGblEnv
-       ; setEnvs (ds_if_env env) $ do
+       ; setEnvs (ds_if_env env, ()) $ do
        { iface <- loadInterface doc mod ImportBySystem
        ; case iface of
            Failed err      -> pprPanic "DsMonad.loadModule: failed to load" (err $$ doc)
@@ -409,11 +407,27 @@ instance MonadThings (IOEnv (Env DsGblEnv DsLclEnv)) where
     lookupThing = dsLookupGlobal
 
 dsLookupGlobal :: Name -> DsM TyThing
--- Very like TcEnv.tcLookupGlobal
 dsLookupGlobal name
   = do  { env <- getGblEnv
-        ; setEnvs (ds_if_env env)
-                  (tcIfaceGlobal name) }
+        ; r <- setEnvs (ds_if_env env, ()) $
+          case wiredInNameTyThing_maybe name of
+            Just thing -> do
+                -- NB: unlike ifCheckWiredInThing we can
+                -- unconditionally load the interface here
+                -- because we're definitely not typechecking
+                -- the interface here.
+                -- TODO: I'm not sure if this ever actually is
+                -- necessary. Maybe if someone synthesizes a Name
+                -- during typechecking but we never actually ask
+                -- for its TyThing.
+                when (needWiredInHomeIface thing)
+                     (loadWiredInHomeIface name)
+                return (Succeeded thing)
+            Nothing -> ifLookupGlobal name
+        ; case r of
+                    Failed err -> failWithDs err
+                    Succeeded thing -> return thing
+        }
 
 dsLookupGlobalId :: Name -> DsM Id
 dsLookupGlobalId name

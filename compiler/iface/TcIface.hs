@@ -7,6 +7,7 @@ Type checking of type signatures in interface files
 -}
 
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE NondecreasingIndentation #-}
 
 module TcIface (
         tcLookupImported_maybe,
@@ -14,7 +15,7 @@ module TcIface (
         tcIfaceDecl, tcIfaceInst, tcIfaceFamInst, tcIfaceRules,
         tcIfaceVectInfo, tcIfaceAnnotations,
         tcIfaceExpr,    -- Desired by HERMIT (Trac #7683)
-        tcIfaceGlobal
+        tcIfaceGlobal, ifLookupGlobal
  ) where
 
 #include "HsVersions.h"
@@ -110,9 +111,9 @@ and even if they were, the type decls might be mutually recursive.
 -}
 
 typecheckIface :: ModIface      -- Get the decls from here
-               -> TcRnIf gbl lcl ModDetails
+               -> IfM lcl ModDetails
 typecheckIface iface
-  = initIfaceTc iface $ \ tc_env_var -> do
+  = initIfaceTc iface doc $ \ tc_env_var -> do
         -- The tc_env_var is freshly allocated, private to
         -- type-checking this particular interface
         {       -- Get the right set of decls and rules.  If we are compiling without -O
@@ -123,8 +124,7 @@ typecheckIface iface
           ignore_prags <- goptM Opt_IgnoreInterfacePragmas
 
                 -- Typecheck the decls.  This is done lazily, so that the knot-tying
-                -- within this single module work out right.  In the If monad there is
-                -- no global envt for the current interface; instead, the knot is tied
+                -- within this single module work out right.  The knot is tied
                 -- through the if_rec_types field of IfGblEnv
         ; names_w_things <- loadDecls ignore_prags (mi_decls iface)
         ; let type_env = mkNameEnv names_w_things
@@ -157,6 +157,8 @@ typecheckIface iface
                               , md_exports   = exports
                               }
     }
+  where
+    doc = text "The interface for" <+> quotes (ppr (mi_module iface))
 
 {-
 ************************************************************************
@@ -204,8 +206,9 @@ tcHiBootIface hsc_src mod
                                 True    -- Hi-boot file
 
         ; case read_result of {
-            Succeeded (iface, _path) -> do { tc_iface <- typecheckIface iface
-                                           ; return (mkSelfBootInfo tc_iface) } ;
+            Succeeded (iface, _path) ->
+                do { tc_iface <- initIfaceTcRn $ typecheckIface iface
+                   ; return (mkSelfBootInfo tc_iface) } ;
             Failed err               ->
 
         -- There was no hi-boot file. But if there is circularity in
@@ -1303,6 +1306,9 @@ tcPragExpr name expr
 ************************************************************************
 -}
 
+-- | This is suitable for getting 'TyThing's when typechecking
+-- interface files.  It handles knot-tying within the interface
+-- file and loading wired in instances when necessary.
 tcIfaceGlobal :: Name -> IfL TyThing
 tcIfaceGlobal name
   | Just thing <- wiredInNameTyThing_maybe name
@@ -1313,32 +1319,45 @@ tcIfaceGlobal name
   = do { ifCheckWiredInThing thing; return thing }
 
   | otherwise
-  = do  { env <- getGblEnv
-        ; case if_rec_types env of {    -- Note [Tying the knot]
-            Just (mod, get_type_env)
-                | nameIsLocalOrFrom mod name
-                -> do           -- It's defined in the module being compiled
-                { type_env <- setLclEnv () get_type_env         -- yuk
-                ; case lookupNameEnv type_env name of
-                    Just thing -> return thing
-                    Nothing   ->
-                      pprPanic "tcIfaceGlobal (local): not found"
-                               (ifKnotErr name (if_doc env) type_env)
-                }
+  = do env <- getLclEnv
+       r <- ifKnotLookup "local" name (if_self_types env) $
+                setLclEnv () $ ifLookupGlobal name
+       case r of
+          Failed err -> failIfM err
+          Succeeded thing -> return thing
 
-          ; _ -> do
+-- | Given the contents of 'if_self_types' or 'if_rec_types',
+-- check if we need to knot-tie 'Name', and if so lookup the
+-- 'Name' in the 'TypeEnv'.  If we are attempting to knot tie,
+-- it is a hard failure if we don't find the 'Name' we are
+-- looking for.
+ifKnotLookup :: String -> Name -> Maybe (Module, IfM lcl TypeEnv)
+             -> IfM lcl (MaybeErr SDoc TyThing)
+             -> IfM lcl (MaybeErr SDoc TyThing)
+ifKnotLookup doc name (Just (mod, get_type_env)) _
+    | nameIsLocalOrFrom mod name
+    = do type_env <- get_type_env
+         env <- getGblEnv
+         case lookupNameEnv type_env name of
+            Just thing -> return (Succeeded thing)
+            Nothing -> pprPanic ("tcIfaceGlobal (" ++ doc ++ "): not found")
+                                (ifKnotErr name (if_doc env) type_env)
+ifKnotLookup _ _ _ do_this = do_this
 
-        { hsc_env <- getTopEnv
-        ; mb_thing <- liftIO (lookupTypeHscEnv hsc_env name)
-        ; case mb_thing of {
-            Just thing -> return thing ;
-            Nothing    -> do
-
-        { mb_thing <- importDecl name   -- It's imported; go get it
-        ; case mb_thing of
-            Failed err      -> failIfM err
-            Succeeded thing -> return thing
-    }}}}}
+-- | This is suitable for getting 'TyThing's when you are NOT
+-- typechecking an interface file (use 'tcIfaceGlobal' in that case;
+-- that's why this is an 'IfG' and not an @'IfM' lcl@).  It does
+-- NOT load interfaces for wired-in things; the caller is responsible
+-- for handling that.
+ifLookupGlobal :: Name -> IfG (MaybeErr SDoc TyThing)
+ifLookupGlobal name
+  = do env <- getGblEnv
+       ifKnotLookup "global" name (if_rec_types env) $ do
+       hsc_env <- getTopEnv
+       mb_thing <- liftIO (lookupTypeHscEnv hsc_env name)
+       case mb_thing of
+         Just thing -> return (Succeeded thing)
+         Nothing    -> importDecl name -- It's imported; go get it
 
 ifKnotErr :: Name -> SDoc -> TypeEnv -> SDoc
 ifKnotErr name env_doc type_env = vcat
@@ -1356,19 +1375,26 @@ ifKnotErr name env_doc type_env = vcat
 
 -- Note [Tying the knot]
 -- ~~~~~~~~~~~~~~~~~~~~~
--- The if_rec_types field is used in two situations:
+-- We're trying to build a circular data structure of 'TyThing's and
+-- the like.  We use if_rec_types and if_self_types to tie the loop.
+-- These two fields handle two separate situations:
 --
--- a) Compiling M.hs, which indirectly imports Foo.hi, which mentions M.T
---    Then we look up M.T in M's type environment, which is splatted into if_rec_types
---    after we've built M's type envt.
+-- a) if_rec_types handles tying the knot when there is an hs-boot loop, e.g.
+--    when compiling M.hs, which indirectly imports Foo.hi, which mentions M.T
+--    Then we look up M.T in M's type environment, which is splatted into
+--    if_rec_types after we've built M's type envt.
 --
--- b) In ghc --make, during the upsweep, we encounter M.hs, whose interface M.hi
---    is up to date.  So we call typecheckIface on M.hi.  This splats M.T into
---    if_rec_types so that the (lazily typechecked) decls see all the other decls
+-- b) if_self_types handles tying the knot for recursive things inside a
+--    single interface. When we call typecheckIface on M.hi, we splats M.T into
+--    if_self_types so that the (lazily typechecked) decls see all the other
+--    decls.  It is essential in ghc --make, where we typecheck interfaces
+--    into ModDetails which get put in the HPT (but not the EPS.)
+--    For external packages, we could tie the knot through the EPS---but
+--    it's harmless to do it through if_self_types.
 --
--- In case (b) it's important to do the if_rec_types check *before* looking in the HPT
--- Because if M.hs also has M.hs-boot, M.T will *already be* in the HPT, but in its
--- emasculated form (e.g. lacking data constructors).
+-- In case (b) it's important to do the if_self_types check *before* looking
+-- in the HPT: if M.hs also has M.hs-boot, M.T will *already be* in the HPT,
+-- but in its emasculated form (e.g. lacking data constructors).
 
 tcIfaceTyConByName :: IfExtName -> IfL TyCon
 tcIfaceTyConByName name
