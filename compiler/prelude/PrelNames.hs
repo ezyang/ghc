@@ -291,7 +291,7 @@ basicKnownKeyNames
         word16TyConName, word32TyConName, word64TyConName,
 
         -- Others
-        otherwiseIdName, inlineIdName,
+        otherwiseIdName, inlineIdName, noinlineIdName,
         eqStringName, assertName, breakpointName, breakpointCondName,
         breakpointAutoName,  opaqueTyConName,
         assertErrorName,
@@ -920,9 +920,10 @@ unpackCStringFoldrName  = varQual gHC_CSTRING (fsLit "unpackFoldrCString#") unpa
 unpackCStringUtf8Name   = varQual gHC_CSTRING (fsLit "unpackCStringUtf8#") unpackCStringUtf8IdKey
 eqStringName            = varQual gHC_BASE (fsLit "eqString")  eqStringIdKey
 
--- The 'inline' function
-inlineIdName :: Name
+-- The 'inline' and 'noinline' functions
+inlineIdName, noinlineIdName :: Name
 inlineIdName            = varQual gHC_MAGIC (fsLit "inline") inlineIdKey
+noinlineIdName          = varQual gHC_MAGIC (fsLit "noinline") noinlineIdKey
 
 -- Base classes (Eq, Ord, Functor)
 fmapName, eqClassName, eqName, ordClassName, geName, functorClassName :: Name
@@ -2032,8 +2033,9 @@ breakpointJumpIdKey           = mkPreludeMiscIdUnique 113
 breakpointCondJumpIdKey       = mkPreludeMiscIdUnique 114
 breakpointAutoJumpIdKey       = mkPreludeMiscIdUnique 115
 
-inlineIdKey :: Unique
+inlineIdKey, noinlineIdKey :: Unique
 inlineIdKey                   = mkPreludeMiscIdUnique 120
+-- see below
 
 mapIdKey, groupWithIdKey, dollarIdKey :: Unique
 mapIdKey              = mkPreludeMiscIdUnique 121
@@ -2042,6 +2044,8 @@ dollarIdKey           = mkPreludeMiscIdUnique 123
 
 coercionTokenIdKey :: Unique
 coercionTokenIdKey    = mkPreludeMiscIdUnique 124
+
+noinlineIdKey                 = mkPreludeMiscIdUnique 125
 
 rationalToFloatIdKey, rationalToDoubleIdKey :: Unique
 rationalToFloatIdKey   = mkPreludeMiscIdUnique 130

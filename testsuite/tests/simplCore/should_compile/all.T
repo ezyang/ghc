@@ -236,3 +236,5 @@ test('T3990',
      normal,
      run_command,
      ['$MAKE -s --no-print-directory T3990'])
+
+test('noinline01', only_ways(['optasm']), compile, ['-ddump-stg -dsuppress-uniques -O'])
