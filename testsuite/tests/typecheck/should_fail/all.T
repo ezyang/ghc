@@ -420,3 +420,5 @@ test('T11990a', normal, compile_fail, [''])
 test('T11990b', normal, compile_fail, [''])
 test('T12035', extra_clean(['T12035.hi-boot', 'T12035.o-boot', 'T12035a.hi', 'T12035a.o']),
      multimod_compile_fail, ['T12035', '-v0'])
+test('T12035j', extra_clean(['T12035j-out/T12035.hi', 'T12035j-out/T12035.o', 'T12035j-out/T12035.hi-boot', 'T12035j-out/T12035.o-boot', 'T12035j-out/T12035a.hi', 'T12035j-out/T12035a.o']),
+     multimod_compile_fail, ['T12035', '-outputdir T12035j-out -j2 -v0'])
