@@ -1197,11 +1197,7 @@ tcIdInfo :: Bool -> Name -> Type -> IfaceIdInfo -> IfL IdInfo
 tcIdInfo ignore_prags name ty info = do
     lcl_env <- getLclEnv
     -- Set the CgInfo to something sensible but uninformative before
-    -- we start; default assumption is that it has CAFs.
-    -- If we are typechecking an interface from an hi-boot file,
-    -- mark the bootInfo in the Id as True.
-    -- See Note [Inlining and hs-boot files] for what we use this
-    -- information for.
+    -- we start; default assumption is that it has CAFs
     let init_info | if_boot lcl_env = vanillaIdInfo `setBootInfo` True
                   | otherwise       = vanillaIdInfo
     if ignore_prags

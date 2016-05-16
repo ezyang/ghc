@@ -1578,15 +1578,7 @@ tc_infer_id lbl id_name
              _ -> failWithTc $
                   ppr thing <+> text "used where a value identifier was expected" }
   where
-    return_id id
-      -- Ids that come from boot files are noinlined
-      -- See Note [Inlining and hs-boot files]
-      | bootInfo (idInfo id)
-      = do no_inline_id <- tcLookupId noinlineIdName
-           return (HsApp (nlHsTyApp no_inline_id [idType id])
-                         (noLoc (HsVar (noLoc id))), idType id)
-      | otherwise
-      = return (HsVar (noLoc id), idType id)
+    return_id id = return (HsVar (noLoc id), idType id)
 
     return_data_con con
        -- For data constructors, must perform the stupid-theta check
@@ -1612,60 +1604,6 @@ tc_infer_id lbl id_name
       | isNaughtyRecordSelector id = failWithTc (naughtyRecordSel lbl)
       | otherwise                  = return ()
 
-{-
-Note [Inlining and hs-boot files]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Consider this example (Trac #10083):
-
-    ---------- RSR.hs-boot ------------
-    module RSR where
-      data RSR
-      eqRSR :: RSR -> RSR -> Bool
-
-    ---------- SR.hs ------------
-    module SR where
-      import {-# SOURCE #-} RSR
-      data SR = MkSR RSR
-      eqSR (MkSR r1) (MkSR r2) = eqRSR r1 r2
-
-    ---------- RSR.hs ------------
-    module RSR where
-      import SR
-      data RSR = MkRSR SR -- deriving( Eq )
-      eqRSR (MkRSR s1) (MkRSR s2) = (eqSR s1 s2)
-      foo x y = not (eqRSR x y)
-
-When compiling RSR we get this code
-
-    RSR.eqRSR :: RSR -> RSR -> Bool
-    RSR.eqRSR = \ (ds1 :: RSR.RSR) (ds2 :: RSR.RSR) ->
-                case ds1 of _ { RSR.MkRSR s1 ->
-                case ds2 of _ { RSR.MkRSR s2 ->
-                SR.eqSR s1 s2 }}
-
-    RSR.foo :: RSR -> RSR -> Bool
-    RSR.foo = \ (x :: RSR) (y :: RSR) -> not (RSR.eqRSR x y)
-
-Now, when optimising foo:
-    Inline eqRSR (small, non-rec)
-    Inline eqSR  (small, non-rec)
-but the result of inlining eqSR from SR is another call to eqRSR, so
-everything repeats.  Neither eqSR nor eqRSR are (apparently) loop
-breakers.
-
-Solution: replace eqRSR in SR noinline eqRSR, so that eqRSR
-doesn't get inlined.  In general, any time we refer to a function
-from an hs-boot file, we annotate it with a noinline; the hs-boot
-file serves as a loop-breaker.
-
-Here is a solution that doesn't work: when compiling RSR,
-add a NOINLINE pragma to every function exported by the boot-file
-for RSR (if it exists).  Doing so makes the bootstrapped GHC itself
-slower by 8% overall (on Trac #9872a-d, and T1969: the reason
-is that these NOINLINE'd functions can be profitably inlined
-outside of the hs-boot loop.
-
--}
 
 tcUnboundId :: UnboundVar -> ExpRhoType -> TcM (HsExpr TcId)
 -- Typechedk an occurrence of an unbound Id
