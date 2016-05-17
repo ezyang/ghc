@@ -238,3 +238,4 @@ test('T3990',
      ['$MAKE -s --no-print-directory T3990'])
 
 test('noinline01', only_ways(['optasm']), compile, ['-ddump-stg -dsuppress-uniques -O'])
+test('T12076', [expect_broken(12076), extra_clean(['T12076a.hi', 'T12076a.o'])], multimod_compile, ['T12076', '-v0'])
