@@ -68,15 +68,15 @@ import System.Directory
 -- | This is a subset of Cabal's 'InstalledPackageInfo', with just the bits
 -- that GHC is interested in.
 --
-data InstalledPackageInfo compid srcpkgid srcpkgname unitid modulename mod
+data InstalledPackageInfo compid srcpkgid srcpkgname instunitid unitid modulename mod
    = InstalledPackageInfo {
-       unitId             :: unitid,
+       unitId             :: instunitid,
        instantiatedWith   :: [(modulename, mod)],
        sourcePackageId    :: srcpkgid,
        packageName        :: srcpkgname,
        packageVersion     :: Version,
        abiHash            :: String,
-       depends            :: [unitid],
+       depends            :: [instunitid],
        importDirs         :: [FilePath],
        hsLibraries        :: [String],
        extraLibraries     :: [String],
@@ -99,9 +99,10 @@ data InstalledPackageInfo compid srcpkgid srcpkgname unitid modulename mod
 
 -- | A convenience constraint synonym for common constraints over parameters
 -- to 'InstalledPackageInfo'.
-type RepInstalledPackageInfo compid srcpkgid srcpkgname unitid modulename mod =
+type RepInstalledPackageInfo compid srcpkgid srcpkgname instunitid unitid modulename mod =
     (BinaryStringRep srcpkgid, BinaryStringRep srcpkgname,
      BinaryStringRep modulename, BinaryStringRep compid,
+     BinaryStringRep instunitid,
      DbUnitIdModuleRep compid unitid modulename mod)
 
 -- | A type-class for the types which can be converted into 'DbModule'/'DbUnitId'.
@@ -148,11 +149,11 @@ class BinaryStringRep a where
   fromStringRep :: BS.ByteString -> a
   toStringRep   :: a -> BS.ByteString
 
-emptyInstalledPackageInfo :: RepInstalledPackageInfo a b c d e f
-                          => InstalledPackageInfo a b c d e f
+emptyInstalledPackageInfo :: RepInstalledPackageInfo a b c d e f g
+                          => InstalledPackageInfo a b c d e f g
 emptyInstalledPackageInfo =
   InstalledPackageInfo {
-       unitId             = fromDbUnitId (DbUnitId (fromStringRep BS.empty) []),
+       unitId             = fromStringRep BS.empty,
        instantiatedWith   = [],
        sourcePackageId    = fromStringRep BS.empty,
        packageName        = fromStringRep BS.empty,
@@ -180,8 +181,8 @@ emptyInstalledPackageInfo =
 
 -- | Read the part of the package DB that GHC is interested in.
 --
-readPackageDbForGhc :: RepInstalledPackageInfo a b c d e f =>
-                       FilePath -> IO [InstalledPackageInfo a b c d e f]
+readPackageDbForGhc :: RepInstalledPackageInfo a b c d e f g =>
+                       FilePath -> IO [InstalledPackageInfo a b c d e f g]
 readPackageDbForGhc file =
     decodeFromFile file getDbForGhc
   where
@@ -213,8 +214,8 @@ readPackageDbForGhcPkg file =
 
 -- | Write the whole of the package DB, both parts.
 --
-writePackageDb :: (Binary pkgs, RepInstalledPackageInfo a b c d e f) =>
-                  FilePath -> [InstalledPackageInfo a b c d e f] -> pkgs -> IO ()
+writePackageDb :: (Binary pkgs, RepInstalledPackageInfo a b c d e f g) =>
+                  FilePath -> [InstalledPackageInfo a b c d e f g] -> pkgs -> IO ()
 writePackageDb file ghcPkgs ghcPkgPart =
     writeFileAtomic file (runPut putDbForGhcPkg)
   where
@@ -300,8 +301,8 @@ writeFileAtomic targetPath content = do
         hClose handle
         renameFile tmpPath targetPath)
 
-instance (RepInstalledPackageInfo a b c d e f) =>
-         Binary (InstalledPackageInfo a b c d e f) where
+instance (RepInstalledPackageInfo a b c d e f g) =>
+         Binary (InstalledPackageInfo a b c d e f g) where
   put (InstalledPackageInfo
          unitId instantiatedWith sourcePackageId
          packageName packageVersion
@@ -316,11 +317,11 @@ instance (RepInstalledPackageInfo a b c d e f) =>
     put (toStringRep sourcePackageId)
     put (toStringRep packageName)
     put packageVersion
-    put (toDbUnitId unitId)
+    put (toStringRep unitId)
     put (map (\(mod_name, mod) -> (toStringRep mod_name, toDbModule mod))
              instantiatedWith)
     put abiHash
-    put (map toDbUnitId depends)
+    put (map toStringRep depends)
     put importDirs
     put hsLibraries
     put extraLibraries
@@ -366,13 +367,13 @@ instance (RepInstalledPackageInfo a b c d e f) =>
     exposed            <- get
     trusted            <- get
     return (InstalledPackageInfo
-              (fromDbUnitId unitId)
+              (fromStringRep unitId)
               (map (\(mod_name, mod) -> (fromStringRep mod_name, fromDbModule mod))
                 instantiatedWith)
               (fromStringRep sourcePackageId)
               (fromStringRep packageName) packageVersion
               abiHash
-              (map fromDbUnitId depends)
+              (map fromStringRep depends)
               importDirs
               hsLibraries extraLibraries extraGHCiLibraries libraryDirs
               frameworks frameworkDirs

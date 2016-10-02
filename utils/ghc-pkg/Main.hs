@@ -18,7 +18,6 @@ import qualified GHC.PackageDb as GhcPkg
 import GHC.PackageDb (BinaryStringRep(..))
 import qualified Distribution.Simple.PackageIndex as PackageIndex
 import qualified Data.Graph as Graph
-import qualified Data.Version as V
 import qualified Distribution.ModuleName as ModuleName
 import Distribution.ModuleName (ModuleName)
 import Distribution.InstalledPackageInfo as Cabal
@@ -1090,6 +1089,7 @@ type PackageCacheFormat = GhcPkg.InstalledPackageInfo
                             ComponentId
                             PackageIdentifier
                             PackageName
+                            UnitId
                             OpenUnitId
                             ModuleName
                             OpenModule
@@ -1097,12 +1097,12 @@ type PackageCacheFormat = GhcPkg.InstalledPackageInfo
 convertPackageInfoToCacheFormat :: InstalledPackageInfo -> PackageCacheFormat
 convertPackageInfoToCacheFormat pkg =
     GhcPkg.InstalledPackageInfo {
-       GhcPkg.unitId             = DefiniteUnitId (installedUnitId pkg),
+       GhcPkg.unitId             = installedUnitId pkg,
        GhcPkg.instantiatedWith   = instantiatedWith pkg,
        GhcPkg.sourcePackageId    = sourcePackageId pkg,
        GhcPkg.packageName        = packageName pkg,
-       GhcPkg.packageVersion     = V.Version (versionNumbers (packageVersion pkg)) [],
-       GhcPkg.depends            = map DefiniteUnitId (depends pkg),
+       GhcPkg.packageVersion     = Version.Version (versionNumbers (packageVersion pkg)) [],
+       GhcPkg.depends            = depends pkg,
        GhcPkg.abiHash            = unAbiHash (abiHash pkg),
        GhcPkg.importDirs         = importDirs pkg,
        GhcPkg.hsLibraries        = hsLibraries pkg,
@@ -1145,15 +1145,20 @@ instance GhcPkg.BinaryStringRep String where
   fromStringRep = fromUTF8 . BS.unpack
   toStringRep   = BS.pack . toUTF8
 
+instance GhcPkg.BinaryStringRep UnitId where
+  fromStringRep = fromMaybe (error "BinaryStringRep UnitId")
+                . simpleParse . fromStringRep
+  toStringRep   = toStringRep . display
+
 instance GhcPkg.DbUnitIdModuleRep ComponentId OpenUnitId ModuleName OpenModule where
   fromDbModule (GhcPkg.DbModule uid mod_name) = OpenModule uid mod_name
   fromDbModule (GhcPkg.DbModuleVar mod_name) = OpenModuleVar mod_name
   toDbModule (OpenModule uid mod_name) = GhcPkg.DbModule uid mod_name
   toDbModule (OpenModuleVar mod_name) = GhcPkg.DbModuleVar mod_name
   fromDbUnitId (GhcPkg.DbUnitId cid insts) = IndefFullUnitId cid (Map.fromList insts)
-  fromDbUnitId (GhcPkg.DbHashedUnitId cid bs) = DefiniteUnitId (UnitId cid (fmap fromStringRep bs))
+  fromDbUnitId (GhcPkg.DbHashedUnitId cid bs) = DefiniteUnitId (DefUnitId (UnitId cid (fmap fromStringRep bs)))
   toDbUnitId (IndefFullUnitId cid insts) = GhcPkg.DbUnitId cid (Map.toList insts)
-  toDbUnitId (DefiniteUnitId (UnitId cid mb_hash)) = GhcPkg.DbHashedUnitId cid (fmap toStringRep mb_hash)
+  toDbUnitId (DefiniteUnitId (DefUnitId (UnitId cid mb_hash))) = GhcPkg.DbHashedUnitId cid (fmap toStringRep mb_hash)
 
 -- -----------------------------------------------------------------------------
 -- Exposing, Hiding, Trusting, Distrusting, Unregistering are all similar
@@ -1804,7 +1809,7 @@ checkModule :: String
             -> Validate ()
 checkModule _ _ _ (OpenModuleVar _) = error "Impermissible reexport"
 checkModule field_name db_stack pkg
-    (OpenModule (DefiniteUnitId definingPkgId) definingModule) =
+    (OpenModule (DefiniteUnitId (DefUnitId definingPkgId)) definingModule) =
   let mpkg = if definingPkgId == installedUnitId pkg
               then Just pkg
               else PackageIndex.lookupUnitId ipix definingPkgId

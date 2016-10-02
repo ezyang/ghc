@@ -835,6 +835,12 @@ instance Binary UnitId where
                   fs  <- get bh
                   return (rawNewHashedUnitId cid fs)
 
+instance BinaryStringRep UnitId where
+  fromStringRep bs = rawNewHashedUnitId (fromStringRep cid) (mkFastStringByteString bs)
+    where cid = BS.Char8.takeWhile (/='+') bs
+  -- GHC doesn't write to database
+  toStringRep   = error "BinaryStringRep UnitId: not implemented"
+
 instance Binary ComponentId where
   put_ bh (ComponentId fs) = put_ bh fs
   get bh = do { fs <- get bh; return (ComponentId fs) }

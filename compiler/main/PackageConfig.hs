@@ -45,6 +45,7 @@ type PackageConfig = InstalledPackageInfo
                        SourcePackageId
                        PackageName
                        Module.UnitId
+                       Module.UnitId
                        Module.ModuleName
                        Module.Module
 
