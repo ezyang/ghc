@@ -1156,9 +1156,9 @@ instance GhcPkg.DbUnitIdModuleRep ComponentId OpenUnitId ModuleName OpenModule w
   toDbModule (OpenModule uid mod_name) = GhcPkg.DbModule uid mod_name
   toDbModule (OpenModuleVar mod_name) = GhcPkg.DbModuleVar mod_name
   fromDbUnitId (GhcPkg.DbUnitId cid insts) = IndefFullUnitId cid (Map.fromList insts)
-  fromDbUnitId (GhcPkg.DbHashedUnitId cid bs) = DefiniteUnitId (DefUnitId (UnitId cid (fmap fromStringRep bs)))
+  fromDbUnitId (GhcPkg.DbInstalledUnitId cid bs) = DefiniteUnitId (DefUnitId (UnitId cid (fmap fromStringRep bs)))
   toDbUnitId (IndefFullUnitId cid insts) = GhcPkg.DbUnitId cid (Map.toList insts)
-  toDbUnitId (DefiniteUnitId (DefUnitId (UnitId cid mb_hash))) = GhcPkg.DbHashedUnitId cid (fmap toStringRep mb_hash)
+  toDbUnitId (DefiniteUnitId (DefUnitId (UnitId cid mb_hash))) = GhcPkg.DbInstalledUnitId cid (fmap toStringRep mb_hash)
 
 -- -----------------------------------------------------------------------------
 -- Exposing, Hiding, Trusting, Distrusting, Unregistering are all similar

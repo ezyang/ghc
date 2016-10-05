@@ -161,7 +161,7 @@ withBkpSession cid insts deps session_type do_this = do
                 TcSession -> newUnitId cid insts
                 -- No hash passed if no instances
                 _ | null insts -> newSimpleUnitId cid
-                  | otherwise  -> newHashedUnitId cid (Just (hashUnitId cid insts)),
+                  | otherwise  -> newInstalledUnitId cid (Just (hashUnitId cid insts)),
         -- Setup all of the output directories according to our hierarchy
         objectDir   = Just (outdir objectDir),
         hiDir       = Just (outdir hiDir),
@@ -207,7 +207,7 @@ compileUnit cid insts = do
     lunit <- getSource cid
     buildUnit CompSession cid insts lunit
 
--- Invariant: this NEVER returns HashedUnitId
+-- Invariant: this NEVER returns InstalledUnitId
 hsunitDeps :: HsUnit HsComponentId -> [(UnitId, ModRenaming)]
 hsunitDeps unit = concatMap get_dep (hsunitBody unit)
   where
@@ -353,7 +353,7 @@ addPackage pkg = do
                         -- liftIO $ setUnsafeGlobalDynFlags dflags
                         return ()
 
--- Precondition: UnitId is NOT HashedUnitId
+-- Precondition: UnitId is NOT InstalledUnitId
 compileInclude :: Int -> (Int, UnitId) -> BkpM ()
 compileInclude n (i, uid) = do
     hsc_env <- getSession

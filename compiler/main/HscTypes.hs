@@ -10,7 +10,7 @@
 module HscTypes (
         -- * compilation state
         HscEnv(..), hscEPS,
-        FinderCache, FindResult(..),
+        FinderCache, FindResult(..), InstalledFindResult(..),
         Target(..), TargetId(..), pprTarget, pprTargetId,
         ModuleGraph, emptyMG,
         HscStatus(..),
@@ -771,16 +771,18 @@ prepareAnnotations hsc_env mb_guts = do
 -- modules along the search path. On @:load@, we flush the entire
 -- contents of this cache.
 --
--- Although the @FinderCache@ range is 'FindResult' for convenience,
--- in fact it will only ever contain 'Found' or 'NotFound' entries.
---
-type FinderCache = VirginModuleEnv FindResult
+type FinderCache = InstalledModuleEnv InstalledFindResult
+
+data InstalledFindResult
+  = InstalledFound ModLocation InstalledModule
+  | InstalledNoPackage InstalledUnitId
+  | InstalledNotFound [FilePath] (Maybe InstalledUnitId)
 
 -- | The result of searching for an imported module.
 --
 -- NB: FindResult manages both user source-import lookups
 -- (which can result in 'Module') as well as direct imports
--- for interfaces (which always result in 'VirginModule').
+-- for interfaces (which always result in 'InstalledModule').
 data FindResult
   = Found ModLocation Module
         -- ^ The module was found
@@ -2449,7 +2451,7 @@ data ExternalPackageState
                 --
                 -- * Deprecations and warnings
 
-        eps_free_holes :: ModuleEnv (UniqDSet ModuleName),
+        eps_free_holes :: InstalledModuleEnv (UniqDSet ModuleName),
                 -- ^ Cache for 'mi_free_holes'.  Ordinarily, we can rely on
                 -- the 'eps_PIT' for this information, EXCEPT that when
                 -- we do dependency analysis, we need to look at the

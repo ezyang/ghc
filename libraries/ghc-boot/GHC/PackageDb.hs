@@ -139,7 +139,7 @@ data DbUnitId compid unitid modulename mod
        dbUnitIdComponentId :: compid,
        dbUnitIdInsts :: [(modulename, mod)]
      }
-   | DbHashedUnitId {
+   | DbInstalledUnitId {
        dbUnitIdComponentId :: compid,
        dbUnitIdHash :: Maybe BS.ByteString
      }
@@ -409,7 +409,7 @@ instance (BinaryStringRep modulename, BinaryStringRep compid,
 instance (BinaryStringRep modulename, BinaryStringRep compid,
           DbUnitIdModuleRep compid unitid modulename mod) =>
          Binary (DbUnitId compid unitid modulename mod) where
-  put (DbHashedUnitId cid hash) = do
+  put (DbInstalledUnitId cid hash) = do
     putWord8 0
     put (toStringRep cid)
     put hash
@@ -423,7 +423,7 @@ instance (BinaryStringRep modulename, BinaryStringRep compid,
       0 -> do
         cid <- get
         hash <- get
-        return (DbHashedUnitId (fromStringRep cid) hash)
+        return (DbInstalledUnitId (fromStringRep cid) hash)
       _ -> do
         dbUnitIdComponentId <- get
         dbUnitIdInsts <- get

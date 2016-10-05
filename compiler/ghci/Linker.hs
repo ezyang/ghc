@@ -116,7 +116,7 @@ data PersistentLinkerState
         -- The currently-loaded packages; always object code
         -- Held, as usual, in dependency order; though I am not sure if
         -- that is really important
-        pkgs_loaded :: ![UnitId],
+        pkgs_loaded :: ![LinkerUnitId],
 
         -- we need to remember the name of previous temporary DLL/.so
         -- libraries so we can link them (see #10322)
@@ -137,10 +137,10 @@ emptyPLS _ = PersistentLinkerState {
   --
   -- The linker's symbol table is populated with RTS symbols using an
   -- explicit list.  See rts/Linker.c for details.
-  where init_pkgs = [rtsUnitId]
+  where init_pkgs = map toInstalledUnitId [rtsUnitId]
 
 
-extendLoadedPkgs :: [UnitId] -> IO ()
+extendLoadedPkgs :: [InstalledUnitId] -> IO ()
 extendLoadedPkgs pkgs =
   modifyPLS_ $ \s ->
       return s{ pkgs_loaded = pkgs ++ pkgs_loaded s }
@@ -566,7 +566,7 @@ getLinkDeps :: HscEnv -> HomePackageTable
             -> Maybe FilePath                   -- replace object suffices?
             -> SrcSpan                          -- for error messages
             -> [Module]                         -- If you need these
-            -> IO ([Linkable], [UnitId])     -- ... then link these first
+            -> IO ([Linkable], [InstalledUnitId])     -- ... then link these first
 -- Fails with an IO exception if it can't find enough files
 
 getLinkDeps hsc_env hpt pls replace_osuf span mods
@@ -581,7 +581,8 @@ getLinkDeps hsc_env hpt pls replace_osuf span mods
         -- 2.  Exclude ones already linked
         --      Main reason: avoid findModule calls in get_linkable
             mods_needed = mods_s `minusList` linked_mods     ;
-            pkgs_needed = pkgs_s `minusList` pkgs_loaded pls ;
+            pkgs_s' = map toInstalledUnitId pkgs_s ;
+            pkgs_needed = pkgs_s' `minusList` pkgs_loaded pls ;
 
             linked_mods = map (moduleName.linkableModule)
                                 (objs_loaded pls ++ bcos_loaded pls)  }
@@ -1126,12 +1127,15 @@ showLS (DLL nm)       = "(dynamic) " ++ nm
 showLS (DLLPath nm)   = "(dynamic) " ++ nm
 showLS (Framework nm) = "(framework) " ++ nm
 
+-- TODO: Make this type more precise
+type LinkerUnitId = InstalledUnitId
+
 -- | Link exactly the specified packages, and their dependents (unless of
 -- course they are already linked).  The dependents are linked
 -- automatically, and it doesn't matter what order you specify the input
 -- packages.
 --
-linkPackages :: HscEnv -> [UnitId] -> IO ()
+linkPackages :: HscEnv -> [LinkerUnitId] -> IO ()
 -- NOTE: in fact, since each module tracks all the packages it depends on,
 --       we don't really need to use the package-config dependencies.
 --
@@ -1147,7 +1151,7 @@ linkPackages hsc_env new_pkgs = do
   modifyPLS_ $ \pls -> do
     linkPackages' hsc_env new_pkgs pls
 
-linkPackages' :: HscEnv -> [UnitId] -> PersistentLinkerState
+linkPackages' :: HscEnv -> [LinkerUnitId] -> PersistentLinkerState
              -> IO PersistentLinkerState
 linkPackages' hsc_env new_pks pls = do
     pkgs' <- link (pkgs_loaded pls) new_pks
@@ -1155,7 +1159,7 @@ linkPackages' hsc_env new_pks pls = do
   where
      dflags = hsc_dflags hsc_env
 
-     link :: [UnitId] -> [UnitId] -> IO [UnitId]
+     link :: [LinkerUnitId] -> [LinkerUnitId] -> IO [LinkerUnitId]
      link pkgs new_pkgs =
          foldM link_one pkgs new_pkgs
 
@@ -1163,7 +1167,7 @@ linkPackages' hsc_env new_pks pls = do
         | new_pkg `elem` pkgs   -- Already linked
         = return pkgs
 
-        | Just pkg_cfg <- lookupPackage dflags new_pkg
+        | Just pkg_cfg <- lookupInstalledPackage dflags new_pkg
         = do {  -- Link dependents first
                pkgs' <- link pkgs (depends pkg_cfg)
                 -- Now link the package itself
@@ -1171,7 +1175,7 @@ linkPackages' hsc_env new_pks pls = do
              ; return (new_pkg : pkgs') }
 
         | otherwise
-        = throwGhcExceptionIO (CmdLineError ("unknown package: " ++ unitIdString new_pkg))
+        = throwGhcExceptionIO (CmdLineError ("unknown package: " ++ unpackFS (installedUnitIdFS new_pkg)))
 
 
 linkPackage :: HscEnv -> PackageConfig -> IO ()

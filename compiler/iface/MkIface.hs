@@ -1106,8 +1106,8 @@ checkHsig :: ModSummary -> ModIface -> IfG RecompileRequired
 checkHsig mod_summary iface = do
     dflags <- getDynFlags
     let outer_mod = ms_mod mod_summary
-        inner_mod = canonicalizeHomeModule dflags (moduleName outer_mod)
-    MASSERT( thisPackage dflags == moduleUnitId outer_mod )
+        inner_mod = canonicalizeHomeModule dflags (installedModuleName outer_mod)
+    MASSERT( installedModuleUnitId outer_mod `installedUnitIdEq` thisPackage dflags )
     case inner_mod == mi_semantic_module iface of
         True -> up_to_date (text "implementing module unchanged")
         False -> return (RecompBecause "implementing module changed")

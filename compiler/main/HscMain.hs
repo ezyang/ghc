@@ -179,7 +179,7 @@ newHscEnv dflags = do
     eps_var <- newIORef initExternalPackageState
     us      <- mkSplitUniqSupply 'r'
     nc_var  <- newIORef (initNameCache us allKnownKeyNames)
-    fc_var  <- newIORef emptyModuleEnv
+    fc_var  <- newIORef emptyInstalledModuleEnv
 #ifdef GHCI
     iserv_mvar <- newMVar Nothing
 #endif
@@ -444,12 +444,14 @@ hscTypecheck keep_rn mod_summary mb_rdr_module = do
     let hsc_src = ms_hsc_src mod_summary
         dflags = hsc_dflags hsc_env
         outer_mod = ms_mod mod_summary
-        inner_mod = canonicalizeHomeModule dflags (moduleName outer_mod)
+        mod_name = installedModuleName outer_mod
+        outer_mod' = mkModule (thisPackage dflags) mod_name
+        inner_mod = canonicalizeHomeModule dflags mod_name
         src_filename  = ms_hspp_file mod_summary
         real_loc = realSrcLocSpan $ mkRealSrcLoc (mkFastString src_filename) 1 1
-    MASSERT( moduleUnitId outer_mod == thisPackage dflags )
+    MASSERT( installedModuleUnitId outer_mod `installedUnitIdEq` thisPackage dflags )
     if hsc_src == HsigFile && not (isHoleModule inner_mod)
-        then ioMsgMaybe $ tcRnInstantiateSignature hsc_env outer_mod real_loc
+        then ioMsgMaybe $ tcRnInstantiateSignature hsc_env outer_mod' real_loc
         else
          do hpm <- case mb_rdr_module of
                     Just hpm -> return hpm
