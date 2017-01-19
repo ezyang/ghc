@@ -304,16 +304,16 @@ rnIfaceGlobal n = do
                     ]
                 Just n' -> return n'
 
--- | Rename an implicit name, e.g., a DFun or default method.
+-- | Rename an implicit name, e.g., a DFun or coercion axiom.
 -- Here is where we ensure that DFuns have the correct module as described in
 -- Note [Bogus DFun renamings].
-rnIfaceImplicit :: Name -> ShIfM Name
-rnIfaceImplicit name = do
+rnIfaceNonExported :: Name -> ShIfM Name
+rnIfaceNonExported name = do
     hmap <- getHoleSubst
     dflags <- getDynFlags
     iface_semantic_mod <- fmap sh_if_semantic_module getGblEnv
     let m = renameHoleModule dflags hmap $ nameModule name
-    -- Doublecheck that this DFun was, indeed, locally defined.
+    -- Doublecheck that this DFun/coercion axiom was, indeed, locally defined.
     MASSERT2( iface_semantic_mod == m, ppr iface_semantic_mod <+> ppr m )
     setNameModule (Just m) name
 
@@ -386,7 +386,7 @@ rnIfaceClsInst cls_inst = do
     --    mentions DFuns since they are implicitly exported. See
     --    Note [Signature merging DFuns])  The important thing is that it's
     --    consistent everywhere.
-    dfun <- rnIfaceImplicit (ifDFun cls_inst)
+    dfun <- rnIfaceNonExported (ifDFun cls_inst)
     return cls_inst { ifInstCls = n
                     , ifInstTys = tys
                     , ifDFun = dfun
@@ -409,9 +409,9 @@ rnIfaceDecl' (fp, decl) = (,) fp <$> rnIfaceDecl decl
 rnIfaceDecl :: Rename IfaceDecl
 rnIfaceDecl d@IfaceId{} = do
             name <- case ifIdDetails d of
-                      IfDFunId -> rnIfaceImplicit (ifName d)
+                      IfDFunId -> rnIfaceNonExported (ifName d)
                       _ | isDefaultMethodOcc (occName (ifName d))
-                        -> rnIfaceImplicit (ifName d)
+                        -> rnIfaceNonExported (ifName d)
                         | otherwise -> rnIfaceGlobal (ifName d)
             ty <- rnIfaceType (ifType d)
             details <- rnIfaceIdDetails (ifIdDetails d)
@@ -466,7 +466,7 @@ rnIfaceDecl d@IfaceClass{} = do
                      , ifSigs = sigs
                      }
 rnIfaceDecl d@IfaceAxiom{} = do
-            name <- rnIfaceImplicit (ifName d)
+            name <- rnIfaceNonExported (ifName d)
             tycon <- rnIfaceTyCon (ifTyCon d)
             ax_branches <- mapM rnIfaceAxBranch (ifAxBranches d)
             return d { ifName = name
@@ -497,7 +497,7 @@ rnIfaceDecl d@IfacePatSyn{} =  do
 
 rnIfaceFamTyConFlav :: Rename IfaceFamTyConFlav
 rnIfaceFamTyConFlav (IfaceClosedSynFamilyTyCon (Just (n, axs)))
-    = IfaceClosedSynFamilyTyCon . Just <$> ((,) <$> rnIfaceImplicit n
+    = IfaceClosedSynFamilyTyCon . Just <$> ((,) <$> rnIfaceNonExported n
                                                 <*> mapM rnIfaceAxBranch axs)
 rnIfaceFamTyConFlav flav = pure flav
 

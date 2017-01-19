@@ -235,13 +235,13 @@ requirementMerges dflags mod_name =
 -- requirements by imports of modules from other packages.  The situation
 -- is something like this:
 --
---      package p where
+--      unit p where
 --          signature A
 --          signature B
 --              import A
 --
---      package q where
---          include p
+--      unit q where
+--          dependency p[A=<A>,B=<B>]
 --          signature A
 --          signature B
 --
@@ -399,6 +399,72 @@ inheritedSigPvpWarning =
           "compatible with PVP-style version bounds.  Instead, copy the " ++
           "declaration to the local hsig file or move the signature to a " ++
           "library of its own and add that library as a dependency."
+
+-- Note [Handling non-exported TyThings under Backpack]
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+--   DEFINITION: A "non-exported TyThing" is a TyThing whose 'Name' will
+--   never be mentioned in the export list of a module (mi_avails).
+--   Unlike implicit TyThings (Note [Implicit TyThings]), non-exported
+--   TyThings DO have a standalone IfaceDecl declaration in their
+--   interface file.
+--
+-- Originally, Backpack was designed under the assumption that anything
+-- you could declare in a module could also be exported; thus, merging
+-- the export lists of two signatures is just merging the declarations
+-- of two signatures writ small.  Of course, in GHC Haskell, there are a
+-- few important things which are not explicitly exported but still can
+-- be used:  in particular, dictionary functions for instances and
+-- coercion axioms for type families also count.
+--
+-- When handling these non-exported things, there are a number of
+-- pitfalls we have to watch out for:
+--
+--  * When checking for compatibility of declarations (in
+--    checkBootDeclM), we only check if EXPORTED entities are
+--    compatible (this true for both checkHiBootIface', the
+--    hs-boot codepath, checkHsigIface, the codepath for
+--    hsig matching, and mergeSignatures, the codepath
+--    for hsig merging).  How do we tell if non-exported
+--    things match up?  checkBootDeclM simply looks in
+--    the embedded TyThings of the exported TyThing
+--    when performing checks.  This is convenient but we
+--    have to be *very very* careful when there are multiple
+--    versions of a TyThing with the same Name floating
+--    around:
+--
+--          ClsInst -----> $fEqA        GOOD
+--                           ?      (comparing two $fEqA will
+--          ClsInst -----> $fEqA    see differences)
+--
+--          ClsInst --\                 BAD
+--                     +-> $fEqA    (we'll always claim that
+--          ClsInst --/             the DFuns are equal!)
+--
+--   This has consequences for how we implement 'typecheckIfacesForMerging'.
+--   The splendid innovation of signature merging is that all 'Name's
+--   get rewritten
+--
+-- * When we do a renaming 'RnModIface', we ordinarily use
+--   the result of merging the two export lists to decide how
+--   to rename entities.  Obviously, we don't have this
+--   luxury for non-exported entities!  So we have to arrange
+--   that any reference to a non-exported entity is renamed
+--   using 'rnIfaceNonExported', rather than 'rnIfaceGlobal'.
+--
+--   The current implementation is delicate and only works
+--   for references to dfuns/coercions defined in the same
+--   signature as the reference.  In this case, there are
+--   only a few well-known places where we can have a
+--   reference (e.g., ifDFun in IfaceClsInst, or the
+--   top-level ifName of an IfaceDecl for a DFun).  We rely
+--   on references to these entities not showing up anywhere
+--   else (if they do, you'll get an error saying that
+--   we can't rename a non-exported entity.)  We're pretty
+--   sure this is true in the absence of promotion, but
+--   see #13149.
+--
+--
+
 
 -- | Given a local 'ModIface', merge all inherited requirements
 -- from 'requirementMerges' into this signature, producing
